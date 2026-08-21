@@ -2,7 +2,7 @@
 
 Prepared: 2026-08-21 (Asia/Seoul)
 
-This is the authoritative prompt for the first fresh Codex session after M0.3. Start that session from:
+This is the authoritative prompt for the first fresh Codex session after the M0.3a Serena configuration repair. Start that session from:
 
 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`
 
@@ -37,8 +37,9 @@ The former path with one trailing space must remain absent. Do not start from th
 - `a47a85bf86a685e583042527fd908fc7e4b82d7f` — `chore(m0): isolate legacy research workspace`
 - `e3fb4acb108e8c353f5b26c056049cc483364da2` — `chore(m0): add session continuity guard`
 - `1b87afee93a8c2c8081e50aed78db090be5d96c9` — `chore(m0): configure TypeScript implementation agent`
+- `09eff523f50d0b3e2bafc2ca0e3cd334cab25598` — `docs(m0): prepare restart handoff`
 
-이 핸드오프를 추가한 현재 HEAD는 서명된 `docs(m0): prepare restart handoff` 커밋이어야 한다. 이 문서는 자기 자신의 SHA를 기록할 수 없으므로 `git log -1 --show-signature`로 실제 SHA와 Good signature를 확인해 원장에 기록해.
+Serena canonical 설정과 이 수정 핸드오프를 추가한 현재 HEAD는 서명된 `chore(m0): stabilize Serena project config` 커밋이어야 한다. 이 문서는 자기 자신의 SHA를 기록할 수 없으므로 `git log -1 --show-signature`로 실제 SHA와 Good signature를 확인해 원장에 기록해.
 
 보존된 레거시 HEAD:
 
@@ -51,18 +52,20 @@ The former path with one trailing space must remain absent. Do not start from th
 - `.codex/hooks/session_start.py`: 고정 bootstrap context만 출력하며 입력, transcript, 환경 변수를 반사하지 않음
 - `.codex/hooks/test_session_start.py`: 5개 unittest, 네 source와 malformed/non-string/secret 비반사를 포함
 - `.codex/agents/spark_implementer.toml`: exact Spark + medium, fallback 없음
-- `.serena/project.yml`: clean project name + `language_servers: ["typescript"]`만 둔 최소 설정
+- `.serena/project.yml`: Serena 1.7.0이 clean-root 첫 activation에서 보강한 canonical 22-key 설정. 의도된 유효값은 clean project name + `typescript`뿐이며 activation command, initial prompt, external workspace, tool override는 없음
 - `graphify-out/`: 전역 Git 훅이 만든 ignored M0 control-plane graph. 제품 그래프가 아니며 제품 설계 근거로 쓰지 않음
 - `.codegraph/`: 없음. 제품 TypeScript가 생기기 전에는 새 인덱스를 만들지 않음
 
-M0.2 정적 hook 감사는 PASS했다. M0.3 custom-agent 정적 계약에는 actionable finding이 없었지만 전체 판정은 runtime canary 전까지 UNCERTAIN이다. 아직 입증되지 않은 것은 project hook definition trust/실제 lifecycle dispatch, clean-path Serena TypeScript readiness, 새 프로세스의 custom-agent discovery, 실제 runtime model이다. 설정 파일이나 에이전트 자기보고만으로 PASS 처리하지 마.
+M0.2 정적 hook 감사는 PASS했다. M0.3 custom-agent 정적 계약에는 actionable finding이 없었지만 전체 판정은 runtime canary 전까지 UNCERTAIN이다. M0.3a repair session에서 clean-path Serena와 TypeScript `ready`는 확인했지만, canonical 설정을 읽는 다음 fresh process가 worktree를 다시 변경하지 않는지는 아직 입증되지 않았다. project hook definition trust/실제 lifecycle dispatch, 새 프로세스의 custom-agent discovery, 실제 runtime model도 여전히 미입증이다. 설정 파일이나 에이전트 자기보고만으로 PASS 처리하지 마.
+
+M0.3a에서 Serena 1.7.0이 누락 기본값을 자동 저장하는 동작 때문에 생긴 `.serena/project.yml` 변경을 canonical 설정으로 채택했다. 다음 fresh process에서 이 파일이 다시 변경되지 않고 worktree가 clean인지 확인해야 M0.4에 진입할 수 있다.
 
 M0.4를 다음 순서로 수행해.
 
 0. M0.4 진입 모드 결정
 
 - 다른 gate보다 먼저 현재 HEAD subject/signature, `git status --short`, `.agent/progress.md`의 `M0.4 clear checkpoint` 절을 함께 확인한다.
-- HEAD가 서명된 `docs(m0): prepare restart handoff`이고 worktree가 clean이며 clear checkpoint sentinel이 없으면 `initial restart` 모드다.
+- HEAD가 서명된 `chore(m0): stabilize Serena project config`이고 worktree가 clean이며 clear checkpoint sentinel이 없으면 `initial restart` 모드다.
 - 같은 HEAD를 유지하면서 `git status --short`가 정확히 ` M .agent/progress.md` 하나이고 clear checkpoint의 마지막 줄이 정확히 `Next event: clear`이면 `post-clear` 모드다.
 - 두 패턴 중 정확히 하나와 일치해야 한다. 다른 HEAD, 추가 dirty path, 누락되거나 다른 sentinel은 예상 밖 상태이므로 중단한다.
 - `initial restart`는 아래 순서를 처음부터 진행한다. `post-clear`는 부트스트랩을 다시 실행하되 원장의 완료 증거를 읽고, step 3의 clear event 확인부터 재개한다. 완료된 canary를 재구성하거나 다시 성공했다고 가정하지 않는다.
@@ -72,7 +75,7 @@ M0.4를 다음 순서로 수행해.
 - `pwd -P`와 `git rev-parse --show-toplevel`이 정확히 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`인지 확인한다.
 - `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret `가 없고 research sibling이 존재하는지 확인한다.
 - `initial restart`에서는 worktree가 clean인지 확인한다. `post-clear`에서는 step 0의 expected-dirty 원장 한 파일만 유지되는지 확인한다.
-- 위 세 커밋과 현재 handoff 커밋을 `git verify-commit`으로 검증한다.
+- 위 네 커밋과 현재 Serena repair 커밋을 `git verify-commit`으로 검증한다.
 - 선택된 진입 모드와 다른 dirty 상태, path collision, 서명 실패가 있으면 즉시 중단한다.
 
 2. 작업 부트스트랩
@@ -89,7 +92,7 @@ M0.4를 다음 순서로 수행해.
 - `/hooks`에서 프로젝트 `.codex/hooks.json`의 정확한 definition을 검토하고 clean-path 프로젝트에 대해 trust/enabled 상태를 확인한다. 정의가 다르거나 신뢰되지 않았다면 승인 없이 우회하지 않는다.
 - `python3 .codex/hooks/test_session_start.py`를 다시 실행한다. 이 synthetic test는 필요하지만 실제 Codex dispatch의 증거를 대체하지 못한다.
 - 이 fresh session의 `startup` 또는 `resume`에서 continuity context가 실제 추가되었는지 hook UI/event evidence로 확인한다. 모델이 “기억한다”고 말하는 것만으로 통과시키지 않는다.
-- `initial restart`에서만 실제 `/clear` 직전까지 확보한 evidence와 통과한 gate를 `.agent/progress.md`의 `M0.4 clear checkpoint` 절에 기록하고, 마지막 줄을 정확히 `Next event: clear`로 둔다. 이것은 M0.4 안의 영속 checkpoint이지 별도 work unit이나 commit이 아니다. 이 시점의 예상 dirty 상태를 `.agent/progress.md` 하나로 제한하고 `git status --short`가 정확히 그 한 파일만 표시하는지 확인한다. HEAD는 서명된 `docs(m0): prepare restart handoff` 커밋에 그대로 둔다.
+- `initial restart`에서만 실제 `/clear` 직전까지 확보한 evidence와 통과한 gate를 `.agent/progress.md`의 `M0.4 clear checkpoint` 절에 기록하고, 마지막 줄을 정확히 `Next event: clear`로 둔다. 이것은 M0.4 안의 영속 checkpoint이지 별도 work unit이나 commit이 아니다. 이 시점의 예상 dirty 상태를 `.agent/progress.md` 하나로 제한하고 `git status --short`가 정확히 그 한 파일만 표시하는지 확인한다. HEAD는 서명된 `chore(m0): stabilize Serena project config` 커밋에 그대로 둔다.
 - `initial restart`에서 `.agent/restart-handoff.md`를 다시 `pbcopy`하고 사용자에게 `/clear` 한 단계만 요청한다. clear 후 사용자는 같은 handoff를 다시 붙여 넣는다. `post-clear` 진입 시 step 0의 HEAD, expected-dirty 원장, `Next event: clear` sentinel을 확인한 다음 `clear` canary부터 재개하며 다시 `/clear`를 요청하지 않는다. 이미 완료된 canary를 추측으로 재작성하지 않으며, 이 원장 변경은 최종 M0.4 work-unit commit에 포함한다.
 - `clear`와 `compact` lifecycle을 실제 Codex event로 확인한다. 특히 `compact`는 다음 모델 요청 전에 context가 즉시 재주입되는지 확인한다.
 - trust가 새 경로에서 설정되지 않아 시작 event를 놓쳤다면 원장에 정확한 gap을 기록하고, trust 후 한 번 더 재시작하도록 요청한다. synthetic 성공만으로 M0를 완료하지 않는다.

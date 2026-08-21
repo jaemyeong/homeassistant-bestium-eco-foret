@@ -16,3 +16,4 @@ All notable changes to this project are documented here.
 - M0.2 made `AGENTS.md` the canonical per-task bootstrap and evidence contract while relying on the existing global Graphify hook instead of duplicating it locally.
 - M0.3 configured Serena for the clean project name and the TypeScript language server; runtime activation remains a post-restart gate.
 - M0.3 removed the accidental trailing space from the product root and added a committed, clipboard-ready M0.4 restart handoff.
+- M0.3a accepted Serena 1.7.0's canonical project configuration after fresh activation filled omitted defaults, and repaired the restart handoff to require one clean no-rewrite reload before M0.4.
