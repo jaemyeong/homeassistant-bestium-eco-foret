@@ -50,20 +50,21 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | Task | Acceptance gate | Status | Commit |
 | --- | --- | --- | --- |
 | M0.0 | Live repository/tool/security inventory plus official and current evidence | Complete | Pre-commit evidence below |
-| M0.1 | Legacy and stale indexes preserved outside product root; ledger/changelog committed | Complete | Current task commit; SHA is recorded by the next task |
-| M0.2 | Fixed allowlist `SessionStart` hook passes startup/resume/clear/compact and unknown-source tests plus adversarial audit | Pending | - |
+| M0.1 | Legacy and stale indexes preserved outside product root; ledger/changelog committed | Complete | `a47a85bf86a685e583042527fd908fc7e4b82d7f` |
+| M0.2 | Fixed allowlist `SessionStart` hook passes startup/resume/clear/compact and unknown-source tests plus adversarial audit | Complete | Current task commit; SHA is recorded by M0.3 |
 | M0.3 | Serena TypeScript config and exact Spark custom agent pass static audit; root is renamed last | Pending | - |
 | M0.4 | After restart: hook, trust, clean cwd, Serena, and exact-model runtime canaries pass final adversarial gate | Pending | - |
 
 ## Current checkpoint
 
-- Completed M0.1 filesystem separation.
+- Completed and signature-verified M0.1 commit `a47a85bf86a685e583042527fd908fc7e4b82d7f`.
+- M0.2 hook implementation, five-test synthetic canary, and repaired read-only adversarial audit pass; real post-restart trust/runtime canary remains in M0.4.
 - Product Git root remains `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret ` until M0.3 finishes; the trailing space is intentional during the active session.
 - Research boundary: `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret-research`.
 - Preserved legacy HEADs:
   - `HomeNetwork`: `a1d6ba5167586ad1136a2145e54e4e1d1d4533f8`
   - `homeassistant-addons`: `903cc87c1c1709f076a50eab9c2c316325b9c988`
-- The next task is M0.2. It must preserve the existing Graphify `PreToolUse` hook while adding the continuity hook.
+- The next gate is the signed M0.2 commit. M0.3 may start only after its signature is verified.
 
 ## Atomic evidence register
 
@@ -82,6 +83,9 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | M0-E11 | No secret-like filenames were found in the pre-move product tree | Filename metadata only, 2026-08-21 | Local filesystem scan | `rg --files -uu` with `.env`, credential, secret, key, and certificate patterns; count 0 | Support | Yes | This is not a content-level secret scan |
 | M0-E12 | Both legacy repositories were preserved without source changes | Git repositories, 2026-08-21 | Local Git state and public origins | HEAD, status, submodule, LFS, and origin checks before and after move; only generated Graphify output was untracked | Support | Yes | Destination verified; both HEADs are unchanged and only generated `graphify-out/` remains untracked |
 | M0-E13 | The pre-move root CodeGraph daemon was stopped before committing the archival boundary | CodeGraph MCP process, 2026-08-21 | Local process and filesystem state | PID ownership validated from its exact cwd with `lsof`, then terminated with SIGTERM; clean target path remained absent | Support | Yes | Archived runtime metadata is inert and retained with the index snapshot |
+| M0-E14 | Current Codex source agrees that SessionStart command hooks use a source matcher and JSON `additionalContext` | `/openai/codex`, retrieved 2026-08-21 | Context7 high-reputation OpenAI repository source | Hook config and schema source queried after the official Hooks docs | Support | Yes | Project trust and actual lifecycle dispatch require restart |
+| M0-E15 | The continuity hook is silent for invalid input and emits one fixed context for all four allowed sources | Local Python 3 and Codex hook config, 2026-08-21 | Repository test and manual local execution | Creator recorded RED before implementation; main agent reran `python3 .codex/hooks/test_session_start.py`: 5 tests, OK | Support | Yes | Synthetic execution cannot prove Codex trusted and dispatched the hook |
+| M0-E16 | The repaired M0.2 hook has no remaining P0/P1/P2 static finding and does not duplicate the existing global Graphify guard | M0.2 adversarial audit, 2026-08-21 | Read-only `codex-hook-auditor` plus local config count | Re-audit checked non-string sources, regression tests, git-root resolution, and project/global PreToolUse counts: project 0, global 1 | Support | Yes | Definition trust and lifecycle dispatch remain M0.4 runtime gates |
 
 ## Stop rules
 
