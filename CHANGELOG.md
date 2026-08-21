@@ -17,3 +17,4 @@ All notable changes to this project are documented here.
 - M0.3 configured Serena for the clean project name and the TypeScript language server; runtime activation remains a post-restart gate.
 - M0.3 removed the accidental trailing space from the product root and added a committed, clipboard-ready M0.4 restart handoff.
 - M0.3a accepted Serena 1.7.0's canonical project configuration after fresh activation filled omitted defaults, and repaired the restart handoff to require one clean no-rewrite reload before M0.4.
+- M0.3b raised the exact Spark implementation agent from `medium` to user-selected `xhigh`; runtime acceptance is deferred to a fresh-process canary with no fallback.
