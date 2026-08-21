@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createCaptureRecorder } from "../src/capture.ts";
+import { createCaptureRecorder } from "../bestium-eco-foret/src/capture.ts";
 
 test("records synthetic chunks as byte stream entries", () => {
   const record = createCaptureRecorder();

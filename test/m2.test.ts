@@ -4,13 +4,33 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = new URL("..", import.meta.url);
+const APP_FOLDER = "bestium-eco-foret";
+const EXPECTED_VERSION = "0.1.0";
+const appRoot = new URL(`${APP_FOLDER}/`, root);
+const layoutPaths = {
+  repository: new URL("repository.yaml", root),
+  appRoot,
+  config: new URL("config.json", appRoot),
+  dockerfile: new URL("Dockerfile", appRoot),
+  dockerIgnore: new URL(".dockerignore", appRoot),
+  package: new URL("package.json", appRoot),
+  captureSource: new URL("src/capture.ts", appRoot),
+  settingsSource: new URL("src/settings.ts", appRoot),
+  m2Source: new URL("src/m2.ts", appRoot),
+};
 const paths = {
+  config: layoutPaths.config,
+  dockerfile: layoutPaths.dockerfile,
+  dockerIgnore: layoutPaths.dockerIgnore,
+  captureSource: layoutPaths.captureSource,
+  settingsSource: layoutPaths.settingsSource,
+  m2Source: layoutPaths.m2Source,
+};
+const rootAppArtifacts = {
   config: new URL("config.json", root),
   dockerfile: new URL("Dockerfile", root),
   dockerIgnore: new URL(".dockerignore", root),
-  captureSource: new URL("src/capture.ts", root),
-  settingsSource: new URL("src/settings.ts", root),
-  m2Source: new URL("src/m2.ts", root),
+  source: new URL("src/", root),
 };
 
 const CONFIG_TOP_KEYS = [
@@ -58,6 +78,11 @@ const DOCKERIGNORE_INCLUDES = [
   "!src/m2.ts",
 ] as const;
 const DOCKERIGNORE_FORBIDDEN = [".env", ".env*", ".git", ".agent", ".codex", ".serena", ".codegraph", "graphify-out"] as const;
+const EXPECTED_REPOSITORY_LINES = [
+  "name: BESTIUM Eco-Foret Home Assistant App",
+  "url: https://github.com/jaemyeong/homeassistant-bestium-eco-foret",
+  "maintainer: jaemyeong",
+] as const;
 
 type AnyRecord = Record<string, unknown>;
 type Listener = (...args: unknown[]) => unknown;
@@ -328,6 +353,43 @@ function readConfigLines(url: URL): string[] {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
+test("RED: URL-installable repository layout is canonical", () => {
+  assert.deepStrictEqual(
+    readConfigLines(layoutPaths.repository),
+    [...EXPECTED_REPOSITORY_LINES],
+    "repository.yaml fields",
+  );
+  requireFile(layoutPaths.appRoot, `App folder ${APP_FOLDER}`);
+
+  const config = parseJson<AnyRecord>(readText(layoutPaths.config, "App config.json"));
+  assert.equal(config.slug, APP_FOLDER, "config slug must match the App folder");
+  const rootPackage = parseJson<AnyRecord>(readText(new URL("package.json", root), "root package.json"));
+  const appPackage = parseJson<AnyRecord>(readText(layoutPaths.package, "App package.json"));
+  assert.deepStrictEqual(appPackage, rootPackage, "root and App package.json must match");
+  assert.equal(rootPackage.version, EXPECTED_VERSION, "root package version");
+  assert.equal(appPackage.version, EXPECTED_VERSION, "App package version");
+  for (const [label, url] of Object.entries({
+    config: layoutPaths.config,
+    Dockerfile: layoutPaths.dockerfile,
+    ".dockerignore": layoutPaths.dockerIgnore,
+    "App package.json": layoutPaths.package,
+    "src/capture.ts": layoutPaths.captureSource,
+    "src/settings.ts": layoutPaths.settingsSource,
+    "src/m2.ts": layoutPaths.m2Source,
+  })) {
+    requireFile(url, `App ${label}`);
+  }
+
+  for (const [label, url] of Object.entries({
+    "root config.json": rootAppArtifacts.config,
+    "root Dockerfile": rootAppArtifacts.dockerfile,
+    "root .dockerignore": rootAppArtifacts.dockerIgnore,
+    "root src/": rootAppArtifacts.source,
+  })) {
+    assert.equal(existsSync(path(url)), false, `${label} must be absent after the move`);
+  }
+});
+
 function validSettings(overrides: AnyRecord = {}): M2Settings {
   return {
     ew11_host: "gateway-1",
@@ -362,7 +424,7 @@ test("RED: config strictness and exact static contract", () => {
     assert.equal(typeof config[key], "string");
     assert.equal((config[key] as string).trim().length > 0, true);
   }
-  assert.equal(config.version, "0.1.0");
+  assert.equal(config.version, EXPECTED_VERSION);
   assert.equal(config.boot, "manual_only");
   assert.equal(config.stage, "experimental");
   assert.equal(config.panel_admin, true);
@@ -398,7 +460,9 @@ test("RED: Dockerfile allowlist and pinned production constraints", () => {
   const dockerfile = readText(paths.dockerfile, "Dockerfile");
   assert.match(dockerfile, /^FROM\s+node:24\.19\.0-bookworm-slim/im);
   assert.match(dockerfile, /^LABEL\b/im);
-  assert.match(dockerfile, /io\.hass\.version/im);
+  const versionLabel = /^LABEL\s+io\.hass\.version\s*=\s*["']([^"']+)["']\s*$/im.exec(dockerfile);
+  assert.ok(versionLabel, "Dockerfile must declare io.hass.version");
+  assert.equal(versionLabel[1], EXPECTED_VERSION);
   assert.match(dockerfile, /io\.hass\.type\s*=\s*["']app["']/i);
   assert.match(dockerfile, /io\.hass\.arch\s*=\s*["']aarch64\|amd64["']/i);
   assert.match(dockerfile, /^\s*USER\s+node/im);
@@ -851,7 +915,7 @@ test("RED: offline production wiring accepts defaults, uses 8099, and cleans tra
 });
 
 test("RED: M1 recorder output shape is reused for bounded chunks", async () => {
-  const { createCaptureRecorder } = await import("../src/capture.ts");
+  const { createCaptureRecorder } = await import("../bestium-eco-foret/src/capture.ts");
   const record = createCaptureRecorder();
   const first = record(new Uint8Array([0xde, 0xad]), 1_700_000_000);
   const second = record(new Uint8Array([0xbe, 0xef]), 1_700_000_001);

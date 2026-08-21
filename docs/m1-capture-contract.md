@@ -30,4 +30,4 @@ an object with:
 - No package installation or dependency additions.
 - Native TypeScript stripping and `node:test` only.
 - Test file: `test/capture.test.ts`.
-- Runtime artifact: `src/capture.ts`.
+- Runtime artifact: `bestium-eco-foret/src/capture.ts`.
