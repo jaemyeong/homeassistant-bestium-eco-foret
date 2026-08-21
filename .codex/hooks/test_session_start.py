@@ -51,8 +51,7 @@ class SessionStartHookTests(unittest.TestCase):
             "Sosumi: N/A",
             "Do not guess",
             "Tests first",
-            "gpt-5.3-codex-spark",
-            "no fallback",
+            "Delegate product code only to project-local product_implementer using exact gpt-5.6-luna with reasoning effort max; no fallback.",
             "read-only adversarial review",
             "CHANGELOG.md",
             "explicitly stage",
@@ -70,6 +69,12 @@ class SessionStartHookTests(unittest.TestCase):
             self.assertIn(sentinel, context)
         self.assertNotIn("M0 continuity guard", context)
         self.assertNotIn("do not implement app code", context)
+        for stale_delegation in (
+            "spark_implementer",
+            "gpt-5.3-codex-spark",
+            "xhigh",
+        ):
+            self.assertNotIn(stale_delegation, context)
 
     def test_invalid_inputs_are_silent_successes(self):
         for raw_input in (

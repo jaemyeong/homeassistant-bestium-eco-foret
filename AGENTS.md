@@ -25,7 +25,7 @@ If a required index or tool is absent, record `N/A` with the reason and continue
 ## Implementation, review, and commits
 
 - Write the smallest failing test before non-trivial product code.
-- Delegate product code only to the exact project-local `gpt-5.3-codex-spark` implementation agent after its runtime canary passes. Do not silently fall back to another model.
+- Delegate product code only to project-local `product_implementer` using exact `gpt-5.6-luna` with reasoning effort `max` after its runtime canary passes. Do not silently fall back to another model or effort.
 - Assign narrow file ownership. Agents share the worktree and must not revert or overwrite unrelated changes.
 - After implementation, obtain a read-only adversarial review. Allow at most two repair rounds; stop if a P0/P1 repeats.
 - Update `CHANGELOG.md` and `.agent/progress.md` for every work unit.
