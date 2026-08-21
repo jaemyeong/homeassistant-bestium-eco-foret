@@ -4,14 +4,15 @@ import sys
 
 
 ALLOWED_SOURCES = frozenset(("startup", "resume", "clear", "compact"))
-ADDITIONAL_CONTEXT = """M0 continuity guard:
+ADDITIONAL_CONTEXT = """Project continuity guard:
 - Read AGENTS.md and .agent/progress.md before acting.
 - Bootstrap every task conditionally when the matching index or tool is available: Graphify -> CodeGraph -> Serena. Record each skipped tool and its reason.
 - Research current claims with Web + Context7 before coding. Use Sosumi only for Apple-platform claims; otherwise record \"Sosumi: N/A\". Do not guess; repeat empirical verification whenever the task, version, or assumption changes.
 - Tests first, then the minimum implementation.
 - Delegate product code only to exact gpt-5.3-codex-spark; no fallback. Obtain a read-only adversarial review.
 - For each work unit, update CHANGELOG.md and .agent/progress.md, explicitly stage only task files, and create a signed task commit.
-- Current M0 boundary: do not implement app code or access EW11/private LAN."""
+- Apply the active milestone scope in .agent/progress.md together with the latest explicit user authorization. Do not carry completed-milestone prohibitions forward.
+- Never infer authorization for package installation, Docker execution, socket probes, EW11/private-LAN access, device changes, or push."""
 OUTPUT = {
     "hookSpecificOutput": {
         "hookEventName": "SessionStart",

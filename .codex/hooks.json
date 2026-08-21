@@ -7,6 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py\"",
+            "statusMessage": "Loading project continuity guard",
             "timeout": 5,
             "additionalContextLimit": 1000
           }

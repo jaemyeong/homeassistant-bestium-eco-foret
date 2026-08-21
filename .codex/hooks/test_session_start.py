@@ -43,6 +43,7 @@ class SessionStartHookTests(unittest.TestCase):
         self.assertEqual(len(set(contexts)), 1)
         context = contexts[0]
         for sentinel in (
+            "Project continuity guard:",
             "AGENTS.md",
             ".agent/progress.md",
             "Graphify -> CodeGraph -> Serena",
@@ -56,10 +57,19 @@ class SessionStartHookTests(unittest.TestCase):
             "CHANGELOG.md",
             "explicitly stage",
             "signed task commit",
-            "do not implement app code",
-            "EW11/private LAN",
+            "active milestone scope",
+            "latest explicit user authorization",
+            "Do not carry completed-milestone prohibitions forward",
+            "package installation",
+            "Docker execution",
+            "socket probes",
+            "EW11/private-LAN access",
+            "device changes",
+            "push",
         ):
             self.assertIn(sentinel, context)
+        self.assertNotIn("M0 continuity guard", context)
+        self.assertNotIn("do not implement app code", context)
 
     def test_invalid_inputs_are_silent_successes(self):
         for raw_input in (
@@ -110,6 +120,7 @@ class SessionStartHookTests(unittest.TestCase):
             handler["command"],
             'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py"',
         )
+        self.assertEqual(handler["statusMessage"], "Loading project continuity guard")
         self.assertGreater(handler["timeout"], 0)
         self.assertLessEqual(handler["timeout"], 5)
         self.assertGreater(handler["additionalContextLimit"], 0)
