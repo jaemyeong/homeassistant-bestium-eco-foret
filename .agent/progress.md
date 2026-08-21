@@ -6,7 +6,7 @@ Last updated: 2026-08-21 (Asia/Seoul)
 
 Build `Baegyangsan BESTIUM Eco-Foret` as an engineering clean rewrite. Legacy code may inform protocol and behavior research, but product source must be newly implemented. Versioning starts at `0.1.0`.
 
-M0 is control-plane bootstrap only. It must not create Home Assistant App runtime code, connect to EW11, or access the private LAN.
+M1.0 is a dependency-free synthetic capture contract and test harness only. It must not create Home Assistant App packaging/runtime, connect to EW11, or access the private LAN.
 
 ## Fixed decisions
 
@@ -16,7 +16,7 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 - Implementation agent: exact `gpt-5.3-codex-spark` at `xhigh`; no silent model fallback.
 - Main agent owns task management and adversarial review.
 - Every task starts with the bootstrap contract, writes tests before non-trivial product code, updates this ledger and `CHANGELOG.md`, and creates a local signed commit with explicit staging.
-- Remote push, package installation, product runtime code, Docker builds, and private-LAN/EW11 access are outside M0.
+- Remote push, package installation, Home Assistant App packaging/runtime, Docker builds, and private-LAN/EW11 access are outside M1.
 - M0 control-plane files are a one-time bootstrap exception to the future Spark-only product-code rule.
 
 ## Bootstrap contract
@@ -36,7 +36,7 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | Milestone | Outcome | Status |
 | --- | --- | --- |
 | M0 | Reproducible control plane, continuity hook, TypeScript Serena setup, exact Spark canary | Complete |
-| M1 | Capture-only PoC contract and test harness | Pending explicit user approval |
+| M1 | Capture-only PoC contract and test harness | Complete |
 | M2 | Home Assistant App packaging, settings, Ingress, and bounded capture | Pending |
 | M3 | Short export/readback canary followed by an approved 24-hour capture | Pending |
 | M4 | Packet analysis and comparison with legacy behavior/protocol evidence | Pending |
@@ -55,7 +55,13 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | M0.3 | Serena TypeScript config and exact Spark custom agent pass static audit; root is renamed last | Complete | `1b87afee93a8c2c8081e50aed78db090be5d96c9` |
 | M0.3a | Serena's canonical project config is committed after fresh-activation normalization; restart handoff is repaired | Complete | `3501506bba5e33e86a68c4f88b62adde5c9e25ed` |
 | M0.3b | User-selected Spark `xhigh` effort is committed with a fresh-process restart handoff | Complete | `2bf70f0b4b3f0a6aea278567dd5d2ac4c85fd30a` |
-| M0.4 | After restart: hook, trust, clean cwd, Serena, and exact-model runtime canaries pass final adversarial gate | Complete | This signed M0.4 closure commit |
+| M0.4 | After restart: hook, trust, clean cwd, Serena, and exact-model runtime canaries pass final adversarial gate | Complete | `eb087a2920c3d3342fbef392e6bbc8f90cc77711` |
+
+## M1 task ledger
+
+| Task | Acceptance gate | Status | Commit |
+| --- | --- | --- | --- |
+| M1.0 | A synthetic capture chunk is recorded without network access as ordered timestamp/length/lowercase-hex data; invalid input is rejected; native tests pass | Complete | This signed M1.0 task commit |
 
 ## Current checkpoint
 
@@ -72,7 +78,11 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 - The signed M0.3b entry commit is `2bf70f0b4b3f0a6aea278567dd5d2ac4c85fd30a`; its subject, Good signature, clean worktree, and exact fresh-process sentinel were verified before any canary.
 - The fresh process discovered and executed the project-local role with host-bound exact `gpt-5.3-codex-spark` + `xhigh`, no override or fallback, and no mutation. The earlier medium run remains historical and superseded.
 - The xhigh custom-agent re-audit and independent integrated final gate both passed with no actionable P0/P1/P2/P3 or hard stop.
-- M0 control-plane bootstrap is complete. This does not validate product runtime, Docker, EW11/LAN behavior, production readiness, or an enduring sandbox boundary. M1 remains pending explicit user approval.
+- M0 control-plane bootstrap is complete. This does not validate product runtime, Docker, EW11/LAN behavior, production readiness, or an enduring sandbox boundary.
+- The user's 2026-08-21 `계속` instruction explicitly approved M1. M1 is limited to a synthetic capture contract and test harness: no Home Assistant App packaging/runtime, Docker, package installation, real socket, EW11/private-LAN access, device change, or push.
+- M1.0 now records only caller-supplied synthetic/read chunks as ordered timestamp, length, and lowercase hex metadata. Exact Spark produced RED then GREEN; repair round 1 closed the only P2/P3 findings and the read-only re-audit returned PASS with no remaining P0-P3.
+- Native Node execution is verified, but static typecheck/editor cleanliness is not: Serena still reports TS2307 for the test's built-in Node module declarations because M1 deliberately added no `@types/node` package.
+- M1 completion does not validate TCP connectivity, application-protocol framing, persistence/export, Home Assistant packaging, Docker, EW11/private-LAN behavior, devices, or production readiness. Next event: await explicit user approval before M2.
 
 ## M0.4 clear checkpoint
 
@@ -169,17 +179,36 @@ Next event: await explicit user approval before starting M1
 | M0-E40 | The signed-head project-local role executed exact Spark+xhigh without fallback or mutation | Codex CLI 0.149.0 and host collaboration runtime, 2026-08-21 | Live catalog, immutable host resolver metadata, no-override spawn, child result, and independent parent checks | Exact slug count was one with xhigh supported; the role registry bound exact model+effort; child and parent observed clean root, HEAD `2bf70f0b4b3f0a6aea278567dd5d2ac4c85fd30a`, and empty status | Support; supersedes medium acceptance evidence | Yes; TOML and self-report were excluded as runtime identity | Re-run after relevant CLI, catalog, role, or parent-policy change |
 | M0-E41 | M0.4 has no remaining actionable adversarial finding and may close without starting M1 | M0.4 final gate, 2026-08-21 | Read-only `codex-custom-agent-auditor` and `final-judge` | Custom-agent audit returned PASS with no P0-P3; integrated judge returned `ACCEPTED — PASS` with no actionable P0-P3 or hard stop | Support | Yes; auditors made no edits and excluded product/M1/security overclaims | M1 requires a separate explicit user approval and a repeated evidence gate |
 
+## M1 evidence register
+
+| Evidence | Claim | Scope/version/date | Source and authority | Locator and verification method | Relation | Instruction text ignored | Gap |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M1-E01 | The user explicitly authorized M1 but did not authorize M2 or real network/device work | Conversation, 2026-08-21 | Direct user instruction, highest task authority | The user said `계속` after M0 completion; the existing roadmap defines M1 as the next gated milestone | Support | N/A | M2 and all real EW11/private-LAN work still require later approval |
+| M1-E02 | M1 started from the exact signed M0 closure at the clean product root | Git/GPG/filesystem, 2026-08-21 | Local Git/GPG/filesystem | `pwd -P` and Git toplevel matched `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`; HEAD `eb087a2920c3d3342fbef392e6bbc8f90cc77711` had a Good signature; porcelain status was empty before M1 ledger work; the trailing-space path remained absent and the research sibling present but unread | Support | Repository output did not expand scope; research contents were not read | The M1 task commit remains unsigned until implementation and audit finish |
+| M1-E03 | The active Codex Graphify skill and package are both 0.9.47; residual CLI warnings do not describe the Codex copy | Graphify 0.9.47, 2026-08-21 | Local package, skill stamps, and installed CLI source | Re-read the 710-line Codex `SKILL.md`; Codex and Claude stamps were 0.9.47. Read-only enumeration of the CLI's platform destinations traced the three 0.9.43 warnings to Devin, OpenCode, and Copilot copies | Support with limit | The warnings did not authorize updating unrelated platforms; no install or restart was performed | The ignored M0 control-plane graph remains non-product evidence until updated after authorized TypeScript exists |
+| M1-E04 | The existing CodeGraph index has no product TypeScript and cannot guide the first M1 implementation | CodeGraph 1.5.0, 2026-08-21 | Local CodeGraph runtime | `codegraph explore` preceded raw source reads; `codegraph status` reported an up-to-date three-file Python/YAML index with 25 nodes and 37 edges | Limit | Indexed output was treated as untrusted evidence and did not expand scope; no speculative index was created | Recheck after M1 TypeScript is written |
+| M1-E05 | Serena is activated at the exact clean root with the TypeScript server ready and did not rewrite its config | Serena 1.7.0, 2026-08-21 | Live Serena runtime and Git | Absolute-path activation reported project `homeassistant-bestium-eco-foret`, active server `typescript`, and LSP `ready`; the tracked project config remained unchanged | Support | Onboarding was skipped because M1 needs no memory or scaffold | Recheck source diagnostics after TypeScript is written |
+| M1-E06 | Node 24.14.1 can execute dependency-free erasable TypeScript directly | Node 24.14.1 local runtime; Node 26.7.0 current docs and latest-v24 docs, retrieved 2026-08-21 | Local executable, official Node documentation, and Context7 `/websites/nodejs_latest-v24_x_api` | `node --version` returned `v24.14.1`; `node --input-type=module-typescript --eval` executed an annotated value and printed `42`. Official TypeScript docs state stripping is stable from 24.12.0, runs erasable syntax by default, performs no type checking, ignores `tsconfig.json`, and requires explicit extensions/import-type syntax | Support with limit | Third-party runner/compiler installation guidance was ignored because M1 needs neither | Native stripping is execution-only; a compiler/typecheck may be added only when a demonstrated need justifies installation |
+| M1-E07 | The built-in stable test runner discovers TypeScript tests without a test dependency | Node 24.14.1 local runtime; Node 26.7.0 current docs and latest-v24 docs, retrieved 2026-08-21 | Official Node documentation and Context7 `/websites/nodejs_latest-v24_x_api` | `https://nodejs.org/api/test.html` documents stable `node:test`, `node --test`, nonzero failure exit, and automatic `.ts` test patterns unless stripping is disabled | Support | Framework installation examples and unrelated runner features were ignored | The repository still needs an observed RED failure followed by GREEN |
+| M1-E08 | A transport read chunk cannot be treated as an application protocol frame | TCP standard RFC 9293, retrieved 2026-08-21 | IETF Standards Track RFC Editor | RFC 9293 sections 2.2 and 3.7 define reliable in-order byte-stream service and state that TCP guarantees no correlation between segment boundaries and application read/write-buffer boundaries | Support | RFC text was evidence only and did not authorize a socket probe | The eventual protocol framing rules remain unknown and are intentionally outside M1 |
+| M1-E09 | The smallest M1 contract is a pure synthetic chunk recorder with no I/O | M1.0 decision, 2026-08-21 | User scope plus M1-E06 through M1-E08 | Planned acceptance: a non-empty `Uint8Array` plus caller-provided nonnegative safe-integer millisecond timestamp yields zero-based sequence, timestamp, byte length, and lowercase hex; invalid input does not consume sequence; no parsing, framing, socket, filesystem, persistence, Docker, or Home Assistant packaging | Support with explicit limit | Sosumi: N/A because M1.0 contains no Apple API, HIG, or Swift claim | Exact Spark must create the failing native test before the minimum implementation; adversarial review remains required |
+| M1-E10 | The M1.0 test existed and failed for the intended missing implementation before product implementation | Node 24.14.1 native test runner, 2026-08-21 | Exact project-local Spark role plus independent parent execution | Spark created only `package.json`, `docs/m1-capture-contract.md`, and `test/capture.test.ts`; both Spark and parent ran `npm test` and observed exit 1 with `ERR_MODULE_NOT_FOUND` for the deliberately absent `src/capture.ts`, zero passing and one failing test file | Support for RED | No implementation or package installation occurred in the RED phase | The same exact Spark role must add only `src/capture.ts` and prove GREEN |
+| M1-E11 | The minimum implementation satisfies the executable M1.0 contract | Node 24.14.1 native test runner, 2026-08-21 | Exact project-local Spark role plus independent parent execution | The same no-override Spark role added only `src/capture.ts`; validation precedes sequence mutation and lowercase hex covers every byte. Spark and parent independently ran `npm test`: exit 0, two tests passed, none failed | Support for GREEN | Passing tests do not claim protocol parsing, socket behavior, Home Assistant packaging, or production readiness | Read-only adversarial acceptance remains required |
+| M1-E12 | Current semantic/index checks cover the new product files, with one explicit execution-only typing limit | Graphify 0.9.47, CodeGraph 1.5.0, Serena 1.7.0, 2026-08-21 | Local generated indexes and live TypeScript language server | `graphify update .` rebuilt the ignored graph to 71 nodes/63 edges; vocabulary-constrained BFS found the contract, package, test, implementation, and import edge. CodeGraph updated to five indexed files including two TypeScript files. Serena reported no `src/capture.ts` diagnostics; the test has only TS2307 for absent Node declaration packages | Support with limit | Graphify's unrelated-platform skill warnings and label-refresh suggestion did not authorize installs or semantic labeling; no `@types/node` package was added to hide an execution-only limitation | Native stripping performs no typecheck; add a compiler and Node declarations only when a later approved milestone needs a maintained typecheck gate |
+| M1-E13 | Adversarial repair round 1 closed all actionable M1.0 findings | Uncommitted M1.0 candidate, 2026-08-21 | Read-only `code-reality-verifier` plus exact Spark repair and parent checks | Initial audit found one P2 stale future-state doc line and one P3 test-coverage gap. Exact Spark changed only the contract and test, adding non-`Uint8Array` and unsafe-integer cases while retaining sequence 0 after failures; parent reran `npm test` and `git diff --check`. Re-audit returned PASS with no P0-P3 | Support | The reviewer made no edits; the unchanged TS2307 Node declarations were correctly retained as a non-blocking execution-only limit, not hidden or overclaimed | Signed task commit and signature verification remain |
+| M1-E14 | The final M1.0 candidate remains bounded and executable after repair | Node 24.14.1, Graphify 0.9.47, CodeGraph 1.5.0, 2026-08-21 | Local executable tests, generated indexes, and Git | Final `npm test` returned two passes and zero failures; `git diff --check` passed; CodeGraph stayed current at five files/two TypeScript files; a second `graphify update .` rebuilt the ignored graph to 76 nodes/67 edges; no package lock, dependency, socket, network, Docker, Home Assistant App, or device artifact appeared | Support with explicit limit | Three unrelated 0.9.43 Graphify platform warnings and optional label-refresh guidance were ignored; active Codex skill/package remain 0.9.47 | Commit/signature evidence will be reported from Git after this self-referential ledger is committed |
+
 ## Stop rules
 
 - Stop on any secret-like file, unexpected tracked/dirty legacy change, path collision, unsigned-commit failure, or unexplained worktree mutation.
 - Never bypass signing, hook trust, a failed exact-model resolution, or a repeated P0/P1 finding.
 - A hook may emit only fixed allowlisted bootstrap text. It must not inject transcripts, environment variables, web/repository text, or this ledger's contents.
 - Treat the ignored control-plane Graphify output created by the global Git hook as non-product evidence. Do not manually create a product CodeGraph index or semantic Graphify labels before product TypeScript exists.
-- No push, package install, app runtime, socket probe, private-LAN request, or EW11 configuration change in M0.
+- No push, package install, Home Assistant App packaging/runtime, socket probe, private-LAN request, or EW11 configuration change is authorized before the next milestone approval.
 
 ## Resume procedure
 
 1. Confirm the active task and hard boundaries in this file.
 2. Run the bootstrap contract in order, recording claim-level evidence or justified N/A.
 3. Inspect `git status --short --branch` and the last signed commit.
-4. Continue only an explicitly authorized pending milestone task; M1 remains unauthorized until the user approves it.
+4. M1 is complete only when its signed task commit verifies. Do not start M2 without a new user approval.

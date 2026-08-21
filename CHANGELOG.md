@@ -9,6 +9,7 @@ All notable changes to this project are documented here.
 - M0.1 established the clean product workspace, persistent progress ledger, and local secret/index ignore policy.
 - M0.2 added a tested `SessionStart` continuity guard for startup, resume, clear, and compact events.
 - M0.3 added a minimal project-local implementation agent pinned to exact `gpt-5.3-codex-spark` with no fallback.
+- M1.0 added a dependency-free synthetic byte-stream capture recorder and native TypeScript test harness without network or filesystem I/O.
 
 ### Changed
 
