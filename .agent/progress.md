@@ -51,20 +51,20 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | --- | --- | --- | --- |
 | M0.0 | Live repository/tool/security inventory plus official and current evidence | Complete | Pre-commit evidence below |
 | M0.1 | Legacy and stale indexes preserved outside product root; ledger/changelog committed | Complete | `a47a85bf86a685e583042527fd908fc7e4b82d7f` |
-| M0.2 | Fixed allowlist `SessionStart` hook passes startup/resume/clear/compact and unknown-source tests plus adversarial audit | Complete | Current task commit; SHA is recorded by M0.3 |
-| M0.3 | Serena TypeScript config and exact Spark custom agent pass static audit; root is renamed last | Pending | - |
+| M0.2 | Fixed allowlist `SessionStart` hook passes startup/resume/clear/compact and unknown-source tests plus adversarial audit | Complete | `e3fb4acb108e8c353f5b26c056049cc483364da2` |
+| M0.3 | Serena TypeScript config and exact Spark custom agent pass static audit; root is renamed last | In progress | Current configuration commit; SHA is recorded in the restart handoff |
 | M0.4 | After restart: hook, trust, clean cwd, Serena, and exact-model runtime canaries pass final adversarial gate | Pending | - |
 
 ## Current checkpoint
 
-- Completed and signature-verified M0.1 commit `a47a85bf86a685e583042527fd908fc7e4b82d7f`.
-- M0.2 hook implementation, five-test synthetic canary, and repaired read-only adversarial audit pass; real post-restart trust/runtime canary remains in M0.4.
+- Completed and signature-verified M0.1 commit `a47a85bf86a685e583042527fd908fc7e4b82d7f` and M0.2 commit `e3fb4acb108e8c353f5b26c056049cc483364da2`.
+- M0.3 Serena TypeScript and exact-Spark agent static checks and specialized adversarial audit pass; discovery, runtime model evidence, and hook trust remain M0.4 gates.
 - Product Git root remains `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret ` until M0.3 finishes; the trailing space is intentional during the active session.
 - Research boundary: `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret-research`.
 - Preserved legacy HEADs:
   - `HomeNetwork`: `a1d6ba5167586ad1136a2145e54e4e1d1d4533f8`
   - `homeassistant-addons`: `903cc87c1c1709f076a50eab9c2c316325b9c988`
-- The next gate is the signed M0.2 commit. M0.3 may start only after its signature is verified.
+- The next gate is the signed M0.3 configuration commit, followed by the trailing-space root rename and committed restart handoff.
 
 ## Atomic evidence register
 
@@ -86,13 +86,17 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | M0-E14 | Current Codex source agrees that SessionStart command hooks use a source matcher and JSON `additionalContext` | `/openai/codex`, retrieved 2026-08-21 | Context7 high-reputation OpenAI repository source | Hook config and schema source queried after the official Hooks docs | Support | Yes | Project trust and actual lifecycle dispatch require restart |
 | M0-E15 | The continuity hook is silent for invalid input and emits one fixed context for all four allowed sources | Local Python 3 and Codex hook config, 2026-08-21 | Repository test and manual local execution | Creator recorded RED before implementation; main agent reran `python3 .codex/hooks/test_session_start.py`: 5 tests, OK | Support | Yes | Synthetic execution cannot prove Codex trusted and dispatched the hook |
 | M0-E16 | The repaired M0.2 hook has no remaining P0/P1/P2 static finding and does not duplicate the existing global Graphify guard | M0.2 adversarial audit, 2026-08-21 | Read-only `codex-hook-auditor` plus local config count | Re-audit checked non-string sources, regression tests, git-root resolution, and project/global PreToolUse counts: project 0, global 1 | Support | Yes | Definition trust and lifecycle dispatch remain M0.4 runtime gates |
+| M0-E17 | A project-local agent can declare the exact Spark model in `.codex/agents/*.toml` without a project `config.toml` registration entry | Current Codex docs and source, retrieved 2026-08-21 | OpenAI official Web plus Context7 `/openai/codex` | Custom-agent schema and current examples; required strings plus model and reasoning override | Support | Yes | New-process discovery and actual spawn remain runtime gates |
+| M0-E18 | The selected minimal Serena configuration needs only the clean `project_name` and `language_servers: ["typescript"]` | Serena 1.7.0 and current upstream source/template, 2026-08-21 | Local Serena plus Context7 `/oraios/serena` | `ProjectConfig.FIELDS_WITHOUT_DEFAULTS` contains exactly those two fields; template lists `typescript`; Ruby YAML parse checked the edited file | Support | Yes | Clean-path activation and server readiness require restart |
+| M0-E19 | The exact-Spark agent file has no actionable static custom-agent finding | M0.3 adversarial audit, 2026-08-21 | Read-only `codex-custom-agent-auditor` | TOML loadability, allowed fields, model/reasoning catalog, name collision, scope, legacy boundary, and no-fallback behavior checked | Support | Yes | Verdict remains `UNCERTAIN` until discovery/spawn/runtime canaries pass |
+| M0-E20 | The global Git hook created an ignored control-plane Graphify graph after M0.2, and M0.3 queried it before raw repository inspection | Graphify 0.9.47 with 0.9.43 skill, 2026-08-21 | Local hook output and generated graph | Post-commit output reported 35 nodes; scoped query returned only M0 governance/hook symbols | Limit | Yes | It is not a product graph and does not justify implementation claims |
 
 ## Stop rules
 
 - Stop on any secret-like file, unexpected tracked/dirty legacy change, path collision, unsigned-commit failure, or unexplained worktree mutation.
 - Never bypass signing, hook trust, a failed exact-model resolution, or a repeated P0/P1 finding.
 - A hook may emit only fixed allowlisted bootstrap text. It must not inject transcripts, environment variables, web/repository text, or this ledger's contents.
-- Defer fresh Graphify/CodeGraph indexing until the first product TypeScript source exists; M0 only verifies tool availability after restart.
+- Treat the ignored control-plane Graphify output created by the global Git hook as non-product evidence. Do not manually create a product CodeGraph index or semantic Graphify labels before product TypeScript exists.
 - No push, package install, app runtime, socket probe, private-LAN request, or EW11 configuration change in M0.
 
 ## Resume procedure
