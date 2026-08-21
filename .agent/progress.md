@@ -52,19 +52,19 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | M0.0 | Live repository/tool/security inventory plus official and current evidence | Complete | Pre-commit evidence below |
 | M0.1 | Legacy and stale indexes preserved outside product root; ledger/changelog committed | Complete | `a47a85bf86a685e583042527fd908fc7e4b82d7f` |
 | M0.2 | Fixed allowlist `SessionStart` hook passes startup/resume/clear/compact and unknown-source tests plus adversarial audit | Complete | `e3fb4acb108e8c353f5b26c056049cc483364da2` |
-| M0.3 | Serena TypeScript config and exact Spark custom agent pass static audit; root is renamed last | In progress | Current configuration commit; SHA is recorded in the restart handoff |
+| M0.3 | Serena TypeScript config and exact Spark custom agent pass static audit; root is renamed last | Complete | `1b87afee93a8c2c8081e50aed78db090be5d96c9` |
 | M0.4 | After restart: hook, trust, clean cwd, Serena, and exact-model runtime canaries pass final adversarial gate | Pending | - |
 
 ## Current checkpoint
 
 - Completed and signature-verified M0.1 commit `a47a85bf86a685e583042527fd908fc7e4b82d7f` and M0.2 commit `e3fb4acb108e8c353f5b26c056049cc483364da2`.
-- M0.3 Serena TypeScript and exact-Spark agent static checks and specialized adversarial audit pass; discovery, runtime model evidence, and hook trust remain M0.4 gates.
-- Product Git root remains `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret ` until M0.3 finishes; the trailing space is intentional during the active session.
+- Completed and signature-verified M0.3 configuration commit `1b87afee93a8c2c8081e50aed78db090be5d96c9`; its static checks and specialized adversarial audit pass.
+- Product Git root is now `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`; the former trailing-space path is absent.
 - Research boundary: `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret-research`.
 - Preserved legacy HEADs:
   - `HomeNetwork`: `a1d6ba5167586ad1136a2145e54e4e1d1d4533f8`
   - `homeassistant-addons`: `903cc87c1c1709f076a50eab9c2c316325b9c988`
-- The next gate is the signed M0.3 configuration commit, followed by the trailing-space root rename and committed restart handoff.
+- The committed restart handoff is `.agent/restart-handoff.md`. The next gate is a fresh session at the clean path running M0.4 only.
 
 ## Atomic evidence register
 
@@ -90,6 +90,10 @@ M0 is control-plane bootstrap only. It must not create Home Assistant App runtim
 | M0-E18 | The selected minimal Serena configuration needs only the clean `project_name` and `language_servers: ["typescript"]` | Serena 1.7.0 and current upstream source/template, 2026-08-21 | Local Serena plus Context7 `/oraios/serena` | `ProjectConfig.FIELDS_WITHOUT_DEFAULTS` contains exactly those two fields; template lists `typescript`; Ruby YAML parse checked the edited file | Support | Yes | Clean-path activation and server readiness require restart |
 | M0-E19 | The exact-Spark agent file has no actionable static custom-agent finding | M0.3 adversarial audit, 2026-08-21 | Read-only `codex-custom-agent-auditor` | TOML loadability, allowed fields, model/reasoning catalog, name collision, scope, legacy boundary, and no-fallback behavior checked | Support | Yes | Verdict remains `UNCERTAIN` until discovery/spawn/runtime canaries pass |
 | M0-E20 | The global Git hook created an ignored control-plane Graphify graph after M0.2, and M0.3 queried it before raw repository inspection | Graphify 0.9.47 with 0.9.43 skill, 2026-08-21 | Local hook output and generated graph | Post-commit output reported 35 nodes; scoped query returned only M0 governance/hook symbols | Limit | Yes | It is not a product graph and does not justify implementation claims |
+| M0-E21 | The product root was renamed by removing only the accidental trailing space after all M0.3 agents and stale-root CodeGraph servers stopped | macOS filesystem and Git, 2026-08-21 | Local process, filesystem, and signed Git state | Exact PID cwd checks, SIGTERM for two stale-root CodeGraph parents, collision checks, exact `mv`, old/new path assertions, clean worktree, and `git verify-commit` | Support | Yes | The fresh session must still activate Serena and trust hooks at the clean path |
+| M0-E22 | The current Serena MCP process remains bound to the old registered project and therefore cannot prove clean-path TypeScript readiness | Serena 1.7.0, immediately after rename | Local Serena runtime | `get_current_config` still reported the trailing-space project with no active TypeScript server | Limit | Yes | Intentional restart gate; do not reinterpret generic `ready` as TypeScript readiness |
+| M0-E23 | The restart handoff now distinguishes a clean initial restart from the single-file dirty post-clear checkpoint before applying Git stop rules | Authorized third repair round, 2026-08-21 | Direct user authorization, OpenAI official Hooks docs, Context7 `/openai/codex`, and local handoff state | User allowed one additional repair; current docs reconfirmed `clear` as a `SessionStart` source and project-hook hash trust; static branch checks cover both entry patterns | Support | Yes | Static audit closed by M0-E24; signed handoff commit and clipboard identity check remain |
+| M0-E24 | The repaired restart handoff has no remaining P0/P1/P2 static planning finding | User-authorized final audit round, 2026-08-21 | Read-only `deep-loop-plan-auditor` | Re-audit verified step ordering, mutually exclusive Git-state modes, no clear loop, one final M0.4 commit, and preserved runtime uncertainty; verdict PASS | Support | Yes | Actual hooks, Serena, and exact-model canaries remain M0.4 runtime gates |
 
 ## Stop rules
 
