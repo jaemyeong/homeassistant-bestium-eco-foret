@@ -2,7 +2,7 @@
   "name": "BESTIUM Eco-Foret Home Assistant App",
   "slug": "bestium-eco-foret",
   "description": "Capture-only relay for Bestium Eco-Foret EW11 wallpad data with bounded TCP capture.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "arch": [
     "aarch64",
     "amd64"

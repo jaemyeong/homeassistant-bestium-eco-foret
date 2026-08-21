@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.1.0";
+const EXPECTED_VERSION = "0.1.1";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
 const layoutPaths = {
   repository: new URL("repository.yaml", root),
@@ -465,7 +465,7 @@ test("RED: Dockerfile allowlist and pinned production constraints", () => {
   assert.equal(versionLabel[1], EXPECTED_VERSION);
   assert.match(dockerfile, /io\.hass\.type\s*=\s*["']app["']/i);
   assert.match(dockerfile, /io\.hass\.arch\s*=\s*["']aarch64\|amd64["']/i);
-  assert.match(dockerfile, /^\s*USER\s+node/im);
+  assert.equal(/^\s*USER\b/im.test(dockerfile), false, "Dockerfile must retain the base image user for /data/options.json access");
   assert.equal(/(npm|yarn|pnpm)\s+(install|add)/.test(dockerfile), false);
 
   const copies = parseCopySourcesFromDockerfile(dockerfile);
