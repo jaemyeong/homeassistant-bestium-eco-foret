@@ -10,6 +10,7 @@ export type ParsedSettings = {
 };
 
 export type BoundedStopReason =
+  | "stopped"
   | "connect_timeout"
   | "duration"
   | "maximum_bytes"
@@ -80,18 +81,18 @@ function parseNumeric(key: ParseNumericResult["key"], raw: unknown): number {
       }
       return raw;
     case "capture_duration_ms":
-      if (raw < 100 || raw > 300_000) {
-        throw new TypeError("capture_duration_ms must be in [100,300000]");
+      if (raw < 100 || raw > 86_400_000) {
+        throw new TypeError("capture_duration_ms must be in [100,86400000]");
       }
       return raw;
     case "maximum_bytes":
-      if (raw < 1 || raw > 1_048_576) {
-        throw new TypeError("maximum_bytes must be in [1,1048576]");
+      if (raw < 1 || raw > 67_108_864) {
+        throw new TypeError("maximum_bytes must be in [1,67108864]");
       }
       return raw;
     case "maximum_records":
-      if (raw < 1 || raw > 10_000) {
-        throw new TypeError("maximum_records must be in [1,10000]");
+      if (raw < 1 || raw > 1_000_000) {
+        throw new TypeError("maximum_records must be in [1,1000000]");
       }
       return raw;
     default:

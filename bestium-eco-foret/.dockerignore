@@ -2,5 +2,7 @@
 !package.json
 !src/
 !src/capture.ts
+!src/capture-store.ts
 !src/settings.ts
 !src/m2.ts
+!src/ui.ts
