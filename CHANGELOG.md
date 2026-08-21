@@ -2,11 +2,16 @@
 
 All notable changes to this project are documented here.
 
-## [0.1.1] - Unreleased
+## [0.1.1] - 2026-08-21
 
 ### Fixed
 
 - Removed the App Dockerfile's `USER node` override so the runtime can read Home Assistant's Supervisor-mounted `/data/options.json`; synchronized the App config, Docker label, and both package manifests at `0.1.1`.
+
+### Verified
+
+- Home Assistant Supervisor updated and started App `0.1.1`; one admin Ingress `GET /` returned `current:stopped` and `last:null` while the App remained running.
+- No Capture/Stop POST, production TCP/EW11 access, device change, local Docker command, or package installation was performed.
 
 ## [0.1.0] - 2026-08-21
 
