@@ -1,0 +1,29 @@
+{
+  "name": "BESTIUM Eco-Foret Home Assistant App",
+  "slug": "bestium-eco-foret",
+  "description": "Capture-only relay for Bestium Eco-Foret EW11 wallpad data with bounded TCP capture.",
+  "version": "0.1.0",
+  "arch": [
+    "aarch64",
+    "amd64"
+  ],
+  "boot": "manual_only",
+  "stage": "experimental",
+  "panel_admin": true,
+  "ingress": true,
+  "ingress_port": 8099,
+  "options": {
+    "connect_timeout_ms": 3000,
+    "capture_duration_ms": 5000,
+    "maximum_bytes": 65536,
+    "maximum_records": 1000
+  },
+  "schema": {
+    "ew11_host": "str(1,253)",
+    "ew11_port": "port",
+    "connect_timeout_ms": "int(100,30000)",
+    "capture_duration_ms": "int(100,300000)",
+    "maximum_bytes": "int(1,1048576)",
+    "maximum_records": "int(1,10000)"
+  }
+}

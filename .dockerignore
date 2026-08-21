@@ -1,0 +1,6 @@
+**
+!package.json
+!src/
+!src/capture.ts
+!src/settings.ts
+!src/m2.ts
