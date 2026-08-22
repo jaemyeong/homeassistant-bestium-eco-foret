@@ -99,10 +99,10 @@ private and do not commit them to this public repository.
 - Version `0.1.2` installation, startup, Ingress, and bounded receive behavior
   have been observed on one local Home Assistant OS installation; portability to
   other hardware and environments is not yet established.
-- Version `0.1.3` has static/native/adversarial acceptance in a signed local
-  source commit. Its 34 native tests include lossless paused-transport buffering
-  and timeout re-arming across idle timeout events. Publication, Home Assistant
-  update, and live reconnect validation remain pending.
+- Version `0.1.3` is published on this repository's public `main` after
+  static/native/adversarial acceptance. Its 34 native tests include lossless
+  paused-transport buffering and timeout re-arming across idle timeout events.
+  Home Assistant update and live reconnect validation remain pending.
 
 ## Development
 

@@ -68,10 +68,11 @@ All notable changes to this project are documented here.
   confirms panel title/icon support and the separate per-user **Show in sidebar**
   preference. Sosumi: N/A because this work contains no Apple API, HIG, or Swift
   claim.
-- Publication, Home Assistant `0.1.3` update/start, sidebar-toggle verification,
-  and any new live capture remain unperformed. The containing commit is the
-  signed local static acceptance point; push and every live action require
-  separate authorization.
+- Signed product commit `19582189ed5fa5ff9cedc42e9d63b4e6e05a0a8a`
+  is published on public `main`; GitHub's commit API and public App config were
+  independently checked and expose version `0.1.3`. Home Assistant refresh,
+  update/start, sidebar-toggle verification, and any new live capture remain
+  unperformed and require separate authorization.
 
 ## [0.1.2] - 2026-08-22
 

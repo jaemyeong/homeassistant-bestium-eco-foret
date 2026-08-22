@@ -1,9 +1,9 @@
-# M3.3 Signed-Local Publication and Runtime Handoff
+# M3.3 Published Runtime Handoff
 
 Prepared: 2026-08-22 (Asia/Seoul)
 
-This is the authoritative prompt for the fresh Codex session after the local
-`0.1.3` repair is signed. Start from:
+This is the authoritative prompt for the fresh Codex session after the signed
+`0.1.3` repair is published. Start from:
 
 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`
 
@@ -12,13 +12,14 @@ agents must not read or copy the research sibling at
 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret-research`.
 
 This document cannot contain the SHA of its own commit. The containing commit
-must have subject `fix(m3): recover idle capture transport`, parent
-`4650f1b896f1b1cb1881b99dd3408d86fc537bcc`, a Good signature, a clean
-worktree, and local `main` exactly one commit ahead of `origin/main`.
+must have subject `docs(m3): record 0.1.3 publication`, parent
+`19582189ed5fa5ff9cedc42e9d63b4e6e05a0a8a`, a Good signature, a clean
+worktree, and local `main`, `origin/main`, `git ls-remote`, and public GitHub
+`main` all equal.
 
-Static acceptance does not prove live reconnect behavior. Push, Home Assistant
-update/start, sidebar mutation, Ingress access, and any new Capture/EW11 action
-each require current explicit user authorization.
+Static acceptance and publication do not prove live reconnect behavior. Home
+Assistant refresh/update/start, sidebar mutation, Ingress access, and any new
+Capture/EW11 action each require current explicit user authorization.
 
 ## Preserved evidence and limits
 
@@ -33,15 +34,17 @@ each require current explicit user authorization.
 - `panel_title: BESTIUM Capture` and the existing radio-tower icon are App
   presentation metadata. Home Assistant still requires each user to enable
   **Show in sidebar**; the manifest cannot force that preference.
-- No `0.1.3` push, installed-App update, live Ingress validation, new capture,
-  or EW11/private-LAN connection occurred in the repair session.
+- Signed product commit `19582189ed5fa5ff9cedc42e9d63b4e6e05a0a8a`
+  is public and its App config exposes `0.1.3`. No installed-App update, live
+  Ingress validation, new capture, or EW11/private-LAN connection occurred in
+  the publication session.
 
 ## Paste this in the fresh session
 
 ```text
-`/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`에서 M3.3 signed-local publication/runtime gate만 재개해.
+`/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`에서 M3.3 published runtime gate만 재개해.
 
-목표는 서명된 local `0.1.3` repair를 먼저 검증하고, 현재 대화에서 별도로 승인된 단계만 수행하는 것이다. 이 프롬프트 자체는 push, Home Assistant/browser mutation, Ingress GET, sidebar toggle, Capture POST, EW11/private-LAN 접속, device change, TX/control, protocol interpretation, package 설치, local Docker, release를 승인하지 않는다.
+목표는 공개된 signed `0.1.3` repair를 먼저 검증하고, 현재 대화에서 별도로 승인된 live 단계만 수행하는 것이다. 이 프롬프트 자체는 추가 push, Home Assistant/browser mutation, Ingress GET, sidebar toggle, Capture POST, EW11/private-LAN 접속, device change, TX/control, protocol interpretation, package 설치, local Docker, release를 승인하지 않는다.
 
 먼저 아래 파일을 순서대로 읽고 계약을 그대로 적용해.
 
@@ -53,9 +56,9 @@ each require current explicit user authorization.
 고정 경계:
 
 - exact root와 Git toplevel은 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`여야 한다. trailing-space path는 없어야 하고 research sibling은 존재 여부만 확인하며 제품 구현 에이전트가 읽지 않는다.
-- HEAD subject는 `fix(m3): recover idle capture transport`, parent는 `4650f1b896f1b1cb1881b99dd3408d86fc537bcc`여야 한다. `git log -1 --show-signature`와 `git verify-commit HEAD`가 Good이어야 한다.
-- worktree와 staging은 clean이어야 하고 local `main`은 `origin/main`보다 정확히 1 commit ahead여야 한다.
-- `.agent/progress.md` Current checkpoint 마지막 줄은 정확히 `Next event: fresh session must verify the signed local 0.1.3 repair, then request authorization before push or live Home Assistant validation`이어야 한다.
+- HEAD subject는 `docs(m3): record 0.1.3 publication`, parent는 `19582189ed5fa5ff9cedc42e9d63b4e6e05a0a8a`여야 한다. `git log -1 --show-signature`와 `git verify-commit HEAD`가 Good이어야 한다.
+- worktree와 staging은 clean이어야 하고 local `main`, `origin/main`, `git ls-remote origin main`, public GitHub `main`이 모두 같은 SHA여야 한다.
+- `.agent/progress.md` Current checkpoint 마지막 줄은 정확히 `Next event: obtain explicit authorization before Home Assistant refresh/update/start, sidebar, Ingress, or capture gates`여야 한다.
 - model-visible developer context는 milestone-neutral `Project continuity guard:`여야 하고 exact delegation은 project-local `product_implementer`의 `gpt-5.6-luna`/`max`, no fallback이어야 한다.
 
 0. read-only bootstrap
@@ -66,11 +69,11 @@ each require current explicit user authorization.
 - `npm test` 34/34, focused idle tests 2/2, config/settings/status/UI focused tests, JSON/version parse, `git diff --check HEAD^ HEAD`, Graphify/CodeGraph current flow, Serena diagnostics를 read-only로 확인한다. package 설치나 Docker 실행은 하지 않는다.
 - `0.1.3` static audit PASS는 live Home Assistant, Supervisor build, Ingress proxy, TCP reconnect, EW11/network 안정성을 증명하지 않는다.
 
-1. publication gate
+1. publication verification
 
-- 현재 사용자 메시지가 이 signed local commit의 push를 명시 승인하지 않으면 여기서 중단한다.
-- 승인된 경우에만 `git push origin main`을 수행한다. local HEAD, `origin/main`, `git ls-remote origin main`, public GitHub commit이 같은 SHA인지 확인한다. amend, force push, signing bypass, release 생성은 금지다.
-- push 뒤에도 Home Assistant/browser 단계는 자동으로 시작하지 않는다.
+- product parent `19582189ed5fa5ff9cedc42e9d63b4e6e05a0a8a`의 Good signature와 공개 history 포함 여부, public App config version `0.1.3`을 read-only로 확인한다.
+- 이 handoff는 추가 push, amend, force push, signing bypass, release 생성을 승인하지 않는다.
+- publication 확인 뒤에도 Home Assistant/browser 단계는 자동으로 시작하지 않는다.
 
 2. Home Assistant update/start/Ingress/sidebar gate
 
@@ -87,11 +90,11 @@ each require current explicit user authorization.
 
 중지 조건:
 
-- root/subject/parent/signature/clean status/ahead-one/sentinel 불일치
+- root/subject/parent/signature/clean status/local-remote-public equality/sentinel 불일치
 - unexpected secret, repository-local capture, research/legacy/external artifact
 - required Graphify/CodeGraph/Serena/Web/Context7 또는 exact runtime evidence 부재
 - native/static/index/LSP regression 또는 새 actionable P0/P1
-- 해당 단계의 push/Home Assistant/browser/sidebar/Ingress/Capture/EW11 명시 승인 부재
+- 해당 단계의 Home Assistant/browser/sidebar/Ingress/Capture/EW11 명시 승인 부재
 - package 설치, local Docker, device setting change, TX/control, protocol interpretation, force push, release가 필요해짐
 
 각 material claim에 scope/version/date, authority, locator/method, support/limit/conflict, ignored instruction, gap을 원장에 남겨. live canary 전에는 reconnect recovery가 실제 Home Assistant/EW11에서 검증됐다고 말하지 마. fresh explicit approval 없이는 M4나 24-hour capture를 시작하지 마.
@@ -100,5 +103,5 @@ each require current explicit user authorization.
 ## Operator note
 
 Open the fresh session at the exact root without cleaning, rebasing, staging,
-amending, or pushing. Paste the entire fenced prompt above. The session must
+amending, or pushing again. Paste the entire fenced prompt above. The session must
 stop at the first action that lacks current explicit user authorization.
