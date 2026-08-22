@@ -23,6 +23,7 @@ type Transport = {
   removeAllListeners(): unknown;
   pause?(): unknown;
   resume?(): unknown;
+  setTimeout?(timeoutMs: number): unknown;
   destroy(): unknown;
 };
 
@@ -32,6 +33,7 @@ export type CaptureBounds = {
   ew11_host: string;
   ew11_port: number;
   connect_timeout_ms: number;
+  idle_timeout_ms: number;
   capture_duration_ms: number;
   maximum_bytes: number;
   maximum_records: number;
@@ -194,6 +196,7 @@ function metadataFromRecovered(file: StoreFileMetadata, settings: ParsedSettings
       ew11_host: settings.ew11_host,
       ew11_port: settings.ew11_port,
       connect_timeout_ms: settings.connect_timeout_ms,
+      idle_timeout_ms: settings.idle_timeout_ms,
       capture_duration_ms: settings.capture_duration_ms,
       maximum_bytes: settings.maximum_bytes,
       maximum_records: settings.maximum_records,
@@ -218,6 +221,7 @@ export function createBoundedCaptureCoordinator(opts: {
     ew11_host: settings.ew11_host,
     ew11_port: settings.ew11_port,
     connect_timeout_ms: settings.connect_timeout_ms,
+    idle_timeout_ms: settings.idle_timeout_ms,
     capture_duration_ms: settings.capture_duration_ms,
     maximum_bytes: settings.maximum_bytes,
     maximum_records: settings.maximum_records,
@@ -229,6 +233,7 @@ export function createBoundedCaptureCoordinator(opts: {
   let runningTimeoutId: TimerToken | null = null;
   let progressTimeoutId: TimerToken | null = null;
   let connected = false;
+  let reconnecting = false;
   let startedAtMs = 0;
   let stoppedAtMs = 0;
   let byteCount = 0;
@@ -273,6 +278,18 @@ export function createBoundedCaptureCoordinator(opts: {
   const stateForPhase = (): "running" | "stopped" =>
     phase === "running" ? "running" : "stopped";
 
+  const detachTransport = (target: Transport | null): void => {
+    if (!target) return;
+    for (const [event, listener] of listeners) target.off(event, listener);
+    target.removeAllListeners();
+    target.destroy();
+    if (transport === target) {
+      transport = null;
+      connected = false;
+      listeners.length = 0;
+    }
+  };
+
   const clearAll = (): void => {
     if (connectTimeoutId !== null) {
       opts.clearTimeout(connectTimeoutId);
@@ -286,12 +303,7 @@ export function createBoundedCaptureCoordinator(opts: {
       opts.clearTimeout(progressTimeoutId);
       progressTimeoutId = null;
     }
-    if (transport) {
-      for (const [event, listener] of listeners) transport.off(event, listener);
-      transport.removeAllListeners();
-      transport.destroy();
-      transport = null;
-    }
+    detachTransport(transport);
     listeners.length = 0;
     connected = false;
   };
@@ -352,9 +364,9 @@ export function createBoundedCaptureCoordinator(opts: {
     void append.then(
       () => {
         if (pendingAppend === append) pendingAppend = null;
-        if (phase === "running") {
+        if (phase === "running" && transport) {
           try {
-            transport?.resume?.();
+            transport.resume?.();
           } catch (error) {
             handleAppendFailure(error);
           }
@@ -450,24 +462,14 @@ export function createBoundedCaptureCoordinator(opts: {
     return finishCapture(reason);
   };
 
-  const onTimeout = (): void => {
-    if (phase === "running") void requestFinish("connect_timeout").catch(() => undefined);
-  };
-
-  const onConnect = (): void => {
-    if (phase !== "running" || connected) return;
-    connected = true;
-    if (connectTimeoutId !== null) {
-      opts.clearTimeout(connectTimeoutId);
-      connectTimeoutId = null;
+  const onConnectTimeout = (activeTransport: Transport): void => {
+    if (phase === "running" && transport === activeTransport && !connected) {
+      void requestFinish("connect_timeout").catch(() => undefined);
     }
-    runningTimeoutId = opts.setTimeout(() => {
-      if (phase === "running") void requestFinish("duration").catch(() => undefined);
-    }, settings.capture_duration_ms);
   };
 
-  const onError = (error?: unknown): void => {
-    if (phase !== "running") return;
+  const onError = (activeTransport: Transport, error?: unknown): void => {
+    if (phase !== "running" || transport !== activeTransport) return;
     const normalized = asError(error, "transport failed");
     logger.error("transport", {
       reason: "transport",
@@ -478,9 +480,110 @@ export function createBoundedCaptureCoordinator(opts: {
     void requestFinish("error").catch(() => undefined);
   };
 
-  const onClose = (): void => {
-    if (phase === "running") void requestFinish("closed").catch(() => undefined);
+  const onClose = (activeTransport: Transport): void => {
+    if (phase === "running" && transport === activeTransport) {
+      void requestFinish("closed").catch(() => undefined);
+    }
   };
+
+  const onConnect = (activeTransport: Transport): void => {
+    if (phase !== "running" || transport !== activeTransport || connected) return;
+    connected = true;
+    if (connectTimeoutId !== null) {
+      opts.clearTimeout(connectTimeoutId);
+      connectTimeoutId = null;
+    }
+    try {
+      activeTransport.setTimeout?.(settings.idle_timeout_ms);
+      if (pendingAppend) activeTransport.pause?.();
+    } catch (error) {
+      onError(activeTransport, error);
+      return;
+    }
+    if (runningTimeoutId === null) {
+      runningTimeoutId = opts.setTimeout(() => {
+        if (phase === "running") void requestFinish("duration").catch(() => undefined);
+      }, settings.capture_duration_ms);
+    }
+  };
+
+  const onData = (activeTransport: Transport, chunk: unknown): void => {
+    if (phase !== "running" || transport !== activeTransport || !connected) return;
+    if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) return;
+    if (pendingAppend) return;
+
+    const remaining = settings.maximum_bytes - byteCount;
+    if (remaining <= 0) {
+      void requestFinish("maximum_bytes").catch(() => undefined);
+      return;
+    }
+    const accepted = chunk.byteLength > remaining ? chunk.slice(0, remaining) : chunk;
+    const record = recorder(accepted, opts.nowMs());
+    byteCount += accepted.byteLength;
+    recordCount += 1;
+    preview.push(record);
+    if (preview.length > 20) preview = preview.slice(-20);
+    queueRecord(record);
+
+    if (byteCount >= settings.maximum_bytes) {
+      void requestFinish("maximum_bytes").catch(() => undefined);
+    } else if (recordCount >= settings.maximum_records) {
+      void requestFinish("maximum_records").catch(() => undefined);
+    }
+  };
+
+  const onIdleTimeout = (activeTransport: Transport): void => {
+    if (phase !== "running" || transport !== activeTransport || !connected || reconnecting) return;
+    if (pendingAppend) {
+      try {
+        activeTransport.setTimeout?.(settings.idle_timeout_ms);
+      } catch (error) {
+        onError(activeTransport, error);
+      }
+      return;
+    }
+    reconnecting = true;
+    try {
+      detachTransport(activeTransport);
+      attachTransport();
+      logger.info("reconnect", {
+        reason: "idle_timeout",
+        byteCount,
+        recordCount,
+      });
+    } catch (error) {
+      logFailure("reconnect", error, "reconnect");
+      void requestFinish("error").catch(() => undefined);
+    } finally {
+      reconnecting = false;
+    }
+  };
+
+  function attachTransport(): void {
+    const activeTransport = opts.createTransport();
+    transport = activeTransport;
+    const connectListener = () => onConnect(activeTransport);
+    const dataListener = (data: unknown) => onData(activeTransport, data);
+    const errorListener = (error: unknown) => onError(activeTransport, error);
+    const closeListener = () => onClose(activeTransport);
+    const timeoutListener = () => onIdleTimeout(activeTransport);
+    activeTransport.on("connect", connectListener);
+    activeTransport.on("data", dataListener);
+    activeTransport.on("error", errorListener);
+    activeTransport.on("close", closeListener);
+    activeTransport.on("timeout", timeoutListener);
+    listeners.push(
+      ["connect", connectListener],
+      ["data", dataListener],
+      ["error", errorListener],
+      ["close", closeListener],
+      ["timeout", timeoutListener],
+    );
+    connectTimeoutId = opts.setTimeout(
+      () => onConnectTimeout(activeTransport),
+      settings.connect_timeout_ms,
+    );
+  }
 
   const start = async (): Promise<void> => {
     if (phase !== "stopped") throw new Error(`capture phase is ${phase}`);
@@ -517,22 +620,7 @@ export function createBoundedCaptureCoordinator(opts: {
         }
       }
 
-      transport = opts.createTransport();
-      const connectListener = () => onConnect();
-      const dataListener = (data: unknown) => onData(data);
-      const errorListener = (error: unknown) => onError(error);
-      const closeListener = () => onClose();
-      transport.on("connect", connectListener);
-      transport.on("data", dataListener);
-      transport.on("error", errorListener);
-      transport.on("close", closeListener);
-      listeners.push(
-        ["connect", connectListener],
-        ["data", dataListener],
-        ["error", errorListener],
-        ["close", closeListener],
-      );
-      connectTimeoutId = opts.setTimeout(onTimeout, settings.connect_timeout_ms);
+      attachTransport();
       scheduleProgress();
       phase = "running";
     } catch (error) {
@@ -555,31 +643,6 @@ export function createBoundedCaptureCoordinator(opts: {
       }
       takePendingStop()?.reject(error);
       throw error;
-    }
-  };
-
-  const onData = (chunk: unknown): void => {
-    if (phase !== "running" || !connected) return;
-    if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) return;
-    if (pendingAppend) return;
-
-    const remaining = settings.maximum_bytes - byteCount;
-    if (remaining <= 0) {
-      void requestFinish("maximum_bytes").catch(() => undefined);
-      return;
-    }
-    const accepted = chunk.byteLength > remaining ? chunk.slice(0, remaining) : chunk;
-    const record = recorder(accepted, opts.nowMs());
-    byteCount += accepted.byteLength;
-    recordCount += 1;
-    preview.push(record);
-    if (preview.length > 20) preview = preview.slice(-20);
-    queueRecord(record);
-
-    if (byteCount >= settings.maximum_bytes) {
-      void requestFinish("maximum_bytes").catch(() => undefined);
-    } else if (recordCount >= settings.maximum_records) {
-      void requestFinish("maximum_records").catch(() => undefined);
     }
   };
 

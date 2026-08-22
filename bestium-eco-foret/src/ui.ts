@@ -25,7 +25,7 @@ export function renderAppHtml(): string {
     .metric small { display: block; color: #56627a; font-size: .75rem; }
     .metric strong { display: block; margin-top: .2rem; font-size: 1.15rem; overflow-wrap: anywhere; }
     .bounds { grid-column: 1 / -1; }
-    .bound-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .7rem; margin: 1rem 0 0; }
+    .bound-list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; margin: 1rem 0 0; }
     .bound-list div { min-width: 0; padding: .75rem; border-radius: .75rem; background: #edf1fa; }
     .bound-list dt { color: #56627a; font-size: .74rem; }
     .bound-list dd { margin: .2rem 0 0; font-weight: 750; overflow-wrap: anywhere; }
@@ -87,6 +87,7 @@ export function renderAppHtml(): string {
         <dl class="bound-list">
           <div><dt>EW11 endpoint</dt><dd id="endpoint">—</dd></div>
           <div><dt>Connect timeout</dt><dd id="connect-timeout">—</dd></div>
+          <div><dt>Idle timeout</dt><dd id="idle-timeout">—</dd></div>
           <div><dt>Duration cap</dt><dd id="duration-cap">—</dd></div>
           <div><dt>Byte cap</dt><dd id="byte-cap">—</dd></div>
           <div><dt>Record cap</dt><dd id="record-cap">—</dd></div>
@@ -128,6 +129,7 @@ export function renderAppHtml(): string {
       const endpointPort = configured.ew11_port;
       text("endpoint", endpointHost && endpointPort !== undefined ? endpointHost + ":" + formatNumber(endpointPort) : "—");
       text("connect-timeout", formatBound(configured.connect_timeout_ms, " ms"));
+      text("idle-timeout", formatBound(configured.idle_timeout_ms, " ms"));
       text("duration-cap", formatBound(configured.capture_duration_ms, " ms"));
       text("byte-cap", formatBound(configured.maximum_bytes, " B"));
       text("record-cap", formatBound(configured.maximum_records));

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.1.2";
+const EXPECTED_VERSION = "0.1.3";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
 const layoutPaths = {
   repository: new URL("repository.yaml", root),
@@ -49,12 +49,14 @@ const CONFIG_TOP_KEYS = [
   "ingress",
   "ingress_port",
   "panel_icon",
+  "panel_title",
   "options",
   "schema",
 ] as const;
 const CONFIG_STRING_KEYS = ["name", "slug", "description"] as const;
 const CONFIG_OPTION_DEFAULT_KEYS = [
   "connect_timeout_ms",
+  "idle_timeout_ms",
   "capture_duration_ms",
   "maximum_bytes",
   "maximum_records",
@@ -63,6 +65,7 @@ const CONFIG_SCHEMA_KEYS = [
   "ew11_host",
   "ew11_port",
   "connect_timeout_ms",
+  "idle_timeout_ms",
   "capture_duration_ms",
   "maximum_bytes",
   "maximum_records",
@@ -101,6 +104,7 @@ type FakeTransport = {
   removeAllListeners(): FakeTransport;
   pause(): FakeTransport;
   resume(): FakeTransport;
+  setTimeout(timeoutMs: number): FakeTransport;
   destroy(): void;
   emit(event: string, ...args: unknown[]): void;
   listenerCount(): number;
@@ -232,6 +236,7 @@ type M2Settings = {
   ew11_host: string;
   ew11_port: number;
   connect_timeout_ms: number;
+  idle_timeout_ms: number;
   capture_duration_ms: number;
   maximum_bytes: number;
   maximum_records: number;
@@ -273,7 +278,11 @@ type RuntimeExports = {
 type NumericBound = {
   name: keyof Pick<
     M2Settings,
-    "connect_timeout_ms" | "capture_duration_ms" | "maximum_bytes" | "maximum_records"
+    | "connect_timeout_ms"
+    | "idle_timeout_ms"
+    | "capture_duration_ms"
+    | "maximum_bytes"
+    | "maximum_records"
   >;
   min: number;
   max: number;
@@ -281,6 +290,7 @@ type NumericBound = {
 
 const numericBounds: readonly NumericBound[] = [
   { name: "connect_timeout_ms", min: 100, max: 30_000 },
+  { name: "idle_timeout_ms", min: 5_000, max: 3_600_000 },
   { name: "capture_duration_ms", min: 100, max: 86_400_000 },
   { name: "maximum_bytes", min: 1, max: 67_108_864 },
   { name: "maximum_records", min: 1, max: 1_000_000 },
@@ -317,12 +327,20 @@ function assertExactSet(values: readonly string[], expected: readonly string[], 
   );
 }
 
-function createFakeTransport(events: string[] = []): FakeTransport {
+function createFakeTransport(
+  events: string[] = [],
+  timeoutValues: number[] = [],
+  bufferDataWhilePaused = false,
+): FakeTransport {
   const listeners = new Map<string, Set<Listener>>();
+  const bufferedData: unknown[][] = [];
   let destroyed = false;
   let paused = false;
   let pauses = 0;
   let resumes = 0;
+  const emitData = (args: unknown[]): void => {
+    for (const listener of listeners.get("data") ?? []) listener(...args);
+  };
   return {
     on(event, listener) {
       const bucket = listeners.get(event) ?? new Set<Listener>();
@@ -348,6 +366,15 @@ function createFakeTransport(events: string[] = []): FakeTransport {
       resumes += 1;
       paused = false;
       events.push("transport.resume");
+      if (bufferDataWhilePaused) {
+        const queued = bufferedData.splice(0);
+        for (const args of queued) emitData(args);
+      }
+      return this;
+    },
+    setTimeout(timeoutMs) {
+      timeoutValues.push(timeoutMs);
+      events.push(`transport.setTimeout:${timeoutMs}`);
       return this;
     },
     destroy() {
@@ -355,7 +382,14 @@ function createFakeTransport(events: string[] = []): FakeTransport {
       destroyed = true;
     },
     emit(event, ...args: unknown[]) {
-      if (paused && event === "data") return;
+      if (paused && event === "data") {
+        if (bufferDataWhilePaused) bufferedData.push(args);
+        return;
+      }
+      if (event === "data") {
+        emitData(args);
+        return;
+      }
       for (const listener of listeners.get(event) ?? []) listener(...args);
     },
     listenerCount() {
@@ -375,7 +409,7 @@ function createFakeTransport(events: string[] = []): FakeTransport {
   };
 }
 
-function createFakeTimer(): FakeTimer {
+function createFakeTimer(scheduledDelays: number[] = []): FakeTimer {
   let now = 1_700_000_000;
   let nextId = 1;
   const pending = new Map<number, { due: number; cb: () => void }>();
@@ -408,6 +442,7 @@ function createFakeTimer(): FakeTimer {
       now = target;
     },
     setTimeout(cb, delayMs) {
+      scheduledDelays.push(delayMs);
       const id = nextId++;
       pending.set(id, { due: now + delayMs, cb });
       return id;
@@ -606,6 +641,7 @@ function validSettings(overrides: AnyRecord = {}): M2Settings {
     ew11_host: "gateway-1",
     ew11_port: 9001,
     connect_timeout_ms: 3_000,
+    idle_timeout_ms: 30_000,
     capture_duration_ms: 5_000,
     maximum_bytes: 65_536,
     maximum_records: 1_000,
@@ -774,6 +810,7 @@ test("RED: config strictness and exact static contract", () => {
   assert.equal(config.ingress, true);
   assert.equal(config.ingress_port, 8099);
   assert.equal(config.panel_icon, "mdi:radio-tower");
+  assert.equal(config.panel_title, "BESTIUM Capture");
 
   if (!Array.isArray(config.arch)) throw new TypeError("config.arch must be array");
   assert.equal(config.arch.length, 2);
@@ -783,6 +820,7 @@ test("RED: config strictness and exact static contract", () => {
   assertExactSet(Object.keys(options), CONFIG_OPTION_DEFAULT_KEYS, "config.options defaults");
   assert.deepStrictEqual(options, {
     connect_timeout_ms: 3_000,
+    idle_timeout_ms: 30_000,
     capture_duration_ms: 5_000,
     maximum_bytes: 65_536,
     maximum_records: 1_000,
@@ -801,6 +839,7 @@ test("RED: config strictness and exact static contract", () => {
   assert.equal(schema.ew11_host, "str(1,253)");
   assert.equal(schema.ew11_port, "port");
   assert.equal(schema.connect_timeout_ms, "int(100,30000)");
+  assert.equal(schema.idle_timeout_ms, "int(5000,3600000)");
   assert.equal(schema.capture_duration_ms, "int(100,86400000)");
   assert.equal(schema.maximum_bytes, "int(1,67108864)");
   assert.equal(schema.maximum_records, "int(1,1000000)");
@@ -913,6 +952,7 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     ew11_host: "gateway-1",
     ew11_port: 9001,
     connect_timeout_ms: 3_000,
+    idle_timeout_ms: 30_000,
     capture_duration_ms: 5_000,
     maximum_bytes: 65_536,
     maximum_records: 1_000,
@@ -1228,6 +1268,204 @@ test("RED: sequential coordinator runs reset recorder sequence and clean each tr
   assert.equal(secondTransport.isDestroyed(), true);
   assert.equal(secondTransport.listenerCount(), 0);
   assert.equal(timer.pendingCount(), 0);
+});
+
+test("RED: idle timeout replaces transport inside one capture without resetting records or duration", async () => {
+  const m2 = await importM2();
+  const events: string[] = [];
+  const firstTimeouts: number[] = [];
+  const replacementTimeouts: number[] = [];
+  const firstTransport = createFakeTransport(events, firstTimeouts);
+  const replacementTransport = createFakeTransport(events, replacementTimeouts);
+  const scheduledDelays: number[] = [];
+  const timer = createFakeTimer(scheduledDelays);
+  const store = createFakeStore(events);
+  const settings = validSettings({
+    connect_timeout_ms: 1_000,
+    idle_timeout_ms: 30_000,
+    capture_duration_ms: 60_000,
+    maximum_bytes: 8,
+    maximum_records: 8,
+  });
+  let transportCount = 0;
+  const coordinator = m2.createBoundedCaptureCoordinator({
+    settings,
+    createTransport() {
+      transportCount += 1;
+      if (transportCount === 1) return firstTransport;
+      if (transportCount === 2) return replacementTransport;
+      throw new Error("unexpected extra replacement");
+    },
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    store,
+  });
+
+  await coordinator.start();
+  firstTransport.emit("connect");
+  firstTransport.emit("data", new Uint8Array([0x01]));
+  await Promise.resolve();
+  const startedAtMs = coordinator.getState().startedAtMs;
+  assert.deepStrictEqual(firstTimeouts, [30_000]);
+  assert.equal(coordinator.getState().byteCount, 1);
+  assert.equal(coordinator.getState().recordCount, 1);
+
+  timer.advance(900);
+  firstTransport.emit("timeout");
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(transportCount, 2, "one idle event must create exactly one replacement");
+  assert.equal(firstTransport.isDestroyed(), true);
+  assert.equal(firstTransport.listenerCount(), 0);
+  assert.equal(store.finalizeCalls, 0);
+  assert.equal(events.filter((event) => event === "store.begin").length, 1);
+
+  replacementTransport.emit("connect");
+  replacementTransport.emit("data", new Uint8Array([0x02]));
+  await Promise.resolve();
+  assert.deepStrictEqual(replacementTimeouts, [30_000]);
+  assert.equal(coordinator.getState().phase, "running");
+  assert.equal(coordinator.getState().startedAtMs, startedAtMs);
+  assert.equal(coordinator.getState().byteCount, 2);
+  assert.equal(coordinator.getState().recordCount, 2);
+  assert.deepStrictEqual(
+    store.lines.map((line) => parseJson<CaptureRecord>(line).sequence),
+    [0, 1],
+  );
+  assert.equal(
+    scheduledDelays.filter((delay) => delay === settings.capture_duration_ms).length,
+    1,
+    "reconnect must not restart the original duration ceiling",
+  );
+
+  const result = await coordinator.stop();
+  assert.equal(result.reason, "stopped");
+  assert.equal(store.finalizeCalls, 1);
+  assert.equal(store.finalized, true);
+  assert.equal(replacementTransport.isDestroyed(), true);
+  assert.equal(replacementTransport.listenerCount(), 0);
+  assert.equal(timer.pendingCount(), 0);
+});
+
+test("RED: idle timeout preserves buffered data on a paused current transport", async () => {
+  const m2 = await importM2();
+  const events: string[] = [];
+  const firstTimeouts: number[] = [];
+  const firstTransport = createFakeTransport(events, firstTimeouts, true);
+  const replacementTransport = createFakeTransport(events, [], true);
+  const scheduledDelays: number[] = [];
+  const timer = createFakeTimer(scheduledDelays);
+  const baseStore = createFakeStore(events);
+  let firstAppend = true;
+  let appendReleased = false;
+  let releaseFirstAppend: (() => void) | undefined;
+  const store = {
+    ...baseStore,
+    append(line: string): Promise<void> {
+      if (!firstAppend) return baseStore.append(line);
+      firstAppend = false;
+      return new Promise<void>((resolve) => {
+        releaseFirstAppend = () => {
+          if (appendReleased) return;
+          appendReleased = true;
+          baseStore.lines.push(line);
+          resolve();
+        };
+      });
+    },
+  };
+  const settings = validSettings({
+    connect_timeout_ms: 1_000,
+    idle_timeout_ms: 30_000,
+    capture_duration_ms: 60_000,
+    maximum_bytes: 8,
+    maximum_records: 8,
+  });
+  let transportCount = 0;
+  const coordinator = m2.createBoundedCaptureCoordinator({
+    settings,
+    createTransport() {
+      transportCount += 1;
+      if (transportCount === 1) return firstTransport;
+      if (transportCount === 2) return replacementTransport;
+      throw new Error("unexpected extra replacement");
+    },
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    store,
+  });
+
+  let stopped = false;
+  try {
+    await coordinator.start();
+    firstTransport.emit("connect");
+    firstTransport.emit("data", new Uint8Array([0x01]));
+    assert.deepStrictEqual(firstTimeouts, [30_000]);
+    assert.equal(firstTransport.pauseCount(), 1);
+    assert.equal(coordinator.getState().byteCount, 1);
+    assert.equal(coordinator.getState().recordCount, 1);
+
+    firstTransport.emit("data", new Uint8Array([0x02]));
+    assert.deepStrictEqual(baseStore.lines, [], "the held append is still unresolved");
+    firstTransport.emit("timeout");
+    assert.deepStrictEqual(firstTimeouts, [30_000, 30_000]);
+    assert.equal(firstTransport.isDestroyed(), false);
+    assert.equal(firstTransport.listenerCount() > 0, true);
+    assert.equal(transportCount, 1);
+    firstTransport.emit("timeout");
+    assert.deepStrictEqual(firstTimeouts, [30_000, 30_000, 30_000]);
+    assert.equal(firstTransport.isDestroyed(), false);
+    assert.equal(firstTransport.listenerCount() > 0, true);
+    assert.equal(transportCount, 1);
+
+    assert.equal(
+      firstTransport.isDestroyed(),
+      false,
+      "idle timeout must preserve a paused transport with buffered data",
+    );
+    assert.equal(transportCount, 1, "buffered old data must not trigger a replacement");
+    assert.equal(coordinator.getState().byteCount, 1);
+    assert.equal(coordinator.getState().recordCount, 1);
+    assert.deepStrictEqual(baseStore.lines, [], "the held append remains uncommitted");
+
+    releaseFirstAppend?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(firstTransport.resumeCount() >= 1, true);
+    assert.deepStrictEqual(
+      baseStore.lines.map((line) => parseJson<CaptureRecord>(line).sequence),
+      [0, 1],
+    );
+    assert.deepStrictEqual(
+      baseStore.lines.map((line) => parseJson<CaptureRecord>(line).hex),
+      ["01", "02"],
+    );
+    assert.equal(coordinator.getState().byteCount, 2);
+    assert.equal(coordinator.getState().recordCount, 2);
+    assert.equal(events.filter((event) => event === "store.begin").length, 1);
+    assert.equal(
+      scheduledDelays.filter((delay) => delay === settings.capture_duration_ms).length,
+      1,
+      "draining buffered data must not restart the original duration ceiling",
+    );
+
+    const result = await coordinator.stop();
+    stopped = true;
+    assert.equal(result.reason, "stopped");
+    assert.equal(store.finalizeCalls, 1);
+    assert.equal(firstTransport.isDestroyed(), true);
+    assert.equal(firstTransport.listenerCount(), 0);
+    assert.equal(replacementTransport.isDestroyed(), false);
+    assert.equal(replacementTransport.listenerCount(), 0);
+    assert.equal(timer.pendingCount(), 0);
+  } finally {
+    releaseFirstAppend?.();
+    if (!stopped) await coordinator.stop().catch(() => undefined);
+  }
 });
 
 test("RED: synchronous transport factory failure restores stopped state and allows retry", async () => {
@@ -1745,6 +1983,7 @@ test("RED: status exposes exact bounds and logger emits bounded lifecycle summar
     ew11_host: settings.ew11_host,
     ew11_port: settings.ew11_port,
     connect_timeout_ms: settings.connect_timeout_ms,
+    idle_timeout_ms: settings.idle_timeout_ms,
     capture_duration_ms: settings.capture_duration_ms,
     maximum_bytes: settings.maximum_bytes,
     maximum_records: settings.maximum_records,
@@ -2119,5 +2358,8 @@ test("RED: dashboard renders exact phases and derives actions from phase", () =>
   assert.match(ui, /statusText\.textContent[\s\S]{0,180}phase/);
   assert.match(ui, /startButton\.disabled[\s\S]{0,180}phase/);
   assert.match(ui, /stopButton\.disabled[\s\S]{0,180}phase/);
+  assert.match(ui, /Idle timeout/);
+  assert.match(ui, /id="idle-timeout"/);
+  assert.match(ui, /configured\.idle_timeout_ms/);
   assert.doesNotMatch(ui, /const running = source\.state === [\\"']running[\\"']/);
 });

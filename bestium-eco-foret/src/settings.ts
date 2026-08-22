@@ -4,6 +4,7 @@ export type ParsedSettings = {
   ew11_host: string;
   ew11_port: number;
   connect_timeout_ms: number;
+  idle_timeout_ms: number;
   capture_duration_ms: number;
   maximum_bytes: number;
   maximum_records: number;
@@ -24,6 +25,7 @@ type ParseNumericResult = {
 
 const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port"> = {
   connect_timeout_ms: 3000,
+  idle_timeout_ms: 30_000,
   capture_duration_ms: 5000,
   maximum_bytes: 65_536,
   maximum_records: 1_000,
@@ -80,6 +82,11 @@ function parseNumeric(key: ParseNumericResult["key"], raw: unknown): number {
         throw new TypeError("connect_timeout_ms must be in [100,30000]");
       }
       return raw;
+    case "idle_timeout_ms":
+      if (raw < 5_000 || raw > 3_600_000) {
+        throw new TypeError("idle_timeout_ms must be in [5000,3600000]");
+      }
+      return raw;
     case "capture_duration_ms":
       if (raw < 100 || raw > 86_400_000) {
         throw new TypeError("capture_duration_ms must be in [100,86400000]");
@@ -122,6 +129,7 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
   };
 
   const connect_timeout_ms = readNumeric("connect_timeout_ms");
+  const idle_timeout_ms = readNumeric("idle_timeout_ms");
   const capture_duration_ms = readNumeric("capture_duration_ms");
   const maximum_bytes = readNumeric("maximum_bytes");
   const maximum_records = readNumeric("maximum_records");
@@ -130,6 +138,7 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     ew11_host,
     ew11_port,
     connect_timeout_ms,
+    idle_timeout_ms,
     capture_duration_ms,
     maximum_bytes,
     maximum_records,

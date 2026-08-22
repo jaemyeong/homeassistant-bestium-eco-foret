@@ -10,7 +10,7 @@ COPY src/m2.ts /app/src/m2.ts
 COPY src/capture-store.ts /app/src/capture-store.ts
 COPY src/ui.ts /app/src/ui.ts
 
-LABEL io.hass.version="0.1.2"
+LABEL io.hass.version="0.1.3"
 LABEL io.hass.type="app"
 LABEL io.hass.arch="aarch64|amd64"
 

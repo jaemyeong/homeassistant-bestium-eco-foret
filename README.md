@@ -10,6 +10,8 @@ does not reuse legacy product source.
 
 - Opens one TCP connection to the configured EW11 endpoint and records inbound
   read chunks without writing wallpad command payloads.
+- Replaces a receive-idle TCP connection inside the same capture without
+  resetting its original duration, byte, record, or sequence progress.
 - Enforces independent duration, byte, and record ceilings, with at most one
   active capture.
 - Persists newline-delimited JSON under the Home Assistant App `/data` boundary.
@@ -34,6 +36,11 @@ Assistant OS.
 3. Refresh the App store if necessary, open **BESTIUM Eco-Foret Home Assistant
    App**, and select **Install**.
 
+To keep the App in Home Assistant's sidebar, enable **Show in sidebar** on its
+information page after installation. The App supplies the `BESTIUM Capture`
+panel title and radio-tower icon, but Home Assistant stores sidebar visibility
+as a per-user preference rather than an App-forced setting.
+
 The repository follows Home Assistant's documented
 [third-party repository installation](https://www.home-assistant.io/common-tasks/os/#installing-a-third-party-app-repository)
 and [App repository layout](https://developers.home-assistant.io/docs/apps/repository/).
@@ -49,6 +56,7 @@ or `/` or `\` path separators.
 | `ew11_host` | required | 1–253 characters |
 | `ew11_port` | required | 1–65,535 |
 | `connect_timeout_ms` | 3,000 | 100–30,000 ms |
+| `idle_timeout_ms` | 30,000 | 5,000–3,600,000 ms |
 | `capture_duration_ms` | 5,000 | 100–86,400,000 ms |
 | `maximum_bytes` | 65,536 | 1–67,108,864 bytes |
 | `maximum_records` | 1,000 | 1–1,000,000 records |
@@ -91,6 +99,10 @@ private and do not commit them to this public repository.
 - Version `0.1.2` installation, startup, Ingress, and bounded receive behavior
   have been observed on one local Home Assistant OS installation; portability to
   other hardware and environments is not yet established.
+- Version `0.1.3` has static/native/adversarial acceptance in a signed local
+  source commit. Its 34 native tests include lossless paused-transport buffering
+  and timeout re-arming across idle timeout events. Publication, Home Assistant
+  update, and live reconnect validation remain pending.
 
 ## Development
 

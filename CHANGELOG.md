@@ -2,6 +2,77 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.3] - 2026-08-22
+
+### Fixed
+
+- Detect a connected TCP transport that receives no data for the configured
+  `idle_timeout_ms`. A true idle transport is replaced inside the same bounded
+  capture without resetting sequence, counters, store, or duration; a transport
+  paused for an unresolved append is retained and re-armed until buffered data
+  can drain.
+- Add the `BESTIUM Capture` Ingress panel title alongside the existing
+  radio-tower icon. Home Assistant's **Show in sidebar** choice remains a
+  per-user UI preference and is not forced by the App manifest.
+
+### Changed
+
+- Bumped both package manifests, the App config, and Docker label to `0.1.3`.
+- Added a validated 30,000 ms receive-idle default with an accepted range of
+  5,000–3,600,000 ms and exposed the active bound in the Ingress dashboard.
+
+### Verification
+
+- The stopped `0.1.2` download contained 143,265 valid, gap-free NDJSON records
+  and 2,856,364 captured bytes. Its last record arrived about 3 hours 12 minutes
+  before manual Stop while none of the 24-hour, 64 MiB, or 1,000,000-record
+  ceilings had been reached. This confirms the App's missing silent-idle
+  handling; it does not identify whether the external trigger was the EW11 or
+  the network.
+- Exact Luna/max RED isolated idle replacement, preserved counters/sequence and
+  duration, strict settings/config, status, and dashboard presentation. GREEN
+  passes the full native suite at 33/33 and the focused suite at 5/5; parent JSON,
+  version, diff, Graphify, CodeGraph, and Serena checks also pass with only the
+  historical absent Node ambient declarations.
+- The first exact Sol/max audit found one P1: a timeout during an in-flight store
+  append could connect an unpaused replacement and drop its first buffered data.
+  It also found one handoff P3 because a clean-session `git diff --check` would be
+  vacuous. Exact Luna/max repair round 1 reproduced the P1 with one focused RED,
+  then pauses the replacement until the prior append settles and resumes the
+  current transport. Parent passes both idle tests 2/2 and the full suite 34/34;
+  the handoff now checks the actual `HEAD^..HEAD` commit range.
+- Fresh exact Sol/max re-audit returned FAIL with a repeated P1 in the same
+  reconnect/backpressure integrity area: timeout can destroy the intentionally
+  paused old socket while it still holds unread bytes, discarding them before
+  append settlement resumes the stream.
+- The user explicitly approved one narrow repair-round-2 exception. Exact
+  Luna/max added an old-current-transport buffered-data RED, which parent
+  reproduced at 0/1. GREEN retains and re-arms the paused current transport
+  while `pendingAppend` exists; append success resumes it and drains buffered
+  data in sequence. The obsolete round-1 replacement-during-pending test was
+  deleted because its expectation contradicted this lossless contract. Parent
+  passes the two valid idle tests 2/2 and full native suite 34/34.
+- The first repair-round-2 Sol/max audit found no product P0-P2 and its bounded
+  canaries accepted repeated timeout, ordered buffered drain, later true-idle
+  replacement, terminal paths, and cleanup. It returned FAIL only for one P3:
+  the native regression did not directly assert timeout re-arming. Exact
+  Luna/max therefore changed only the existing fake-transport test to assert
+  the initial arm and one additional arm after each of two pending-append
+  timeouts. Parent again passes idle 2/2 and full 34/34. Fresh exact Sol/max
+  re-audit killed the no-re-arm mutant, rechecked the bounded lifecycle paths,
+  and returned PASS with no actionable P0-P3.
+- Current official Node 24 and Context7 evidence confirms that socket inactivity
+  emits `timeout` without closing the socket. The App therefore explicitly
+  replaces a true-idle transport, while deferring that replacement during active
+  append backpressure. Current official Home Assistant and Context7 evidence
+  confirms panel title/icon support and the separate per-user **Show in sidebar**
+  preference. Sosumi: N/A because this work contains no Apple API, HIG, or Swift
+  claim.
+- Publication, Home Assistant `0.1.3` update/start, sidebar-toggle verification,
+  and any new live capture remain unperformed. The containing commit is the
+  signed local static acceptance point; push and every live action require
+  separate authorization.
+
 ## [0.1.2] - 2026-08-22
 
 ### Added
