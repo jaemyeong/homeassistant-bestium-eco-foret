@@ -2,6 +2,49 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Added a dependency-free, offline-only `encodeSingleLightOffCanary()` helper.
+  It emits only the three single-light OFF candidates observed at targets
+  `0x11`–`0x13`, computes the XOR checksum, and rejects the observed `0x10`
+  group/all-OFF target plus every other value.
+- Added native tests for the three exact observed frames, independent frame
+  length/header/footer/checksum invariants, and runtime allowlist rejection.
+
+### Verification
+
+- A fresh standard-library parse of the user-provided `0.1.3` download found
+  146,049 complete frames with no invalid checksum or trailing byte. Each of
+  the three allowlisted OFF candidates occurred once and was followed 59–63 ms
+  later by its corresponding light-state frame. The older download's observed
+  `0x10` group/all-OFF candidate is deliberately excluded.
+- The additional download SHA-256
+  `9df4f4da650ab54c3d0632b97bad29e275459023baf4b98d9576f1d97eb447dd`
+  has 7,178 gap-free records and 8,646 complete checksum-valid `F7` frames.
+  It directly repeats all three single-light ON/OFF commands and responses,
+  while keeping the group/all target `0x10` distinct.
+- Read-only protocol comparison finds four heating-state slots but control only
+  for zone 1, stable closed gas state without a gas command, and elevator floor
+  descent/arrival without a captured call command. The vehicle-arrival mapping
+  remains only a timestamp-bounded `0x1E` candidate. No `7F` subphone frame or
+  CCTV image/media marker is present; other serial/IP/video links remain out of
+  scope. No legacy source or capture was copied into this repository.
+- Exact Luna/max produced the intended missing-module RED before adding the one
+  pure encoder file. Parent verification passes the focused tests 2/2 and the
+  complete native suite 36/36; current Graphify shows only the test import into
+  the encoder, and the encoder has no Serena diagnostic.
+- The initial read-only product/test audit passed with no actionable P0-P3 and
+  confirmed the exact four-path boundary, empty staging, test-only reachability,
+  focused 2/2, full 36/36, and `git diff --check`. Its closure recheck found one
+  stale-roadmap P3; after that line was repaired, the final bounded read-only
+  recheck passed with no actionable P0-P3.
+- The helper is not imported by the App runtime and adds no socket write,
+  Ingress route, UI action, retry, or arbitrary-hex surface. No Home Assistant,
+  EW11/private-LAN, device, or live TX action occurred. Sosumi: N/A because this
+  work contains no Apple API, HIG, or Swift claim.
+
 ## [0.1.3] - 2026-08-22
 
 ### Fixed
