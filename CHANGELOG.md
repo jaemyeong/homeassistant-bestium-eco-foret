@@ -56,8 +56,10 @@ All notable changes to this project are documented here.
   not be reported as quarantined. Making `quarantinedFor` always return `false`,
   which the audit showed the first candidate's chip-versus-gate assertion could
   not detect, now fails the assertion that a stopped generation must be reported
-  as quarantined. Removing both freshness gates fails the assertion that an
-  observed action must be refused when the last valid frame is stale. The tree
+  as quarantined. Removing the readiness gate fails the assertion that an
+  observed action must be refused when the last valid frame is stale, and
+  removing the send gate fails a different assertion, that no byte reaches the
+  socket on a stale line, so the two gates are pinned independently. The tree
   was restored to 99/99 after each.
 - An independent adversarial audit found one P0 in the first candidate, and
   repair round 1 closed it. That candidate had narrowed the RX freshness gate to
@@ -95,8 +97,19 @@ All notable changes to this project are documented here.
   and one P3, and explicitly contradicted the implementer's own conclusion on
   the P0. The first `0.2.4` product commit was signed before that review existed
   and is superseded by repair round 1 rather than amended.
-- Graphify is refreshed at 438 nodes/498 edges/42 communities and CodeGraph at
-  15 files/527 nodes/2,793 edges. Exact-root Serena 1.7.0 reports TypeScript LSP
+- A fresh independent re-audit of repair round 1 returned PASS with no new P0 or
+  P1. It confirmed by construction, not by reading the diff, that the same input
+  is now refused on both the preview and the live path with nothing written,
+  that the restored lines are byte-identical to the parent, and that the
+  narrowing's removal only widens the blocked set. It traced the single point at
+  which a frame reaches the socket, `writeOne`, found `send` to be its only
+  caller, and confirmed the speculative-challenge issue and commit paths cannot
+  bypass the restored gate. It killed four mutants against the repaired test and
+  verified that the new assertions fail against the pre-repair implementation for
+  the intended reason. Its highest severity was P2, on the pre-existing
+  speculative-challenge wording in `send`, which this release leaves open.
+- Graphify is refreshed at 443 nodes/503 edges/42 communities and CodeGraph at
+  15 files/527 nodes/2,797 edges. Exact-root Serena 1.7.0 reports TypeScript LSP
   `ready`; `ui.ts` is diagnostic-clean and only the historical missing Node
   ambient declarations remain in `m2.ts` and the native test, because package
   installation is not authorized.

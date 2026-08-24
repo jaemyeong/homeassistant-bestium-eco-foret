@@ -13,8 +13,8 @@ The former trailing-space path must remain absent. The research sibling at
 existence-checked only. Do not read or copy its contents; M4.6 used no legacy
 evidence.
 
-The M4.6 work unit is three signed local commits, because amending a signed
-commit is not permitted and two corrections were needed after the fact.
+The M4.6 work unit is four signed local commits, because amending a signed
+commit is not permitted and each correction had to land on its own.
 
 1. `d4463c5db4a09d440133a99249ac2b4f53680303`,
    `fix(m4): unify tx quarantine and monitor labels`, parent
@@ -23,11 +23,15 @@ commit is not permitted and two corrections were needed after the fact.
    `docs(m4): record measured m4.6 red and mutants`. It exists because (1)
    asserted a tests-first RED enumeration inherited from the preceding session
    rather than measured.
-3. The containing commit, which cannot carry its own SHA. It must have subject
-   `fix(m4): restore rx freshness gate for observed actions`, parent
-   `92027c1a5f9130b4dab7eb9cc206f21d2c1380d5`, a Good signature, and a clean
-   worktree. It is repair round 1 against the P0 an independent audit found in
-   (1).
+3. `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`,
+   `fix(m4): restore rx freshness gate for observed actions`. Repair round 1
+   against the P0 an independent audit found in (1).
+4. The containing commit, which cannot carry its own SHA. It must have subject
+   `docs(m4): record repair re-audit pass`, parent
+   `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`, a Good signature, and a clean
+   worktree. It records the fresh independent re-audit that accepted (3) at PASS
+   and refreshes the index counts, which (3) still reported from before the
+   repair.
 
 ## Publication state
 
@@ -48,7 +52,7 @@ commits ahead, and that public `main` remained `0.2.2` were false in the present
 tense and have been corrected.
 
 Publishing `0.2.4` is **not** authorized. After the containing commit, local
-`main` is exactly three signed commits ahead of public `main`.
+`main` is exactly four signed commits ahead of public `main`.
 
 ## Accepted native/static result
 
@@ -125,8 +129,12 @@ Publishing `0.2.4` is **not** authorized. After the containing commit, local
   freshness gates. Reverting the six product and configuration paths to the
   parent while holding the tests at their repaired expectations reproduces
   exactly 5 failures of 99.
-- Graphify is refreshed at 438 nodes/498 edges/42 communities and CodeGraph at
-  15 files/527 nodes/2,793 edges; both are Git-ignored and neither is staged.
+- A fresh independent re-audit of repair round 1 returned PASS with no new P0 or
+  P1, verified by construction rather than by reading the diff. Its highest
+  severity was P2, on the pre-existing speculative-challenge wording in `send`.
+  One repair round remains available under the contract.
+- Graphify is refreshed at 443 nodes/503 edges/42 communities and CodeGraph at
+  15 files/527 nodes/2,797 edges; both are Git-ignored and neither is staged.
   Exact-root Serena 1.7.0 reports TypeScript LSP `ready`, `ui.ts` is
   diagnostic-clean, and only the historical missing Node ambient declarations
   remain in `m2.ts` and the native test.
@@ -170,22 +178,29 @@ research sibling은 존재 여부만 확인하고 내용을 읽지 마.
 다음을 확인해:
 
 - exact root/toplevel과 trailing-space path 부재
-- HEAD subject `fix(m4): restore rx freshness gate for observed actions`, parent
-  `92027c1a5f9130b4dab7eb9cc206f21d2c1380d5`, Good signature
-- clean worktree, empty staging, local `main`이 정확히 3 commits ahead
+- HEAD subject `docs(m4): record repair re-audit pass`, parent
+  `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`, Good signature
+- parent subject `fix(m4): restore rx freshness gate for observed actions`,
+  Good signature
+- clean worktree, empty staging, local `main`이 정확히 4 commits ahead
 - `origin/main`, `git ls-remote origin main`, public GitHub `main`이 모두
   `297233309325e13e90193c3ef1425b5fcf165d6e`이고 public config는 `0.2.3`
 - root/App/config/Docker version equality at `0.2.4`
 - Node `v24.14.1`, full native 99/99, `git diff --check`
-- Graphify 438 nodes/498 edges, CodeGraph 15 files/527 nodes/2,793 edges,
+- Graphify 443 nodes/503 edges, CodeGraph 15 files/527 nodes/2,797 edges,
   exact-root Serena TypeScript LSP `ready`
 - Current checkpoint sentinel exactly:
   `Next event: obtain fresh explicit approval before pushing the signed M4.6 `0.2.4` commit or performing any live validation; do not access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval`
 
 M4.6은 독립 적대적 감사를 6번째 시도에서 받았고, 그 감사가 찾은 P0을
-repair round 1에서 수리했다. `AGENTS.md`는 repair round를 최대 2회로
-제한하므로 남은 라운드는 1회다. 감사가 남긴 P3 두 건과 기존 문구 결함
-한 건은 사용자 결정에 따라 M5로 미뤄져 있다.
+repair round 1에서 수리했으며, 별도의 새 독립 재감사가 그 수리를 PASS로
+수용했다. `AGENTS.md`는 repair round를 최대 2회로 제한하므로 남은
+라운드는 1회다. 열려 있는 항목은 전부 기존이거나 사소하며 사용자 결정에
+따라 M5로 미뤄져 있다: `send`의 speculative-challenge 문구, M4.6 테스트에
+남은 죽은 항진 단언, multi-frame write 루프의 freshness 재검사 부재(현
+인코더로 도달 불가), `m2.ts:995`의 바이트 시계 폴백(생산 배선으로 도달
+불가), `ui.ts` vehicle 행 어순, `attachTransport` 인접 결합을 고정하는
+테스트 부재.
 
 검증 결과와 native/static 한계를 보고한 뒤 멈춰. 새 명시적 승인 없이는
 stage/commit/push/live/external action을 하지 마.
