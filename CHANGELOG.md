@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-24
+
+### Fixed
+
+- Keep the App running when TX toggles are enabled without
+  `transmit_user_id`. The effective master, speculative, and unsafe TX flags are
+  all forced off until a valid configured Home Assistant user ID is present.
+- Preserve the existing validation and enabled behavior when a valid
+  `transmit_user_id` is configured.
+
+### Verification
+
+- Exact project-local Luna/max reproduced the two intended startup/parser REDs,
+  applied the shared-parser fail-closed fix, and passed focused 9/9 and full
+  88/88 native tests. Root/App package, App config, and Docker metadata all parse
+  or match version `0.2.1`; `git diff --check` passes.
+- Current Graphify, CodeGraph, and exact-root Serena checks pass. The product
+  source has no new LSP diagnostic; the native test retains only the historical
+  missing Node ambient declarations. No package installation, Docker execution,
+  Home Assistant/Ingress mutation, network/EW11 access, Capture, actual TX, or
+  device action occurred. Sosumi: N/A because there is no Apple claim.
+- The read-only adversarial audit accepted the functional candidate and found
+  one P2 overstatement in the progress ledger's LSP wording. After that
+  documentation-only correction, re-audit passed with no actionable P0-P3.
+
+## [0.2.0] - 2026-08-24
+
 ### Added
 
 - Prepared an uncommitted clean-room `0.2.0` protocol-debug candidate that

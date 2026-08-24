@@ -1,8 +1,8 @@
 # BESTIUM Eco-Foret Home Assistant App
 
-Experimental Home Assistant App for bounded, application-level RX-only capture of
-wallpad data through an EW11 TCP gateway. It is an engineering clean rewrite and
-does not reuse legacy product source.
+Experimental Home Assistant App for bounded wallpad capture, protocol debugging,
+and guarded transmission through an EW11 TCP gateway. It is an engineering clean
+rewrite and does not reuse legacy product source.
 
 ![The Home Assistant Ingress dashboard while a bounded capture is running](docs/images/capture-dashboard.jpg)
 
@@ -20,6 +20,8 @@ does not reuse legacy product source.
 - Finalizes partial data when Stop is selected and enables Download only after
   finalization.
 - Writes summary lifecycle information to App logs without raw packet payloads.
+- Monitors current-generation device evidence and exposes default-disabled,
+  operator-gated preview/commit controls for the bounded debug actions.
 
 ## Install from the repository URL
 
@@ -47,9 +49,9 @@ and [App repository layout](https://developers.home-assistant.io/docs/apps/repos
 
 ## Configure
 
-The EW11 host and port are required. All other values have bounded defaults.
-The host must be a bare hostname or IP address without a URL scheme, whitespace,
-or `/` or `\` path separators.
+The EW11 host and port are required. Numeric options have bounded defaults. The
+host must be a bare hostname or IP address without a URL scheme, whitespace, or
+`/` or `\` path separators.
 
 | Option | Default | Accepted range |
 | --- | ---: | ---: |
@@ -60,6 +62,11 @@ or `/` or `\` path separators.
 | `capture_duration_ms` | 5,000 | 100–86,400,000 ms |
 | `maximum_bytes` | 65,536 | 1–67,108,864 bytes |
 | `maximum_records` | 1,000 | 1–1,000,000 records |
+
+Transmission is disabled by default. To enable it, set `transmit_user_id` to the
+exact Home Assistant user ID allowed to operate the Ingress controls, then enable
+the required TX tier. Starting with `0.2.1`, if any TX toggle is enabled without
+that ID, the App starts normally but evaluates all three TX toggles as disabled.
 
 The App is marked `experimental` and `manual_only`; it will not start
 automatically at Home Assistant boot.
@@ -91,11 +98,11 @@ private and do not commit them to this public repository.
   gateway address.
 - No public port mapping, host networking, Docker API access, full access, or
   privileged mode is requested.
-- “RX-only” refers to application behavior: the App does not write wallpad
-  command frames. A TCP connection still performs normal network protocol
-  traffic.
-- Protocol interpretation, Home Assistant entities, and device control are not
-  implemented.
+- Transmission is default-disabled and remains fail-closed unless the configured
+  Home Assistant user ID matches the trusted Ingress user. Gas OPEN is not
+  exposed or encoded; gas control is CLOSE-only.
+- Protocol labels and inferred command candidates are experimental debugging
+  aids, not Home Assistant entities or proof of device behavior.
 - Version `0.1.2` installation, startup, Ingress, and bounded receive behavior
   have been observed on one local Home Assistant OS installation; portability to
   other hardware and environments is not yet established.
@@ -103,6 +110,9 @@ private and do not commit them to this public repository.
   static/native/adversarial acceptance. Its 34 native tests include lossless
   paused-transport buffering and timeout re-arming across idle timeout events.
   Home Assistant update and live reconnect validation remain pending.
+- Version `0.2.0` added the debug monitor and guarded TX surfaces. Version `0.2.1`
+  repairs startup when TX toggles are enabled without `transmit_user_id`; live
+  Home Assistant and device behavior remain separate verification gates.
 
 ## Development
 

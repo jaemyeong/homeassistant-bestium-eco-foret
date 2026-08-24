@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.2.0";
+const EXPECTED_VERSION = "0.2.1";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -1033,9 +1033,6 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     { label: "transmit user non-string", input: { ...base, transmit_user_id: 7 }, expect: /transmit_user_id/i },
     { label: "transmit user empty", input: { ...base, transmit_user_id: "" }, expect: /transmit_user_id/i },
     { label: "transmit user too long", input: { ...base, transmit_user_id: "x".repeat(129) }, expect: /transmit_user_id/i },
-    { label: "enabled without user", input: { ...base, transmit_enabled: true }, expect: /transmit_user_id|authorized/i },
-    { label: "speculative enabled without user", input: { ...base, speculative_transmit_enabled: true }, expect: /transmit_user_id|authorized/i },
-    { label: "unsafe enabled without user", input: { ...base, unsafe_transmit_enabled: true }, expect: /transmit_user_id|authorized/i },
   );
 
   for (const check of invalid) {
@@ -1081,6 +1078,16 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
   const enabled = parse({ ...base, transmit_enabled: true, transmit_user_id: "operator-7" });
   assert.equal(enabled.transmit_enabled, true);
   assert.equal(enabled.transmit_user_id, "operator-7");
+  const missingTransmitUser = parse({
+    ...base,
+    transmit_enabled: true,
+    speculative_transmit_enabled: true,
+    unsafe_transmit_enabled: true,
+  });
+  assert.equal(missingTransmitUser.transmit_enabled, false);
+  assert.equal(missingTransmitUser.speculative_transmit_enabled, false);
+  assert.equal(missingTransmitUser.unsafe_transmit_enabled, false);
+  assert.equal(missingTransmitUser.transmit_user_id, undefined);
   assert.equal(parse({ ...base, transmit_user_id: "operator-7" }).transmit_enabled, false);
   assert.equal(parse({ ...base, speculative_transmit_enabled: true, transmit_user_id: "operator-7" }).speculative_transmit_enabled, true);
   assert.equal(parse({ ...base, unsafe_transmit_enabled: true, transmit_user_id: "operator-7" }).unsafe_transmit_enabled, true);
@@ -1812,6 +1819,113 @@ test("RED: ingress dependency failures return bounded 500 responses", async () =
   );
   assert.equal(stop.statusCode, 500);
   assert.equal(stop.body, "internal error");
+});
+
+test("RED: runtime fails closed when all TX flags are enabled without a transmit user", async () => {
+  const m2 = await importM2();
+  const listenPorts: number[] = [];
+  let transportCreations = 0;
+  let app: {
+    requestHandler(req: FakeReq, res: FakeRes): Promise<void> | void;
+    stop(): Promise<void>;
+  } | undefined;
+
+  try {
+    app = await m2.startM2Runtime({
+      async readOptions() {
+        return validSettings({
+          transmit_enabled: true,
+          speculative_transmit_enabled: true,
+          unsafe_transmit_enabled: true,
+        });
+      },
+      createTransport() {
+        transportCreations += 1;
+        return createFakeTransport();
+      },
+      createServer() {
+        return {
+          listen(port) {
+            listenPorts.push(port);
+          },
+          close() {},
+        };
+      },
+    });
+
+    const res = createRes();
+    await app.requestHandler(
+      createReq({ socket: { remoteAddress: "::ffff:172.30.32.2" }, url: "/api/status" }),
+      res,
+    );
+    const status = parseJson<AnyRecord>(res.body);
+    const tx = status.tx as AnyRecord;
+    assert.equal(res.statusCode, 200);
+    assert.equal(tx.enabled, false);
+    assert.equal(tx.speculativeEnabled, false);
+    assert.equal(tx.unsafeEnabled, false);
+    assert.equal(tx.authorized, false);
+    assert.deepStrictEqual(listenPorts, [8099]);
+    assert.equal(transportCreations, 0);
+  } finally {
+    await app?.stop();
+  }
+});
+
+test("RED: runtime preserves enabled TX flags with a valid transmit user", async () => {
+  const m2 = await importM2();
+  const listenPorts: number[] = [];
+  let transportCreations = 0;
+  let app: {
+    requestHandler(req: FakeReq, res: FakeRes): Promise<void> | void;
+    stop(): Promise<void>;
+  } | undefined;
+
+  try {
+    app = await m2.startM2Runtime({
+      async readOptions() {
+        return validSettings({
+          transmit_enabled: true,
+          speculative_transmit_enabled: true,
+          unsafe_transmit_enabled: true,
+          transmit_user_id: "operator-7",
+        });
+      },
+      createTransport() {
+        transportCreations += 1;
+        return createFakeTransport();
+      },
+      createServer() {
+        return {
+          listen(port) {
+            listenPorts.push(port);
+          },
+          close() {},
+        };
+      },
+    });
+
+    const res = createRes();
+    await app.requestHandler(
+      createReq({
+        socket: { remoteAddress: "::ffff:172.30.32.2" },
+        url: "/api/status",
+        headers: { "x-remote-user-id": "operator-7" },
+      }),
+      res,
+    );
+    const status = parseJson<AnyRecord>(res.body);
+    const tx = status.tx as AnyRecord;
+    assert.equal(res.statusCode, 200);
+    assert.equal(tx.enabled, true);
+    assert.equal(tx.speculativeEnabled, true);
+    assert.equal(tx.unsafeEnabled, true);
+    assert.equal(tx.authorized, true);
+    assert.deepStrictEqual(listenPorts, [8099]);
+    assert.equal(transportCreations, 0);
+  } finally {
+    await app?.stop();
+  }
 });
 
 test("RED: offline production wiring accepts defaults, uses 8099, and cleans transport on stop", async () => {

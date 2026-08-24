@@ -188,9 +188,9 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
   if (transmit_user_id !== undefined && (typeof transmit_user_id !== "string" || transmit_user_id.length < 1 || transmit_user_id.length > 128)) {
     throw new TypeError("transmit_user_id must be a non-empty string of at most 128 characters");
   }
-  if ((transmit_enabled || speculative_transmit_enabled || unsafe_transmit_enabled) && transmit_user_id === undefined) {
-    throw new TypeError("transmit_user_id is required when transmission is enabled");
-  }
+  const effectiveTransmitEnabled = transmit_user_id === undefined ? false : transmit_enabled;
+  const effectiveSpeculativeTransmitEnabled = transmit_user_id === undefined ? false : speculative_transmit_enabled;
+  const effectiveUnsafeTransmitEnabled = transmit_user_id === undefined ? false : unsafe_transmit_enabled;
   const tx_write_timeout_ms = readNumeric("tx_write_timeout_ms");
   const tx_cooldown_ms = readNumeric("tx_cooldown_ms");
   const tx_quiet_ms = readNumeric("tx_quiet_ms");
@@ -205,9 +205,9 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     capture_duration_ms,
     maximum_bytes,
     maximum_records,
-    transmit_enabled,
-    speculative_transmit_enabled,
-    unsafe_transmit_enabled,
+    transmit_enabled: effectiveTransmitEnabled,
+    speculative_transmit_enabled: effectiveSpeculativeTransmitEnabled,
+    unsafe_transmit_enabled: effectiveUnsafeTransmitEnabled,
     ...(transmit_user_id === undefined ? {} : { transmit_user_id }),
     tx_write_timeout_ms,
     tx_cooldown_ms,
