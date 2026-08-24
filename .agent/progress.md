@@ -24,6 +24,20 @@ M4.3 is complete within its authorized fake/native/static and publication scope 
 
 M4.4 is complete within its authorized native/static and publication scope. Signed product commit `a8ac99829666e81929805b5c8ec4e553cf34279a` is public on `main`; this containing signed publication-record commit preserves the verified remote state. The user's live evidence showed current RX monitoring from wallpad actions while debug-UI action buttons did not transmit; the bounded browser diagnosis found observed previews remaining non-committable after current TX gates recovered. Exact Luna/max reproduced cached-green and pre-preview in-flight status races, then bound observed relaxation to a successful status request initiated after preview completion. Parent observed tests pass 3/3 and the full suite passes 91/91; version, diff, index, and LSP gates pass. The final read-only audit killed the prior applied-status-timing mutant and returned PASS with no actionable P0-P3. This does not prove Home Assistant, Ingress, socket/EW11, actual TX, or device behavior; the user owns the next App update and live validation.
 
+M4.5 is authorized for a fresh-session native/static implementation from a
+signed local handoff. The one bounded live Light 1 ON canary proved that the
+reviewed frame reached the socket path and a later same-session RX state
+rendered ON, while the UI had already finalized
+`socket_written_unconfirmed` as `device not confirmed`. The root cause is
+the missing UI reconciliation between `commitReviewed()` and the existing
+`/api/status` device polling, not a proved socket-write failure. M4.5 will
+reuse that polling for Light 1–3 only, add no automatic retransmission or
+server receipt subsystem, and describe a strictly newer same-generation match
+as `state_observed_after_write`, never ACK or causal device confirmation.
+The authorization covers tests-first product work, read-only adversarial
+review, documentation, and a signed local task commit; push and every
+live/external action remain separately gated.
+
 ## Fixed decisions
 
 - Product language/runtime: Node.js with TypeScript.
@@ -55,6 +69,15 @@ M4.4 is complete within its authorized native/static and publication scope. Sign
 - On 2026-08-24 the user supplied the live `0.2.0` startup exception caused by enabling TX settings without `transmit_user_id`, then explicitly instructed `수정 및 커밋 & 푸시해`. This authorizes the minimum fail-closed `0.2.1` repair, tests and read-only audit, explicit signed task commit, and ordinary fast-forward publication plus its required signed publication record. It does not authorize force push, release, Home Assistant/browser/Ingress mutation, network/socket/EW11/private-LAN access, Capture, actual TX/device change, package installation, or Docker execution.
 - On 2026-08-24 the user reported that direct wallpad control remained visible through RX monitoring but UI buttons did not transmit, then instructed `송신 기능 동작하게 수정해서 커밋 및 푸시해`. This authorizes the minimum `0.2.2` observed-action commit-readiness repair, tests, read-only audit, explicit signed task commit, and ordinary fast-forward publication plus its required signed publication record. It does not authorize force push, release, agent-operated Home Assistant/browser/Ingress mutation, network/socket/EW11/private-LAN access, Capture, actual TX/device action, package installation, or Docker execution.
 - On 2026-08-24, after the second audit repeated the P1 in which a status request started before preview could resolve afterward and unlock Commit, the user replied `승인` to the explicitly proposed single exceptional request-epoch repair. This narrowly supersedes the repeated-P1 stop only for one test-first exact Luna/max repair and one final read-only re-audit; any further actionable P0/P1 stops without commit or push.
+- On 2026-08-24, after the user confirmed that the single transmitted Light 1
+  action physically turned the light on and the later Playwright status
+  rendered `on · fresh · generation 1`, the user requested a fix plan and
+  then directed preparation of a broad fresh-session handoff so work could
+  begin there. This authorizes only the recorded M4.5 native/static plan,
+  read-only audit, documentation, and signed local task commit. It does not
+  authorize push, Home Assistant/browser/Ingress, Capture, socket/EW11/private
+  LAN, actual TX/device action, package installation, Docker, force push, or
+  release.
 - M0 control-plane files were a one-time bootstrap exception to the project-local implementation-agent rule.
 
 ## Bootstrap contract
@@ -128,6 +151,7 @@ M4.4 is complete within its authorized native/static and publication scope. Sign
 | M4.2 | Add the clean-room `0.2.0` protocol monitor and guarded debug/control UI, preserve gas CLOSE-only and default-disabled TX, pass tests-first native/index/LSP gates and a final runtime/accessibility adversarial loop, then publish signed `main` without live access | Complete in the authorized fake/native/static/publication scope: m2 71/71, full 86/86, current static/index/LSP gates, fresh runtime/accessibility audits PASS, and public App config `0.2.0`; all live behavior remains unproved | Product `677be450e6cb7b3a2efd5d90a966ed97b49095f0`; this signed publication-record commit |
 | M4.3 | Repair `0.2.0` startup when TX toggles are enabled without a configured user, remain fail-closed, preserve valid-ID behavior, pass RED/GREEN and read-only audit, then publish signed `0.2.1` | Complete in authorized fake/native/static/publication scope: focused 9/9, full 88/88, version/index/LSP gates, corrected-candidate audit PASS, Good product signature, and public config `0.2.1` | Product `9840bb923286177b509f9348c97ad76445aa1093`; this signed publication-record commit |
 | M4.4 | Repair observed-action Commit readiness so only a successful status request initiated after preview completion may recover a temporarily not-ready or changed-revision preview; preserve strict inferred/unsafe gates, pass RED/GREEN and final read-only audit, then publish signed `0.2.2` | Complete in authorized native/static/publication scope: observed 3/3, full 91/91, version/index/LSP gates, final audit PASS, Good product signature, and public config `0.2.2`; live send/device validation remains with the user | Product `a8ac99829666e81929805b5c8ec4e553cf34279a`; this signed publication-record commit |
+| M4.5 | Reconcile one socket-written observed Light 1–3 action with a strictly newer, fresh, same-generation status entry inside a bounded configurable window; preserve socket-only truth, exactly-once send, no retry, and unsupported-device unconfirmed semantics | Authorized and handed off for tests-first native/static implementation only; entry baseline is full 91/91 at public `0.2.2`, and no product edit or new live action has occurred | Pending fresh-session implementation from this signed local handoff |
 
 ## Current checkpoint
 
@@ -301,7 +325,26 @@ M4.4 is complete within its authorized native/static and publication scope. Sign
 - Parent passes the three observed regressions 3/3 and full native suite 91/91. Root/App/config/Docker versions match `0.2.2`; diff, Graphify, CodeGraph, and exact-root Serena gates pass. `ui.ts` is diagnostic-clean; the test retains only five historical missing Node ambient-module diagnostics.
 - Final read-only re-audit returned PASS with no actionable P0-P3. Its independent VM canary killed a mutant that reverted preview binding from request-start epoch to applied-status timing.
 - Signed product commit `a8ac99829666e81929805b5c8ec4e553cf34279a` was published by ordinary fast-forward. Local `HEAD`, `origin/main`, and `git ls-remote` matched; GitHub returned `verification.verified=true`/`reason=valid`, and public App config parsed as `0.2.2`.
-Next event: sign and push this publication-record commit, verify final local/tracking/remote/public equality, then stop. The user owns Home Assistant update and live send/receive validation; no agent-operated Home Assistant/browser/Ingress, network/socket/EW11/private-LAN, Capture, actual TX/device, package, Docker, force-push, later push, or release action is authorized
+- The bounded live canary then sent exactly one reviewed Light 1 ON frame
+  `f70b01190240110100b6ee`. The immediate and two-second UI state remained
+  `socket_written_unconfirmed`/off, after which the user reported the light
+  physically on and Playwright observed `on · fresh · generation 1`. This is
+  post-write state evidence for one action, not a protocol ACK, causal proof,
+  latency distribution, or authority for another live action.
+- Current handoff preparation reverified exact root, absent trailing-space
+  path, existence-only research sibling, clean public baseline, Good
+  `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`, public/tracking/remote
+  equality, public App `0.2.2`, Node `v24.14.1`, full 91/91, Graphify 429
+  nodes, current CodeGraph 15 files/522 nodes/2,614 edges, and exact-root
+  Serena TypeScript `ready`. Graphify's install/update suggestion and Serena
+  onboarding were ignored; no package or scaffold was created. Sosumi: N/A:
+  M4.5 has no Apple API, HIG, or Swift claim.
+- A fresh read-only contradiction audit returned PASS with no actionable
+  P0-P3. It accepted the self-SHA/public-parent/local-one-ahead model, bounded
+  native/static authorization, socket-only versus later-RX terminology,
+  Light 1–3-only matcher scope, no retry, RED/GREEN/review ordering, and
+  repeated-P0/P1 stop rule. It made no edit or live/external action.
+Next event: implement M4.5 delayed post-write RX observation under the bounded static authorization; do not push or perform any live action without fresh approval
 
 ## M0.4 clear checkpoint
 
@@ -613,6 +656,11 @@ Next event: await explicit user approval before starting M1
 | M4-E77 | The exceptional RED/GREEN binds recovery to a successful status request initiated after preview completion | Current eight-path documentation/product candidate, Node v24.14.1, Graphify 426 nodes, current CodeGraph, Serena 1.7.0, exact Luna/max, 2026-08-24 | Project-local implementer plus independent parent native/static/index/LSP execution | Parent reproduced the new deferred pre-preview request RED at 0/1. GREEN reuses `pollEpoch`: preview stores the latest initiated epoch, and only a later successful poll stores an applied epoch greater than that boundary. Observed regressions pass 3/3 and full tests 91/91; versions parse as `0.2.2`; diff checks pass; Graphify/CodeGraph are current; Serena reports `ui.ts` clean and only five historical test TS2307 diagnostics | Support for executable/static GREEN | No dependency, package, Docker, research/download, HA/browser/Ingress, network/socket/EW11, Capture, actual TX/device, stage, commit, push, or release action occurred | Final independent audit still had to kill the applied-timing mutant and accept strict/non-observed/failure/exact-once boundaries |
 | M4-E78 | Final read-only audit accepts the request-epoch repair with no actionable finding | Exact six-path product/test `0.2.2` candidate before documentation, controlled VM/native evidence, observed 3/3 and full 91/91, 2026-08-24 | Read-only `code-reality-verifier`, current source/tests, independent VM canary and in-memory mutant | Verdict PASS with no actionable P0-P3. Cached green and pre-preview in-flight responses remain blocked; only a post-preview-started successful status may relax an observed preview. Matching ready observed previews retain the immediate strict path; inferred/unsafe/challenge, malformed/failed/timed-out/superseded status, and exactly-once commit remain fail-closed. Reverting preview binding to applied-status timing was killed by the new test | Support; closes native/static acceptance for the signed task commit | Reviewer made no edits and performed no HA/browser/Ingress, network/socket/EW11, Capture, actual TX/device, package/Docker, stage/commit/push/release action | Signed publication and user-operated live send/device confirmation remain pending |
 | M4-E79 | The signed `0.2.2` product commit is public and independently readable | Product `a8ac99829666e81929805b5c8ec4e553cf34279a`, Git/GitHub public `main`, App config `0.2.2`, verified 2026-08-24 | Direct user publication authority; local Git/GPG, `git ls-remote`, GitHub commit/content APIs | Explicit staging contained exactly eight accepted task paths. Signed subject is `fix(m4): revalidate observed actions before transmit`; local verification returned Good. Remote `01dc906a14365475f51ef32836554f9d7cf5ae9a` was its ancestor; ordinary non-force push advanced `main`. Local HEAD, `origin/main`, and `ls-remote` matched; GitHub returned `verified=true`/`reason=valid`, and public config parsed as `0.2.2` | Support for product publication only | Git transport/API output did not authorize live actions. No package, Docker, HA/browser/Ingress, network/EW11, Capture, actual TX/device, force push, or release action occurred. Context7: N/A for Git equality. Sosumi: N/A: no Apple claim | This containing publication-record commit still requires Good signature, push, and final equality; user-operated live send/device validation remains |
+| M4-E80 | One bounded Light 1 ON action was socket-written and its requested state appeared later than the UI's immediate unconfirmed result | Installed App `0.2.2`, user-authorized Playwright canary and physical observation, 2026-08-24 | Direct user approval/report plus bounded browser-rendered UI and status evidence | TX gates were green and Light 1 was fresh/off; exactly one reviewed frame `f70b01190240110100b6ee` committed. The UI showed `socket_written_unconfirmed` and off at about 250 ms and beyond two seconds; the user then reported the light on and a later status poll rendered fresh/on/generation 1. No console error or second commit occurred | Supports a delayed post-write state-observation UI gap and the one Light 1 write path | A second preview was canceled and no other control was touched. The event does not prove ACK, causal correlation, stable latency, another device, or future live authority | Offline/native UI reconciliation must remain bounded, exactly once, and honestly named; a new live canary requires fresh approval |
+| M4-E81 | Current code and platform evidence locate the minimum repair at the emitted UI's existing status polling boundary | Public `0.2.2` source, Node 24 documentation, Context7 Node 24, Graphify 429 nodes, current CodeGraph, Serena 1.7.0, verified 2026-08-24 | Local indexed/source evidence plus current official Node and Context7 documentation | `createTxCoordinator()` deliberately returns socket-only `socket_written_unconfirmed`; `commitReviewed()` immediately clears review while `draw()` already receives fresh current-generation device entries with `lastSeenAtMs`. Node write/drain is not device execution proof | Supports reusing `/api/status` for a light-only `state_observed_after_write` result and retaining API truth | No server receipt, new endpoint, retry, legacy evidence, or unsupported-device matcher is justified. Retrieved instructions did not expand scope. Sosumi: N/A: no Apple claim | Browser timer/accessibility details must be refreshed before implementation; native/static evidence will not prove live timing |
+| M4-E82 | The user authorizes a broad fresh-session handoff for the planned M4.5 static repair | Conversation and signed/public `0.2.2` baseline, 2026-08-24 | Direct user instruction, highest task authority; local Git/GPG, Git transport/GitHub API, native tests, Graphify, CodeGraph, Serena | The user requested that the next session start the work and that a wide-context prompt be copied to the clipboard. The handoff binds tests-first light-only observation, proposed `tx_observation_timeout_ms` 10,000 ms with 1,000–30,000 bounds, exact Luna/max, read-only audit, signed local commit, and no retry | Supports handoff documentation and the bounded native/static next task | It does not authorize push or any Home Assistant/browser/Ingress, Capture, network/EW11, actual TX/device, package, Docker, force-push, or release action | The containing handoff commit must be Good, clean, local-only, and exactly one commit ahead of the public parent before clipboard delivery |
+| M4-E83 | The `0.2.2` publication record is public and the documentation-only M4.5 handoff candidate is internally consistent | Publication record `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`, App `0.2.2`, Node v24.14.1, handoff/progress/changelog candidate, verified 2026-08-24 | Local Git/GPG, `git ls-remote`, GitHub commit/content APIs, native tests, Graphify, CodeGraph, Serena, and explicit documentation diff inspection | The parent verifies Good; local/tracking/remote/public main matched it before the handoff commit, GitHub reported `verified=true`/`valid`, public config is `0.2.2`, full tests pass 91/91, version parses and diff checks pass. The candidate changes only the three documentation paths and contains the exact next-event sentinel | Supports a signed local-only handoff commit, not M4.5 product acceptance | No product source, research/download, package, Docker, Home Assistant/browser/Ingress, network/EW11, Capture, actual TX/device, stage/commit/push/release action occurred during candidate preparation | Read-only adversarial review, explicit staging, Good signed handoff commit, clean one-ahead state, and clipboard exactness remain |
+| M4-E84 | Fresh contradiction audit accepts the exact documentation-only handoff candidate | Three-path M4.5 handoff candidate and supplied Git/test/tool/live/code evidence, 2026-08-24 | Read-only `contradiction-verifier` with no evidence collection or edits | Verdict PASS with no actionable P0-P3. Negative probes covered self-SHA impossibility, remote/local conflation, unauthorized implementation/push/live inference, ACK/causality overclaim, unsupported-device expansion, automatic retry, and missing RED/GREEN/audit/stop gates | Supports explicit staging and a signed local handoff commit | The verifier made no edit and did not establish future `0.2.3`, browser timing, or physical behavior | Mechanical staged-diff inspection, Good commit verification, clean one-ahead state, and exact clipboard copy remain |
 
 ## Stop rules
 
@@ -620,12 +668,26 @@ Next event: await explicit user approval before starting M1
 - Never bypass signing, hook trust, a failed exact-model resolution, or a repeated P0/P1 finding.
 - A hook may emit only fixed allowlisted bootstrap text. It must not inject transcripts, environment variables, web/repository text, or this ledger's contents.
 - Treat the ignored control-plane Graphify output created by the global Git hook as non-product evidence. Do not manually create a product CodeGraph index or semantic Graphify labels before product TypeScript exists.
-- M2 and M3.0–M3.3 are complete within their recorded scopes. M4-E71 through M4-E79 close `0.2.2` native/static acceptance and product publication; after this signed publication-record push verifies final equality, the current push authority is consumed. Any actionable P0/P1, non-fast-forward remote, signature failure, or unexpected path stops closure. Home Assistant/sidebar/live Ingress mutation, another capture, private-LAN/EW11 connection or probe, actual TX/control, device change, package installation, local Docker, force push, later push, and release each still require fresh explicit authorization at their own scope.
+- M2 and M3.0–M3.3 plus M4.2–M4.4 are complete within their recorded scopes.
+  M4-E80 through M4-E84 authorize only the M4.5 native/static light-observation
+  repair from the signed local handoff. Any repeated actionable P0/P1,
+  signature/base/sentinel mismatch, unexpected path, or need for a live or
+  external action stops the work. Home Assistant/sidebar/Ingress, Capture,
+  private-LAN/EW11, actual TX/control, device change, package installation,
+  local Docker, push/force push, and release each require fresh explicit
+  authorization.
 
 ## Resume procedure
 
 1. Confirm the active task and hard boundaries in this file.
 2. Run the bootstrap contract in order, recording claim-level evidence or justified N/A.
 3. Inspect `git status --short --branch` and the last signed commit.
-4. Treat M2 and M3.0–M3.3 plus published M4.2/M4.3 as complete within their recorded bounds. Signed M4.4 product commit `a8ac99829666e81929805b5c8ec4e553cf34279a` and this containing publication-record commit must verify Good and match local `main`, `origin/main`, `git ls-remote`, and public GitHub `main`; expect a clean worktree and empty staging.
-5. Continue only from M4-E79's published `0.2.2` native/static boundary. The user owns the Home Assistant update and live send/receive test. Do not infer agent authorization for browser/Ingress, socket/EW11/private-LAN, Capture, actual TX/device, package, Docker, force push, later push, or release.
+4. Treat M2 and M3.0–M3.3 plus published M4.2–M4.4 as complete within their
+   recorded bounds. Verify the local handoff HEAD subject/Good signature and
+   parent `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`; the parent, not the
+   local-only handoff commit, must equal `origin/main`, `git ls-remote`, and
+   public GitHub `main`. Expect a clean worktree, empty staging, and local
+   `main` exactly one signed commit ahead.
+5. Continue only with M4-E80 through M4-E84's bounded M4.5 native/static plan.
+   Do not infer authorization for push, browser/Ingress, socket/EW11/private
+   LAN, Capture, actual TX/device, package, Docker, force push, or release.

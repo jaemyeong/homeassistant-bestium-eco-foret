@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Documentation
+
+- Prepare a fresh-session M4.5 handoff for the delayed post-write RX
+  observation repair. The bounded plan preserves
+  `socket_written_unconfirmed` as a socket-only result, reuses existing status
+  polling for Light 1–3 only, prohibits automatic retry, and names a later
+  matching state `state_observed_after_write` rather than a device ACK.
+- Carry forward the single live Light 1 ON observation: one reviewed frame was
+  written, the UI initially reported an unconfirmed socket result, and a later
+  same-session status poll rendered Light 1 on. No other control was exercised.
+
+### Verification
+
+- The public `0.2.2` parent and its product commit verify Good. Before the
+  local-only handoff commit, local/tracking/`ls-remote`/public GitHub
+  `main` matched `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`;
+  GitHub reported a valid signature and public App config `0.2.2`.
+- Node `v24.14.1` passes the unchanged full native suite 91/91; all three
+  version surfaces parse as `0.2.2`, and `git diff --check` passes.
+  Graphify queried 429 nodes before current CodeGraph; exact-root Serena 1.7.0
+  reports active TypeScript LSP `ready`. Sosumi: N/A because M4.5 has no
+  Apple API, HIG, or Swift claim.
+- This documentation handoff does not implement `0.2.3`, prove delayed
+  observation behavior, authorize push, or authorize any Home Assistant,
+  Ingress, capture, socket/EW11, TX, or device action.
+- A fresh read-only contradiction audit passed with no actionable P0-P3 after
+  probing self-SHA handling, local/remote expectations, authorization,
+  socket-versus-RX semantics, unsupported-device scope, no-retry safety, and
+  test/audit/stop gates.
+
 ## [0.2.2] - 2026-08-24
 
 ### Fixed
