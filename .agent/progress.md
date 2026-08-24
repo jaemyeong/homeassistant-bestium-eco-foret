@@ -518,6 +518,17 @@ separately gated by fresh explicit approval.
   was performed by this session under direct authorization. The authorization
   covered the product history and this contract-required publication record
   only; it did not extend to a Home Assistant update or any live validation.
+- M4.7 replaces the twelve gate chips with the canonical send banner. The
+  operator incident that prompted it is recorded plainly: after the `0.2.4`
+  update the add-on was running with capture stopped, every RX-dependent gate
+  was therefore red, and the twelve chips gave no indication that pressing
+  Capture start was the remedy. The banner names the consequences of having no
+  collection and offers that control in the same box. It was verified in a real
+  Chrome browser in the `off`, `quiet`, and `ready` states, not only against the
+  fake DOM, because the incident's root cause was that the fake DOM passed while
+  the real page was never opened. Full suite 100/100. `confirmed`,
+  `unconfirmed`, and `doorbell` from the canonical design are not implemented,
+  and `Bestium Wallpad UI.dc.html` is untouched.
 Next event: obtain fresh explicit approval before any live M4.6 validation; the user must update the installed App in Home Assistant themselves for `0.2.4` to take effect, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval
 
 ## M0.4 clear checkpoint

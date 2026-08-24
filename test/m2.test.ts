@@ -6856,3 +6856,67 @@ test("M4.6 RED: quarantine chip pins the gate and freshness survives an unparsed
     "the honest blocker before the first frame is the missing current-generation RX frame",
   );
 });
+
+test("M4.7 RED: the send banner names the blocker in consequences and points at the fix", async () => {
+  const uiModule = await import(pathToFileURL(path(paths.uiSource)).href) as AnyRecord;
+  const html = String(uiModule.renderAppHtml());
+  assert.equal(html.includes('id="tx-gates"'), false, "the twelve-chip gate list must be replaced by one banner");
+  assert.match(html, /id="gate-banner"[^>]*aria-live="polite"/, "the banner must be a polite live region");
+
+  const state = (fixture: UiVmFixture): unknown => fixture.nodes.get("gate-banner")?.attributes?.["data-state"];
+  const text = (fixture: UiVmFixture, id: string): string => String(fixture.nodes.get(id)?.textContent ?? "");
+  const reasons = (fixture: UiVmFixture): string[] =>
+    ((fixture.nodes.get("gate-banner-reasons")?.children as AnyRecord[]) ?? []).map((item) => String(item.textContent));
+
+  // 1. Capture off is its own state. The design states the four consequences of having
+  //    no collection rather than echoing gate names, and offers the control that fixes it.
+  const offTx = { ...(uiStatusPayload().tx as AnyRecord), connected: false, currentGenerationRx: false, fresh: false, quiet: false };
+  const off = await createUiVmFixture(uiStatusPayload({ phase: "stopped", state: "stopped", tx: offTx }));
+  await off.flush();
+  assert.equal(state(off), "off", "a stopped capture is the off state, not a generic block");
+  assert.match(text(off, "gate-banner-title"), /수집이 꺼져 있어 제어할 수 없습니다/);
+  assert.deepStrictEqual(reasons(off).length, 4, "the off state states exactly the four consequences");
+  assert.equal(
+    reasons(off).some((line) => line.includes("EW11") && line.includes("보낼 곳이 없습니다")),
+    true,
+    "the first consequence is that no socket is open to the gateway",
+  );
+  assert.equal(reasons(off).some((line) => line.includes("충돌")), true, "a silent bus cannot be confirmed, so collisions cannot be avoided");
+  assert.equal(reasons(off).some((line) => line.includes("준비")), false, "a blocked banner must never claim readiness");
+  assert.match(text(off, "gate-banner-fix"), /수집 시작하고 제어 열기/, "the off state must offer the control that unblocks it");
+
+  // 2. A running capture whose only failing gate is freshness is the quiet-bus state, and
+  //    it must say the collection is still on so the operator does not restart it needlessly.
+  const quiet = await createUiVmFixture(uiStatusPayload({ tx: { ...(uiStatusPayload().tx as AnyRecord), fresh: false } }));
+  await quiet.flush();
+  assert.equal(state(quiet), "quiet", "a stale frame on a running capture is the quiet state");
+  assert.match(text(quiet, "gate-banner-title"), /조용해 송신을 보류합니다/);
+  assert.match(text(quiet, "gate-banner-lede"), /수집은 켜져 있습니다/, "the quiet state must not read as a stopped capture");
+
+  // 3. Every gate green is ready.
+  const ready = await createUiVmFixture(uiStatusPayload());
+  await ready.flush();
+  assert.equal(state(ready), "ready", "an all-green gate must render the ready banner");
+  assert.match(text(ready, "gate-banner-title"), /제어 준비됨/);
+  assert.deepStrictEqual(reasons(ready), [], "a ready banner lists no blocker");
+
+  // 4. The banner must not become a second lying surface: a blocker the readiness gate
+  //    enforces has to read as blocked here too, and be named.
+  const blocked = await createUiVmFixture(uiStatusPayload({ tx: { ...(uiStatusPayload().tx as AnyRecord), quarantined: true } }));
+  await blocked.flush();
+  assert.equal(state(blocked), "blocked", "a quarantined generation must not be reported as ready");
+  assert.equal(
+    reasons(blocked).some((line) => line.includes("격리")),
+    true,
+    "the quarantined generation must be named as the blocker",
+  );
+
+  // 5. A live region that rewrites identical content on every poll re-announces it to a
+  //    screen reader, so an unchanged status must leave the banner untouched.
+  const sentinel = "SENTINEL";
+  const titleNode = off.nodes.get("gate-banner-title") as AnyRecord;
+  titleNode.textContent = sentinel;
+  off.fireTimer();
+  await off.flush();
+  assert.equal(titleNode.textContent, sentinel, "an unchanged banner must not be rewritten, or it re-announces every poll");
+});

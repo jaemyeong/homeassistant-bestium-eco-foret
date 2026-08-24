@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the twelve transmission-gate chips with one send banner, taken from the
+  canonical `SendBanner.dc.html` design. The banner states why control is
+  unavailable in terms of consequence rather than gate name, and puts the
+  control that clears it in the same box. `off`, `quiet`, `ready`, `sending`,
+  and a named-blocker `blocked` state are implemented; `confirmed`,
+  `unconfirmed`, and `doorbell` are not, because they need send-result and
+  doorbell plumbing the banner does not yet receive.
+- Mirror the Home Assistant design tokens the banner consumes as local CSS
+  variables for light and dark. An Ingress iframe inherits neither the HA theme
+  variables nor its components, and the add-on page takes on no external asset
+  dependency, so `_ds_bundle.js` and `ha-components.css` are deliberately not
+  used. Values come from the design system's `theme.css`, `typography.css`, and
+  `semantic-colors.css`.
+- The banner derives its state from the same `tx` booleans the controls use, so
+  it cannot report readiness the gate would refuse, and it rewrites only when
+  its content changes so the polite live region does not re-announce on every
+  poll. Both are pinned by tests.
+
+
 ## [0.2.4] - 2026-08-25
 
 ### Fixed

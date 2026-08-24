@@ -16,8 +16,22 @@ export function renderAppHtml(): string {
     .controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.55rem; margin-top:.7rem; } button,input { font:inherit; } button { min-height:2.5rem; border:1px solid #1e3a8a; border-radius:.55rem; padding:.5rem .75rem; background:#1d4ed8; color:#fff; font-weight:700; cursor:pointer; } button.secondary { background:#475569; border-color:#1e293b; } button.warning { background:#a16207; border-color:#713f12; } button:disabled { opacity:.48; cursor:not-allowed; }
     button:focus-visible,input:focus-visible { outline:.2rem solid var(--focus); outline-offset:.2rem; box-shadow:0 0 0 .15rem var(--focus-alt); } input { width:100%; min-height:2.5rem; border:3px solid var(--input-border); border-radius:.5rem; padding:.5rem; background:transparent; color:inherit; } input[aria-invalid="true"] { border-color:var(--danger); } .error { color:var(--danger); min-height:1.4rem; }
     .monitor { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.55rem; margin-top:.7rem; } .monitor-row { border:1px solid #64748b; border-radius:.55rem; padding:.55rem; min-height:4rem; overflow-wrap:anywhere; min-width:0; } .monitor-row strong { display:block; } .monitor-row span { display:block; } .kv { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; margin-top:.7rem; } .kv div { padding:.55rem; background:#e2e8f0; border-radius:.5rem; overflow-wrap:anywhere; min-width:0; }
+    /* Home Assistant design tokens, mirrored: an Ingress iframe inherits neither the
+       HA theme variables nor its components, so the values are restated here. */
+    .banner { --ha-card:#fff; --ha-divider:rgba(0,0,0,.12); --ha-text2:#727272; --ha-warning:#ffa600; --ha-success:#43a047; --ha-info:#039be5; --ha-primary:#009ac7; --ha-on-primary:#fff; --ha-tint:transparent;
+      position:relative; overflow:hidden; border:1px solid var(--ha-divider); border-radius:.75rem; padding:1rem; margin-top:.7rem; background:var(--ha-card); }
+    .banner::before { content:""; position:absolute; inset:0; background:var(--ha-tint); opacity:.12; pointer-events:none; }
+    .banner > * { position:relative; }
+    .banner-title { margin:0; font-size:1.25rem; font-weight:500; line-height:1.3; }
+    .banner-lede { margin:.5rem 0 0; color:var(--ha-text2); }
+    .banner-reasons { margin:.5rem 0 0; padding:0; list-style:none; display:grid; gap:.35rem; }
+    .banner-reasons li { display:flex; gap:.5rem; } .banner-reasons li::before { content:"·"; color:var(--ha-accent,var(--ha-warning)); flex:none; }
+    .banner-fix { margin:.6rem 0 0; color:var(--ha-text2); font-size:.86rem; }
+    .banner[data-state="off"], .banner[data-state="quiet"], .banner[data-state="blocked"] { --ha-tint:var(--ha-warning); }
+    .banner[data-state="ready"] { --ha-tint:var(--ha-success); --ha-accent:var(--ha-success); }
+    .banner[data-state="sending"] { --ha-tint:var(--ha-info); --ha-accent:var(--ha-info); }
     ol { padding-left:1.5rem; } @media (max-width:52rem) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
-    @media (prefers-color-scheme:dark) { :root { --ink:#f1f5f9; --muted:#cbd5e1; --panel:#111827; --input-border:#cbd5e1; --danger:#fca5a5; background:#0f172a; } body { background:#0f172a; } .card { border-color:#475569; } .kv div { background:#1e293b; } .monitor-row { border-color:#94a3b8; } }
+    @media (prefers-color-scheme:dark) { :root { --ink:#f1f5f9; --muted:#cbd5e1; --panel:#111827; --input-border:#cbd5e1; --danger:#fca5a5; background:#0f172a; } body { background:#0f172a; } .card { border-color:#475569; } .kv div { background:#1e293b; } .monitor-row { border-color:#94a3b8; } .banner { --ha-card:#1c1c1c; --ha-divider:rgba(225,225,225,.12); --ha-text2:#9b9b9b; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }
   </style>
 </head>
@@ -25,7 +39,7 @@ export function renderAppHtml(): string {
   <main>
     <header><div><p class="muted"><span lang="en">Protocol Debug</span> · 프로토콜 디버그</p><h1>BESTIUM Eco-Foret</h1><p class="muted">한국어 우선 수신 모니터 · <span lang="en">Korean-primary RX monitor</span></p></div><p id="status" class="status" role="status" aria-live="polite">idle · 대기</p></header>
     <svg aria-hidden="true" width="0" height="0"><symbol id="debug-frame-icon" viewBox="0 0 1 1"><path d="M0 0h1v1H0z"></path></symbol></svg>
-    <section class="card wide" aria-labelledby="gate-title"><h2 id="gate-title">전송 게이트 · <span lang="en">Transmission gate</span></h2><div class="gate-list" id="tx-gates"><span id="tx-disabled" class="pill no">TX disabled · 전송 비활성</span><span id="tx-authorized" class="pill no">authorized · 권한 없음</span><span id="tx-connected" class="pill no">connected · transport 없음</span><span id="tx-inflight" class="pill no">in-flight · 대기 없음</span><span id="tx-quarantine" class="pill no">quarantine · 격리 없음</span><span id="tx-speculative" class="pill warn">speculative · 후보 확인 필요</span><span id="tx-unsafe" class="pill warn">unsafe · 안전하지 않은 후보</span><span id="tx-pending" class="pill no">pendingAppend · append 없음</span><span id="tx-quiet" class="pill no">quiet · bus 확인 필요</span><span id="tx-current-rx" class="pill no">currentGenerationRx · 현재 RX 없음</span><span id="tx-fresh" class="pill no">fresh · 신선도 없음</span><span id="tx-sevenf" class="pill no">sevenFProof · 7F 증거 없음</span></div><p id="trust-message" class="muted">미리보기는 연결 없이 가능합니다. <span lang="en">Preview only; live commit requires an authorized, connected, quiet current transport.</span></p><div class="actions" aria-label="Capture actions · 캡처 동작"><button id="capture-start" type="button" disabled>캡처 시작 · <span lang="en">Start capture</span></button><button id="capture-stop" class="secondary" type="button" disabled>중지 · <span lang="en">Stop</span></button><button id="capture-download" class="secondary" type="button" disabled>다운로드 · <span lang="en">Download</span></button></div></section>
+    <section class="card wide" aria-labelledby="gate-title"><h2 id="gate-title">전송 게이트 · <span lang="en">Transmission gate</span></h2><div id="gate-banner" class="banner" data-state="unknown" role="status" aria-live="polite"><p id="gate-banner-title" class="banner-title">상태를 확인하는 중입니다 · <span lang="en">Checking status</span></p><p id="gate-banner-lede" class="banner-lede"></p><ul id="gate-banner-reasons" class="banner-reasons"></ul><p id="gate-banner-fix" class="banner-fix"></p></div><p id="trust-message" class="muted">미리보기는 연결 없이 가능합니다. <span lang="en">Preview only; live commit requires an authorized, connected, quiet current transport.</span></p><div class="actions" aria-label="Capture actions · 캡처 동작"><button id="capture-start" type="button" disabled>캡처 시작 · <span lang="en">Start capture</span></button><button id="capture-stop" class="secondary" type="button" disabled>중지 · <span lang="en">Stop</span></button><button id="capture-download" class="secondary" type="button" disabled>다운로드 · <span lang="en">Download</span></button></div></section>
     <section class="grid" aria-label="Protocol debug monitor · 프로토콜 디버그 모니터">
       <article class="card"><h2>조명 · <span lang="en">Lights</span></h2><div class="controls"><button id="light-1-on" type="button">1번 켜기 · <span lang="en">Light 1 ON</span></button><button id="light-1-off" type="button">1번 끄기 · <span lang="en">Light 1 OFF</span></button><button id="light-2-on" type="button">2번 켜기 · <span lang="en">Light 2 ON</span></button><button id="light-2-off" type="button">2번 끄기 · <span lang="en">Light 2 OFF</span></button><button id="light-3-on" type="button">3번 켜기 · <span lang="en">Light 3 ON</span></button><button id="light-3-off" type="button">3번 끄기 · <span lang="en">Light 3 OFF</span></button></div><div class="monitor"><div class="monitor-row"><strong>Light 1</strong><span id="light-state-1">unknown · stale</span></div><div class="monitor-row"><strong>Light 2</strong><span id="light-state-2">unknown · stale</span></div><div class="monitor-row"><strong>Light 3</strong><span id="light-state-3">unknown · stale</span></div></div></article>
       <article class="card"><h2>가스 · <span lang="en">Gas</span></h2><button id="gas-close" type="button">가스 닫기 · <span lang="en">Gas close</span></button><p class="muted">가스 열기 제어는 없습니다. <span lang="en">Gas open is monitored but never offered.</span></p><div class="monitor-row"><strong>Gas state</strong><span id="gas-state">unknown · stale</span></div></article>
@@ -47,6 +61,63 @@ export function renderAppHtml(): string {
       const $ = (id) => document.getElementById(id); const statusText = $("status"); const startButton = $("capture-start"); const stopButton = $("capture-stop"); const review = $("review");
       const phaseLabels = { idle:"idle · 대기", previewing:"previewing · 미리보기 중", reviewed:"reviewed · 검토됨", challenged:"challenged · 챌린지 발급됨", committing:"committing · 전송 중", starting:"starting · 시작 중", running:"running · 실행 중", finalizing:"finalizing · 마무리 중", stopped:"stopped · 중지됨" };
       const actionCatalog = { "light-1-on": () => ({ kind:"light", target:1, state:"on" }), "light-1-off": () => ({ kind:"light", target:1, state:"off" }), "light-2-on": () => ({ kind:"light", target:2, state:"on" }), "light-2-off": () => ({ kind:"light", target:2, state:"off" }), "light-3-on": () => ({ kind:"light", target:3, state:"on" }), "light-3-off": () => ({ kind:"light", target:3, state:"off" }), "gas-close": () => ({ kind:"gas", state:"close" }), "heat-zone-1-on": () => ({ kind:"heat", zone:1, state:"on" }), "heat-zone-1-off": () => ({ kind:"heat", zone:1, state:"off" }), "heat-zone-2-on": () => ({ kind:"heat", zone:2, state:"on" }), "heat-zone-2-off": () => ({ kind:"heat", zone:2, state:"off" }), "heat-zone-3-on": () => ({ kind:"heat", zone:3, state:"on" }), "heat-zone-3-off": () => ({ kind:"heat", zone:3, state:"off" }), "heat-zone-4-on": () => ({ kind:"heat", zone:4, state:"on" }), "heat-zone-4-off": () => ({ kind:"heat", zone:4, state:"off" }), "heat-all-off": () => ({ kind:"heat", target:"all", state:"off" }), "elevator-up": () => ({ kind:"elevator", direction:"up" }), "elevator-down": () => ({ kind:"elevator", direction:"down" }), "outlet-query": () => ({ kind:"outlet", action:"query" }), "ventilation-query": () => ({ kind:"ventilation", action:"query" }), "household-inactive": () => ({ kind:"entrance", target:"household", state:"inactive" }), "household-ringing": () => ({ kind:"entrance", target:"household", state:"ringing" }), "communal-ringing": () => ({ kind:"entrance", target:"communal", state:"ringing" }) };
+      const OFF_CONSEQUENCES = [
+        "EW11 게이트웨이로 TCP 소켓을 열지 않아 보낼 곳이 없습니다",
+        "기기 주소를 관측하지 못해 보낼 프레임을 만들 수 없습니다",
+        "버스가 비어 있는지 알 수 없어 충돌을 피할 수 없습니다",
+        "보낸 뒤 요청한 상태를 확인할 방법이 없습니다",
+      ];
+      const gateBlockers = (tx) => {
+        const out = [];
+        if (statusInvalid) out.push("상태를 아직 확인하지 못했습니다 (status unavailable)");
+        if (tx.enabled !== true) out.push("전송이 꺼져 있습니다 (TX disabled)");
+        if (tx.authorized !== true) out.push("전송 권한이 없습니다 (authorized user mismatch)");
+        if (tx.connected !== true) out.push("통신 경로가 연결되어 있지 않습니다 (transport not connected)");
+        if (tx.quarantined === true) out.push("직전 연결 세대가 격리되었습니다 (transport generation quarantined)");
+        if (tx.pendingAppend === true) out.push("수집 데이터 저장이 진행 중입니다 (capture append pending)");
+        if (tx.currentGenerationRx !== true) out.push("현재 연결에서 받은 유효 프레임이 없습니다 (no current-generation valid RX frame)");
+        if (tx.fresh !== true) out.push("마지막 수신 프레임이 오래되었습니다 (current RX frame stale)");
+        if (tx.quiet !== true) out.push("버스가 사용 중입니다 (line busy: quiet interval not met)");
+        if (tx.inFlight === true) out.push("다른 전송이 진행 중입니다 (one in-flight write only)");
+        return out;
+      };
+      let gateBannerSignature = null;
+      const renderGateBanner = (tx, runtimePhase) => {
+        const blockers = gateBlockers(tx);
+        const state = pendingObservation !== null ? "sending"
+          : runtimePhase !== "running" ? "off"
+          : blockers.length === 0 ? "ready"
+          : blockers.length === 1 && tx.fresh !== true ? "quiet"
+          : "blocked";
+        const lines = state === "off" ? OFF_CONSEQUENCES : state === "blocked" ? blockers : [];
+        const signature = state + "\u0000" + lines.join("\u0000");
+        if (signature === gateBannerSignature) return;
+        gateBannerSignature = signature;
+        $("gate-banner")?.setAttribute("data-state", state);
+        setText("gate-banner-title",
+          state === "sending" ? "보낸 뒤 응답을 관측하고 있습니다"
+          : state === "off" ? "수집이 꺼져 있어 제어할 수 없습니다"
+          : state === "quiet" ? "버스가 조용해 송신을 보류합니다"
+          : state === "ready" ? "제어 준비됨"
+          : "지금은 기기를 제어할 수 없습니다");
+        setText("gate-banner-lede",
+          state === "sending" ? "요청한 상태가 관측될 때까지 지켜봅니다. 관측되지 않아도 재전송하지 않습니다."
+          : state === "off" ? "제어 프레임은 관측한 값에서만 만들 수 있습니다. 수집이 꺼진 동안 막혀 있는 것은 다음 네 가지입니다."
+          : state === "quiet" ? "수집은 켜져 있습니다. 월패드가 절전 중일 수도, 배선이 끊겼을 수도 있습니다. 지금 보내면 결과를 확인할 수 없어 보내지 않습니다."
+          : state === "ready" ? "상태 프레임을 관측하고 있습니다. 전송은 한 번만 나가며 재시도하지 않습니다."
+          : "다음 조건이 해소되어야 제어가 열립니다.");
+        const list = $("gate-banner-reasons");
+        if (list) {
+          while (list.firstChild) list.removeChild(list.firstChild);
+          for (const line of lines) { const item = document.createElement("li"); item.textContent = line; list.appendChild(item); }
+        }
+        setText("gate-banner-fix",
+          state === "sending" ? "관측이 끝날 때까지 다른 조작은 잠깁니다."
+          : state === "off" ? "아래 캡처 시작을 누르면 수집 시작하고 제어 열기가 진행됩니다. 관측된 기기부터 제어가 열립니다."
+          : state === "quiet" ? "월패드를 한 번 조작하면 프레임을 관측할 수 있습니다."
+          : state === "ready" ? ""
+          : "");
+      };
       const setText = (id, value) => { const node = $(id); if (node) node.textContent = String(value); }; const setGate = (id, yes, good, bad) => { const node = $(id); if (!node) return; node.textContent = yes ? good : bad; node.classList.toggle("yes", yes); node.classList.toggle("no", !yes); };
       const txState = () => window.__bestiumTx || {}; const validRevision = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256) || Number.isSafeInteger(value); const previewRevision = (preview) => preview?.readinessRevision ?? preview?.readiness?.readinessRevision; const readyForAction = (preview) => { const tx = txState(); const revision = previewRevision(preview); const observedPreview = preview?.evidence === "observed"; const revisionMatches = validRevision(tx.readinessRevision) && validRevision(revision) && String(tx.readinessRevision) === String(revision); const previewReady = preview?.ready !== false && !(preview?.readiness && preview.readiness.ready === false); const strictReady = revisionMatches && previewReady; const observedRevalidated = observedPreview && Number.isSafeInteger(previewPollEpoch) && appliedPollEpoch > previewPollEpoch; if (!preview || !validRevision(tx.readinessRevision) || !validRevision(revision) || statusInvalid || (!observedPreview && !strictReady) || (observedPreview && !strictReady && !observedRevalidated) || tx.enabled !== true || tx.authorized !== true || tx.connected !== true || tx.inFlight === true || tx.quarantined === true || tx.pendingAppend === true || tx.quiet !== true || tx.currentGenerationRx !== true || tx.fresh !== true) return false; if (!observedPreview && pendingChallenge && (!validRevision(pendingChallenge.readinessRevision) || String(pendingChallenge.readinessRevision) !== String(revision))) return false; if (preview.evidence === "inferred_candidate" && tx.speculativeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && tx.unsafeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && preview.action?.kind === "entrance" && tx.sevenFProof !== true) return false; return true; };
       const setPendingControlLease = (locked) => { for (const id of Object.keys(actionCatalog)) { const node = $(id); if (node) node.disabled = locked; } for (const zone of [1,2,3,4]) { const node = $("heat-temp-" + zone + "-send"); if (node) node.disabled = locked; } const rawPreview = $("raw-preview"); if (rawPreview) rawPreview.disabled = locked; };
@@ -185,18 +256,7 @@ export function renderAppHtml(): string {
         statusInvalid = !validRevision(tx.readinessRevision);
         statusRevision = statusInvalid ? "" : String(tx.readinessRevision);
         window.__bestiumTx = tx;
-        setGate("tx-disabled", tx.enabled === true, "TX enabled · 전송 활성", "TX disabled · 전송 비활성");
-        setGate("tx-authorized", tx.authorized === true, "authorized · 권한 확인", "authorized · 권한 없음");
-        setGate("tx-connected", tx.connected === true, "connected · transport 연결", "connected · transport 없음");
-        setGate("tx-inflight", tx.inFlight === true, "in-flight · 진행 중", "in-flight · 대기 없음");
-        setGate("tx-quarantine", tx.quarantined === true, "quarantine · 격리됨", "quarantine · 격리 없음");
-        setGate("tx-speculative", tx.speculativeEnabled === true, "speculative · 활성", "speculative · 후보 확인 필요");
-        setGate("tx-unsafe", tx.unsafeEnabled === true, "unsafe · 활성", "unsafe · 안전하지 않은 후보");
-        setGate("tx-pending", tx.pendingAppend === true, "pendingAppend · append 진행", "pendingAppend · append 없음");
-        setGate("tx-quiet", tx.quiet === true, "quiet · 조용함", "quiet · bus 확인 필요");
-        setGate("tx-current-rx", tx.currentGenerationRx === true, "currentGenerationRx · 현재 RX", "currentGenerationRx · 현재 RX 없음");
-        setGate("tx-fresh", tx.fresh === true, "fresh · 신선함", "fresh · stale");
-        setGate("tx-sevenf", tx.sevenFProof === true, "sevenFProof · 증거 있음", "sevenFProof · 증거 없음");
+        renderGateBanner(tx, runtimePhase);
         const debug = source.debug && typeof source.debug === "object" ? source.debug : {};
         const staleAfterMs = debug.staleAfterMs ?? source.staleAfterMs;
         const devices = debug.devices || {};
