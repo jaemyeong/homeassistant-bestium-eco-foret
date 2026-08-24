@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.2.2";
+const EXPECTED_VERSION = "0.2.3";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -67,6 +67,7 @@ const CONFIG_OPTION_DEFAULT_KEYS = [
   "speculative_transmit_enabled",
   "unsafe_transmit_enabled",
   "tx_write_timeout_ms",
+  "tx_observation_timeout_ms",
   "tx_cooldown_ms",
   "tx_quiet_ms",
   "speculative_tx_cooldown_ms",
@@ -85,6 +86,7 @@ const CONFIG_SCHEMA_KEYS = [
   "unsafe_transmit_enabled",
   "transmit_user_id",
   "tx_write_timeout_ms",
+  "tx_observation_timeout_ms",
   "tx_cooldown_ms",
   "tx_quiet_ms",
   "speculative_tx_cooldown_ms",
@@ -273,6 +275,7 @@ type M2Settings = {
   unsafe_transmit_enabled?: boolean;
   transmit_user_id?: string;
   tx_write_timeout_ms?: number;
+  tx_observation_timeout_ms?: number;
   tx_cooldown_ms?: number;
   tx_quiet_ms?: number;
   speculative_tx_cooldown_ms?: number;
@@ -330,6 +333,7 @@ type NumericBound = {
     | "maximum_bytes"
     | "maximum_records"
     | "tx_write_timeout_ms"
+    | "tx_observation_timeout_ms"
     | "tx_cooldown_ms"
     | "tx_quiet_ms"
     | "speculative_tx_cooldown_ms"
@@ -348,6 +352,7 @@ const numericBounds: readonly NumericBound[] = [
 ] as const;
 const txNumericBounds: readonly NumericBound[] = [
   { name: "tx_write_timeout_ms", min: 100, max: 10_000 },
+  { name: "tx_observation_timeout_ms", min: 1_000, max: 30_000 },
   { name: "tx_cooldown_ms", min: 0, max: 10_000 },
   { name: "tx_quiet_ms", min: 5, max: 1_000 },
   { name: "speculative_tx_cooldown_ms", min: 1_000, max: 60_000 },
@@ -708,6 +713,7 @@ function validSettings(overrides: AnyRecord = {}): M2Settings {
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,
     tx_write_timeout_ms: 1_000,
+    tx_observation_timeout_ms: 10_000,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 20,
     speculative_tx_cooldown_ms: 5_000,
@@ -895,6 +901,7 @@ test("RED: config strictness and exact static contract", () => {
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,
     tx_write_timeout_ms: 1_000,
+    tx_observation_timeout_ms: 10_000,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 20,
     speculative_tx_cooldown_ms: 5_000,
@@ -927,6 +934,7 @@ test("RED: config strictness and exact static contract", () => {
   assert.equal(schema.unsafe_transmit_enabled, "bool");
   assert.equal(schema.transmit_user_id, "str(1,128)?");
   assert.equal(schema.tx_write_timeout_ms, "int(100,10000)");
+  assert.equal(schema.tx_observation_timeout_ms, "int(1000,30000)");
   assert.equal(schema.tx_cooldown_ms, "int(0,10000)");
   assert.equal(schema.tx_quiet_ms, "int(5,1000)");
   assert.equal(schema.speculative_tx_cooldown_ms, "int(1000,60000)");
@@ -1070,6 +1078,7 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,
     tx_write_timeout_ms: 1_000,
+    tx_observation_timeout_ms: 10_000,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 20,
     speculative_tx_cooldown_ms: 5_000,
@@ -4164,6 +4173,7 @@ test("RED-exception: actual status JSON drives the emitted UI monitor with 1-bas
   assert.equal(response.statusCode, 200);
   const payload = parseJson<AnyRecord>(response.body);
   assert.deepStrictEqual(payload.debug.devices.lights[1], freshness({ state: "off" }));
+  assert.equal(payload.tx.observationTimeoutMs, 10_000, "status must expose the bounded observation timeout");
 
   const uiModule = await import(pathToFileURL(path(paths.uiSource)).href) as AnyRecord;
   const html = String(uiModule.renderAppHtml());
@@ -4489,6 +4499,7 @@ function uiStatusPayload(overrides: AnyRecord = {}): AnyRecord {
       currentGenerationRx: true,
       fresh: true,
       sevenFProof: true,
+      observationTimeoutMs: 10_000,
       readinessRevision: "r1",
     },
     debug: {
@@ -4525,9 +4536,11 @@ type UiVmFixture = {
   nodes: Map<string, AnyRecord>;
   fetchCalls: AnyRecord[];
   timers: Map<number, (...args: unknown[]) => unknown>;
+  timerDelays: Map<number, number>;
   flush(): Promise<void>;
   click(id: string): void;
-  fireTimer(): void;
+  advanceTime(ms: number): void;
+  fireTimer(id?: number): void;
 };
 
 async function createUiVmFixture(
@@ -4560,13 +4573,21 @@ async function createUiVmFixture(
     nodes.set(id, node);
     return node;
   };
-  for (const match of html.matchAll(/\bid=["']([^"']+)["']/g)) makeNode(match[1]);
+  for (const match of html.matchAll(/<[^>]*\bid=["']([^"']+)["'][^>]*>/g)) {
+    const node = makeNode(match[1]);
+    for (const attribute of ["role", "aria-live"]) {
+      const value = match[0].match(new RegExp(`\\b${attribute}=["']([^"']*)["']`))?.[1];
+      if (value !== undefined) node.attributes[attribute] = value;
+    }
+  }
   const timers = new Map<number, (...args: unknown[]) => unknown>();
+  const timerDelays = new Map<number, number>();
   let nextTimer = 1;
+  let nowMs = 1_700_020_000;
   const window = {
     __bestiumTx: {},
-    setTimeout(callback: (...args: unknown[]) => unknown) { const id = nextTimer++; timers.set(id, callback); return id; },
-    clearTimeout(id: number) { timers.delete(id); },
+    setTimeout(callback: (...args: unknown[]) => unknown, delayMs: number) { const id = nextTimer++; timers.set(id, callback); timerDelays.set(id, delayMs); return id; },
+    clearTimeout(id: number) { timers.delete(id); timerDelays.delete(id); },
     location: { assign() {} },
   };
   const fetchCalls: AnyRecord[] = [];
@@ -4586,26 +4607,63 @@ async function createUiVmFixture(
   };
   runInNewContext(script, {
     window, document, fetch, AbortController: FakeAbortController,
-    Date: { now: () => 1_700_020_000 },
+    Date: { now: () => nowMs },
     setTimeout: window.setTimeout, clearTimeout: window.clearTimeout, console,
   });
   return {
     nodes,
     fetchCalls,
     timers,
+    timerDelays,
     async flush() { for (let index = 0; index < 16; index += 1) await Promise.resolve(); },
     click(id: string) { nodes.get(id)?.listeners.click?.({ currentTarget: nodes.get(id) }); },
-    fireTimer() {
-      const first = timers.entries().next().value as [number, (...args: unknown[]) => unknown] | undefined;
-      if (!first) return;
-      timers.delete(first[0]);
-      first[1]();
+    advanceTime(ms: number) { nowMs += ms; },
+    fireTimer(id?: number) {
+      const timerId = id ?? timers.keys().next().value as number | undefined;
+      if (timerId === undefined) return;
+      const callback = timers.get(timerId);
+      if (!callback) return;
+      timers.delete(timerId);
+      timerDelays.delete(timerId);
+      callback();
     },
   };
 }
 
 function uiJsonResponse(value: AnyRecord, ok = true): AnyRecord {
   return { ok, async json() { return value; } };
+}
+
+function withLight1State(
+  payload: AnyRecord,
+  state: "on" | "off",
+  lastSeenAtMs: number,
+  options: { generation?: number; entryGeneration?: number; stale?: boolean } = {},
+): AnyRecord {
+  const debug = payload.debug as AnyRecord;
+  const devices = debug.devices as AnyRecord;
+  const lights = devices.lights as AnyRecord;
+  const generation = options.generation ?? payload.generation;
+  return {
+    ...payload,
+    ...(options.generation === undefined ? {} : { generation, lastValidFrameGeneration: generation }),
+    debug: {
+      ...debug,
+      devices: {
+        ...devices,
+        lights: {
+          ...lights,
+          1: {
+            ...(lights[1] as AnyRecord),
+            state,
+            lastSeenAtMs,
+            stale: options.stale ?? false,
+            generation: options.entryGeneration ?? generation,
+          },
+        },
+      },
+    },
+  };
 }
 
 test("RED-next: observed preview revalidates after a later green status revision", async () => {
@@ -6209,5 +6267,412 @@ test("RED-repair2: live regions announce mutation reconciliation and challenge p
   }
   resolveIssue(uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" }));
   await challengeFixture.flush();
+  assert.deepStrictEqual(problems, []);
+});
+
+test("M4.5 RED: Light 1 ON observes later same-generation RX exactly once", async () => {
+  const initial = uiStatusPayload();
+  const baseline = ((initial.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const later = withLight1State(initial, "on", baseline + 1);
+  let statusCalls = 0;
+  let previewCalls = 0;
+  let commitCalls = 0;
+  let resolveCommit!: (value: AnyRecord) => void;
+  const fixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      statusCalls += 1;
+      return uiJsonResponse(statusCalls === 1 ? initial : later);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") {
+      previewCalls += 1;
+      return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    }
+    if (body.mode === "commit") {
+      commitCalls += 1;
+      return new Promise((resolve) => { resolveCommit = resolve; });
+    }
+    return uiJsonResponse({});
+  });
+
+  await fixture.flush();
+  assert.equal(fixture.nodes.get("outcome")?.getAttribute("role"), "status");
+  assert.equal(fixture.nodes.get("outcome")?.getAttribute("aria-live"), "polite");
+  assert.equal(fixture.nodes.get("alert")?.getAttribute("role"), "alert");
+  assert.equal(fixture.nodes.get("alert")?.getAttribute("aria-live"), "assertive");
+  fixture.click("light-1-on");
+  await fixture.flush();
+  assert.equal(previewCalls, 1);
+  assert.equal(fixture.nodes.get("review-commit")?.disabled, false);
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls, 1);
+  assert.equal(fixture.nodes.get("review-commit")?.disabled, true, "Commit must stay locked while the write is pending");
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls, 1, "a pending write must reject a programmatic resend");
+
+  resolveCommit(uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false }));
+  await fixture.flush();
+  let outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.match(outcome, /소켓 쓰기 완료 · 상태 확인 대기/);
+  assert.doesNotMatch(outcome, /failure|failed|실패|ACK|device confirmed|device confirmation|장치 확인됨|장치 확인 성공/i);
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls, 1, "the pending observation must remain single-write");
+
+  fixture.fireTimer();
+  await fixture.flush();
+  outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.match(fixture.nodes.get("light-state-1")?.textContent ?? "", /on.*fresh/);
+  assert.match(outcome, /state_observed_after_write · 송신 후 요청 상태 수신/);
+  assert.doesNotMatch(outcome, /ACK|device confirmed|device confirmation|장치 확인됨|장치 확인 성공/i);
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls, 1, "observed completion must not make Commit resendable");
+});
+
+test("M4.5 RED: contradictory Light 1 RX stays pending then times out without retry", async () => {
+  const initial = uiStatusPayload();
+  const baseline = ((initial.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const mismatch = withLight1State(initial, "off", baseline + 1);
+  let statusCalls = 0;
+  let commitCalls = 0;
+  const fixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      statusCalls += 1;
+      return uiJsonResponse(statusCalls === 1 ? initial : mismatch);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    if (body.mode === "commit") {
+      commitCalls += 1;
+      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    }
+    return uiJsonResponse({});
+  });
+
+  await fixture.flush();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  fixture.click("review-commit");
+  await fixture.flush();
+  let outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.match(outcome, /소켓 쓰기 완료 · 상태 확인 대기/);
+  fixture.fireTimer();
+  await fixture.flush();
+  assert.match(fixture.nodes.get("light-state-1")?.textContent ?? "", /off.*fresh/);
+  outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.match(outcome, /소켓 쓰기 완료 · 상태 확인 대기/);
+  assert.doesNotMatch(outcome, /state_observed_after_write/);
+  assert.equal(commitCalls, 1);
+
+  for (let index = 0; index < 6 && !/요청 상태 미관측/.test(outcome); index += 1) {
+    fixture.fireTimer();
+    await fixture.flush();
+    outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  }
+  assert.match(outcome, /socket_written_unconfirmed · 소켓 전송됨 · 요청 상태 미관측/);
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls, 1, "timeout must not create an automatic commit or retry");
+});
+
+test("M4.5 RED: Light observation rejects baseline, timestamp, stale, and generation false positives", async () => {
+  const base = uiStatusPayload();
+  const baseline = ((base.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const preexisting = withLight1State(base, "on", baseline);
+  const cases: Array<{ label: string; initial: AnyRecord; later: AnyRecord; pending: boolean }> = [
+    { label: "pre-existing desired state", initial: preexisting, later: withLight1State(preexisting, "on", baseline + 1), pending: true },
+    { label: "equal timestamp", initial: base, later: withLight1State(base, "on", baseline), pending: true },
+    { label: "older timestamp", initial: base, later: withLight1State(base, "on", baseline - 1), pending: true },
+    { label: "stale entry", initial: base, later: withLight1State(base, "on", baseline + 1, { stale: true }), pending: true },
+    { label: "wrong entry generation", initial: base, later: withLight1State(base, "on", baseline + 1, { entryGeneration: 10 }), pending: true },
+    { label: "global reconnect", initial: base, later: withLight1State(base, "on", baseline + 1, { generation: 10 }), pending: false },
+  ];
+
+  for (const scenario of cases) {
+    let statusCalls = 0;
+    let commitCalls = 0;
+    const fixture = await createUiVmFixture(scenario.initial, (url, init) => {
+      if (url === "./api/status") {
+        statusCalls += 1;
+        return uiJsonResponse(statusCalls === 1 ? scenario.initial : scenario.later);
+      }
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+      if (body.mode === "commit") {
+        commitCalls += 1;
+        return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+      }
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.click("light-1-on");
+    await fixture.flush();
+    fixture.click("review-commit");
+    await fixture.flush();
+    fixture.fireTimer();
+    await fixture.flush();
+    let outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+    assert.doesNotMatch(outcome, /state_observed_after_write/, `${scenario.label} must not be promoted to observed`);
+    if (scenario.pending) {
+      assert.match(outcome, /소켓 쓰기 완료 · 상태 확인 대기/, `${scenario.label} must remain pending before timeout`);
+      for (let index = 0; index < 6 && !/요청 상태 미관측/.test(outcome); index += 1) {
+        fixture.fireTimer();
+        await fixture.flush();
+        outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+      }
+      assert.match(outcome, /socket_written_unconfirmed · 소켓 전송됨 · 요청 상태 미관측/);
+    } else {
+      assert.match(outcome, /observation_interrupted|observation interrupted|관찰 중단|재연결.*(?:중단|미확인)/i);
+    }
+    assert.equal(commitCalls, 1, `${scenario.label} must issue one commit POST`);
+    assert.equal(
+      fixture.fetchCalls.filter((call) => call.url === "./api/action" && JSON.parse(String(call.init?.body ?? "{}")).mode === "commit").length,
+      1,
+      `${scenario.label} must not retry commit/action`,
+    );
+  }
+});
+
+test("M4.5 RED: gas close stays immediate socket-only and never enters Light observation", async () => {
+  const initial = uiStatusPayload();
+  const baseline = ((initial.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const later = withLight1State(initial, "on", baseline + 1);
+  let statusCalls = 0;
+  let commitCalls = 0;
+  const fixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      statusCalls += 1;
+      return uiJsonResponse(statusCalls === 1 ? initial : later);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b011b04400104b6ee" });
+    if (body.mode === "commit") {
+      commitCalls += 1;
+      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    }
+    return uiJsonResponse({});
+  });
+
+  await fixture.flush();
+  fixture.click("gas-close");
+  await fixture.flush();
+  fixture.click("review-commit");
+  await fixture.flush();
+  let outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.match(outcome, /socket_written_unconfirmed/);
+  assert.doesNotMatch(outcome, /소켓 쓰기 완료 · 상태 확인 대기|state_observed_after_write/);
+  fixture.fireTimer();
+  await fixture.flush();
+  outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.doesNotMatch(outcome, /state_observed_after_write/);
+  assert.equal(commitCalls, 1);
+  assert.equal(
+    fixture.fetchCalls.filter((call) => call.url === "./api/action" && JSON.parse(String(call.init?.body ?? "{}")).mode === "commit").length,
+    1,
+  );
+});
+
+test("M4.5 RED: pending observation leases native and programmatic controls", async () => {
+  const initial = uiStatusPayload();
+  const baseline = ((initial.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const later = withLight1State(initial, "on", baseline + 1);
+  let statusCalls = 0;
+  let releaseMatching = false;
+  let previewCalls = 0;
+  let commitCalls = 0;
+  const fixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      statusCalls += 1;
+      return uiJsonResponse(releaseMatching && statusCalls > 1 ? later : initial);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") {
+      previewCalls += 1;
+      return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    }
+    if (body.mode === "commit") {
+      commitCalls += 1;
+      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    }
+    return uiJsonResponse({});
+  });
+
+  await fixture.flush();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(previewCalls, 1);
+  assert.equal(commitCalls, 1);
+  assert.match(fixture.nodes.get("outcome")?.textContent ?? "", /소켓 쓰기 완료 · 상태 확인 대기/);
+
+  const leasedIds = [
+    "review-cancel", "review-commit", "issue-challenge", "capture-start", "capture-stop", "capture-download",
+    "light-1-on", "light-1-off", "light-2-on", "light-2-off", "light-3-on", "light-3-off", "gas-close",
+    "heat-zone-1-on", "heat-zone-1-off", "heat-zone-2-on", "heat-zone-2-off", "heat-zone-3-on", "heat-zone-3-off",
+    "heat-zone-4-on", "heat-zone-4-off", "heat-all-off", "elevator-up", "elevator-down", "outlet-query",
+    "ventilation-query", "household-inactive", "household-ringing", "communal-ringing", "heat-temp-1-send",
+    "heat-temp-2-send", "heat-temp-3-send", "heat-temp-4-send", "raw-preview",
+  ];
+  for (const id of leasedIds) {
+    assert.equal(fixture.nodes.get(id)?.disabled, true, `${id} must be natively disabled during pending observation`);
+  }
+
+  fixture.nodes.get("raw-burst")!.value = "00";
+  const beforeAttempts = fixture.fetchCalls.length;
+  for (const id of leasedIds) fixture.click(id);
+  await fixture.flush();
+  assert.equal(commitCalls, 1, "pending controls must not create another commit POST");
+  assert.equal(
+    fixture.fetchCalls.slice(beforeAttempts).filter((call) => call.url === "./api/action" || call.url === "./api/capture" || call.url === "./api/stop").length,
+    0,
+    "pending controls must not issue action, capture, or stop requests",
+  );
+  assert.match(fixture.nodes.get("outcome")?.textContent ?? "", /소켓 쓰기 완료 · 상태 확인 대기/);
+
+  releaseMatching = true;
+  const pollTimer = [...fixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  fixture.fireTimer(pollTimer);
+  await fixture.flush();
+  assert.match(fixture.nodes.get("outcome")?.textContent ?? "", /state_observed_after_write · 송신 후 요청 상태 수신/);
+  assert.equal(commitCalls, 1, "matching RX must not make Commit resendable");
+});
+
+test("M4.5 RED: observation window starts at the socket result and is full for mismatch", async () => {
+  const initial = uiStatusPayload();
+  const baseline = ((initial.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const later = withLight1State(initial, "on", baseline + 1);
+  let statusCalls = 0;
+  let commitCalls = 0;
+  let resolveCommit!: (value: AnyRecord) => void;
+  const fixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      statusCalls += 1;
+      return uiJsonResponse(statusCalls === 1 ? initial : later);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    if (body.mode === "commit") {
+      commitCalls += 1;
+      return new Promise((resolve) => { resolveCommit = resolve; });
+    }
+    return uiJsonResponse({});
+  });
+
+  await fixture.flush();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls, 1);
+  const initialPollTimer = [...fixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  fixture.fireTimer(initialPollTimer);
+  await fixture.flush();
+  assert.match(fixture.nodes.get("light-state-1")?.textContent ?? "", /on.*fresh/);
+  fixture.advanceTime(10_001);
+  resolveCommit(uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false }));
+  await fixture.flush();
+  assert.match(fixture.nodes.get("outcome")?.textContent ?? "", /state_observed_after_write · 송신 후 요청 상태 수신/);
+
+  const matchingPollTimer = [...fixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  fixture.fireTimer(matchingPollTimer);
+  await fixture.flush();
+  assert.match(fixture.nodes.get("outcome")?.textContent ?? "", /state_observed_after_write · 송신 후 요청 상태 수신/);
+  assert.equal(commitCalls, 1);
+
+  const mismatch = withLight1State(initial, "off", baseline + 1);
+  let mismatchStatusCalls = 0;
+  let mismatchCommitCalls = 0;
+  const mismatchFixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      mismatchStatusCalls += 1;
+      return uiJsonResponse(mismatchStatusCalls === 1 ? initial : mismatch);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    if (body.mode === "commit") {
+      mismatchCommitCalls += 1;
+      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    }
+    return uiJsonResponse({});
+  });
+  await mismatchFixture.flush();
+  mismatchFixture.click("light-1-on");
+  await mismatchFixture.flush();
+  mismatchFixture.click("review-commit");
+  await mismatchFixture.flush();
+  const mismatchPollTimer = [...mismatchFixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  mismatchFixture.fireTimer(mismatchPollTimer);
+  await mismatchFixture.flush();
+  assert.match(mismatchFixture.nodes.get("outcome")?.textContent ?? "", /소켓 쓰기 완료 · 상태 확인 대기/);
+  assert.ok([...mismatchFixture.timerDelays.values()].includes(10_000), "a contradictory response must retain the full post-result window");
+  assert.equal(mismatchCommitCalls, 1);
+});
+
+test("M4.5 RED: pending observation preserves unrelated assertive alerts", async () => {
+  const initial = uiStatusPayload();
+  const baseline = ((initial.debug as AnyRecord).devices as AnyRecord).lights[1].lastSeenAtMs as number;
+  const later = withLight1State(initial, "on", baseline + 1);
+  const problems: string[] = [];
+
+  let timeoutStatusCalls = 0;
+  const timeoutFixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      timeoutStatusCalls += 1;
+      return timeoutStatusCalls === 1 ? uiJsonResponse(initial) : uiJsonResponse({}, false);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    if (body.mode === "commit") return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    return uiJsonResponse({});
+  });
+  await timeoutFixture.flush();
+  timeoutFixture.click("light-1-on");
+  await timeoutFixture.flush();
+  timeoutFixture.click("review-commit");
+  await timeoutFixture.flush();
+  const timeoutPollTimer = [...timeoutFixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  timeoutFixture.fireTimer(timeoutPollTimer);
+  await timeoutFixture.flush();
+  if (!/poll\/status failed|폴링 실패/.test(timeoutFixture.nodes.get("alert")?.textContent ?? "")) problems.push("poll failure alert was not present before timeout");
+  const timeoutObservationTimer = [...timeoutFixture.timerDelays.entries()].find(([, delay]) => delay === 10_000)?.[0];
+  timeoutFixture.fireTimer(timeoutObservationTimer);
+  await timeoutFixture.flush();
+  if (!/poll\/status failed|폴링 실패/.test(timeoutFixture.nodes.get("alert")?.textContent ?? "")) problems.push("timeout erased the unrelated poll failure alert");
+
+  let successStatusCalls = 0;
+  const successFixture = await createUiVmFixture(initial, (url, init) => {
+    if (url === "./api/status") {
+      successStatusCalls += 1;
+      if (successStatusCalls === 1) return uiJsonResponse(initial);
+      if (successStatusCalls === 2) return new Promise(() => {});
+      return uiJsonResponse(later);
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70b01190240110100b6ee" });
+    if (body.mode === "commit") return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    return uiJsonResponse({});
+  });
+  await successFixture.flush();
+  successFixture.click("light-1-on");
+  await successFixture.flush();
+  successFixture.click("review-commit");
+  await successFixture.flush();
+  const successInitialPoll = [...successFixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  successFixture.fireTimer(successInitialPoll);
+  await successFixture.flush();
+  const unresolvedPollDeadline = [...successFixture.timerDelays.entries()].find(([, delay]) => delay === 5_000)?.[0];
+  successFixture.fireTimer(unresolvedPollDeadline);
+  await successFixture.flush();
+  if (!/poll\/status failed|폴링 실패/.test(successFixture.nodes.get("alert")?.textContent ?? "")) problems.push("poll failure alert was not present before success");
+  const retryTimer = [...successFixture.timerDelays.entries()].find(([, delay]) => delay === 1_000)?.[0];
+  successFixture.fireTimer(retryTimer);
+  await successFixture.flush();
+  assert.match(successFixture.nodes.get("outcome")?.textContent ?? "", /state_observed_after_write · 송신 후 요청 상태 수신/);
+  if (!/poll\/status failed|폴링 실패/.test(successFixture.nodes.get("alert")?.textContent ?? "")) problems.push("success erased the unrelated poll failure alert");
+
   assert.deepStrictEqual(problems, []);
 });

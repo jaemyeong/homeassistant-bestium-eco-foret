@@ -1523,6 +1523,7 @@ export function createTxCoordinator(opts: {
       currentGenerationRx: state.currentGenerationRx,
       fresh: state.fresh,
       sevenFProof,
+      observationTimeoutMs: settings.tx_observation_timeout_ms,
       readinessRevision: state.readinessRevision,
     };
   };
@@ -1724,6 +1725,7 @@ export function createIngressHandler(deps: {
       if (copy.bounds && typeof copy.bounds === "object") copy.bounds = redactDebug(copy.bounds);
       const debug = redactDebug(copy.protocol ?? { generation: copy.generation ?? 0, stale: true });
       const rawTx = deps.getTxStatus?.(req) ?? copy.tx as Record<string, unknown> ?? {};
+      const observationTimeoutMs = rawTx.observationTimeoutMs;
       const tx: Record<string, unknown> = {
         enabled: rawTx.enabled === true,
         speculativeEnabled: rawTx.speculativeEnabled === true,
@@ -1737,6 +1739,12 @@ export function createIngressHandler(deps: {
         currentGenerationRx: rawTx.currentGenerationRx === true,
         fresh: rawTx.fresh === true,
         sevenFProof: rawTx.sevenFProof === true,
+        observationTimeoutMs: typeof observationTimeoutMs === "number"
+          && Number.isSafeInteger(observationTimeoutMs)
+          && observationTimeoutMs >= 1_000
+          && observationTimeoutMs <= 30_000
+          ? observationTimeoutMs
+          : 10_000,
         readinessRevision: typeof rawTx.readinessRevision === "string" && rawTx.readinessRevision.length <= 256
           ? rawTx.readinessRevision
           : undefined,

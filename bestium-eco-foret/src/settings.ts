@@ -13,6 +13,7 @@ export type ParsedSettings = {
   unsafe_transmit_enabled: boolean;
   transmit_user_id?: string;
   tx_write_timeout_ms: number;
+  tx_observation_timeout_ms: number;
   tx_cooldown_ms: number;
   tx_quiet_ms: number;
   speculative_tx_cooldown_ms: number;
@@ -36,6 +37,7 @@ type ParseNumericResult = {
     | "maximum_bytes"
     | "maximum_records"
     | "tx_write_timeout_ms"
+    | "tx_observation_timeout_ms"
     | "tx_cooldown_ms"
     | "tx_quiet_ms"
     | "speculative_tx_cooldown_ms"
@@ -53,6 +55,7 @@ const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_
   speculative_transmit_enabled: false,
   unsafe_transmit_enabled: false,
   tx_write_timeout_ms: 1_000,
+  tx_observation_timeout_ms: 10_000,
   tx_cooldown_ms: 250,
   tx_quiet_ms: 20,
   speculative_tx_cooldown_ms: 5_000,
@@ -133,6 +136,9 @@ function parseNumeric(key: ParseNumericResult["key"], raw: unknown): number {
     case "tx_write_timeout_ms":
       if (raw < 100 || raw > 10_000) throw new TypeError("tx_write_timeout_ms must be in [100,10000]");
       return raw;
+    case "tx_observation_timeout_ms":
+      if (raw < 1_000 || raw > 30_000) throw new TypeError("tx_observation_timeout_ms must be in [1000,30000]");
+      return raw;
     case "tx_cooldown_ms":
       if (raw < 0 || raw > 10_000) throw new TypeError("tx_cooldown_ms must be in [0,10000]");
       return raw;
@@ -192,6 +198,7 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
   const effectiveSpeculativeTransmitEnabled = transmit_user_id === undefined ? false : speculative_transmit_enabled;
   const effectiveUnsafeTransmitEnabled = transmit_user_id === undefined ? false : unsafe_transmit_enabled;
   const tx_write_timeout_ms = readNumeric("tx_write_timeout_ms");
+  const tx_observation_timeout_ms = readNumeric("tx_observation_timeout_ms");
   const tx_cooldown_ms = readNumeric("tx_cooldown_ms");
   const tx_quiet_ms = readNumeric("tx_quiet_ms");
   const speculative_tx_cooldown_ms = readNumeric("speculative_tx_cooldown_ms");
@@ -210,6 +217,7 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     unsafe_transmit_enabled: effectiveUnsafeTransmitEnabled,
     ...(transmit_user_id === undefined ? {} : { transmit_user_id }),
     tx_write_timeout_ms,
+    tx_observation_timeout_ms,
     tx_cooldown_ms,
     tx_quiet_ms,
     speculative_tx_cooldown_ms,

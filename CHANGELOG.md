@@ -4,35 +4,47 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-### Documentation
+## [0.2.3] - 2026-08-24
 
-- Prepare a fresh-session M4.5 handoff for the delayed post-write RX
-  observation repair. The bounded plan preserves
-  `socket_written_unconfirmed` as a socket-only result, reuses existing status
-  polling for Light 1–3 only, prohibits automatic retry, and names a later
-  matching state `state_observed_after_write` rather than a device ACK.
-- Carry forward the single live Light 1 ON observation: one reviewed frame was
-  written, the UI initially reported an unconfirmed socket result, and a later
-  same-session status poll rendered Light 1 on. No other control was exercised.
+### Fixed
+
+- Keep `socket_written_unconfirmed` and `deviceConfirmed:false` as honest
+  transport-only results, then show `state_observed_after_write` only when the
+  existing status poll observes a fresh, strictly newer, same-generation Light
+  1–3 state matching the reviewed ON/OFF request.
+- Preserve a commit-preflight state/timestamp/generation baseline so a
+  pre-existing desired state, stale/equal/older entry, contradictory interim
+  state, or reconnect cannot be promoted to a post-write observation.
+- Hold the review, action, Capture/Stop/Download control lease while the
+  bounded observation is pending, without adding retry, retransmission, a new
+  endpoint, or server receipt state.
+
+### Added
+
+- Add `tx_observation_timeout_ms` with a 10,000 ms default and 1,000–30,000 ms
+  bounds. The safe status DTO exposes only the bounded timeout value.
+- End an unmatched observation as
+  `socket_written_unconfirmed · 소켓 전송됨 · 요청 상태 미관측`; generation
+  changes end as `observation_interrupted` without retry.
 
 ### Verification
 
-- The public `0.2.2` parent and its product commit verify Good. Before the
-  local-only handoff commit, local/tracking/`ls-remote`/public GitHub
-  `main` matched `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`;
-  GitHub reported a valid signature and public App config `0.2.2`.
-- Node `v24.14.1` passes the unchanged full native suite 91/91; all three
-  version surfaces parse as `0.2.2`, and `git diff --check` passes.
-  Graphify queried 429 nodes before current CodeGraph; exact-root Serena 1.7.0
-  reports active TypeScript LSP `ready`. Sosumi: N/A because M4.5 has no
-  Apple API, HIG, or Swift claim.
-- This documentation handoff does not implement `0.2.3`, prove delayed
-  observation behavior, authorize push, or authorize any Home Assistant,
-  Ingress, capture, socket/EW11, TX, or device action.
-- A fresh read-only contradiction audit passed with no actionable P0-P3 after
-  probing self-SHA handling, local/remote expectations, authorization,
-  socket-versus-RX semantics, unsupported-device scope, no-retry safety, and
-  test/audit/stop gates.
+- Exact project-local Luna/max produced the emitted-UI RED before GREEN. Parent
+  verification passes M4.5 7/7, the existing observed-action regressions 3/3,
+  coordinator single-write coverage, and the full native suite 98/98 on Node
+  `v24.14.1`; all four version surfaces match `0.2.3`.
+- The first read-only audit found one pending-control P1 and two timing/alert
+  P2 findings. Repair round 1 reproduced all three as RED, closed them, and a
+  fresh re-audit returned PASS with no actionable P0-P3 and no repeated P0/P1.
+- Graphify is refreshed at 436 nodes/496 edges, CodeGraph is current at 15
+  files/527 nodes/2,781 edges, and exact-root Serena 1.7.0 reports TypeScript
+  LSP `ready`. `ui.ts` and `settings.ts` are clean; only the historical missing
+  Node ambient declarations remain in `m2.ts` and the native test.
+- These are native/static results. They do not prove browser timer behavior,
+  assistive-technology announcements, Home Assistant/Ingress, TCP/EW11,
+  protocol ACK, causality, actual TX, or device behavior. No package, Docker,
+  live/external, push, or release action occurred. Sosumi: N/A because M4.5
+  contains no Apple API, HIG, or Swift claim.
 
 ## [0.2.2] - 2026-08-24
 
