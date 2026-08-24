@@ -4700,186 +4700,6 @@ function withLight1State(
   };
 }
 
-test("RED-next: observed preview revalidates after a later green status revision", async () => {
-  const initial = uiStatusPayload();
-  const busy = {
-    ...initial,
-    tx: { ...initial.tx, quiet: false, readinessRevision: "r1" },
-  };
-  const green = {
-    ...initial,
-    tx: { ...initial.tx, quiet: true, readinessRevision: "r2" },
-  };
-  let statusCalls = 0;
-  let previewCalls = 0;
-  let commitCalls = 0;
-  const fixture = await createUiVmFixture(busy, (url, init) => {
-    if (url === "./api/status") {
-      statusCalls += 1;
-      return uiJsonResponse(statusCalls === 1 ? busy : green);
-    }
-    const body = JSON.parse(String(init?.body ?? "{}"));
-    if (body.mode === "preview") {
-      previewCalls += 1;
-      return uiJsonResponse({
-        preview: true,
-        evidence: "observed",
-        ready: false,
-        reasons: ["line busy: quiet interval not met"],
-        readinessRevision: "r1",
-        frameHex: "f70b01190240110100b6ee",
-      });
-    }
-    if (body.mode === "commit") {
-      commitCalls += 1;
-      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
-    }
-    return uiJsonResponse({});
-  });
-
-  await fixture.flush();
-  fixture.click("light-1-on");
-  await fixture.flush();
-  assert.equal(previewCalls, 1);
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, true, "busy preview must not commit");
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 0, "busy preview must reject programmatic commit activation");
-
-  fixture.fireTimer();
-  await fixture.flush();
-  assert.equal(statusCalls, 2, "a later status poll must provide the current TX revision");
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, false, "green current status must re-enable the observed commit");
-  assert.doesNotMatch(fixture.nodes.get("alert")?.textContent ?? "", /revision|stale|재검토/i, "green current status must clear the historical observed revision warning");
-  fixture.click("review-commit");
-  await fixture.flush();
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 1, "reviewed action must produce exactly one commit request");
-});
-
-test("RED-next: observed not-ready preview waits for a post-preview green status", async () => {
-  const initial = uiStatusPayload();
-  const later = {
-    ...initial,
-    tx: { ...initial.tx, readinessRevision: "r2" },
-  };
-  let statusCalls = 0;
-  let previewCalls = 0;
-  let commitCalls = 0;
-  const fixture = await createUiVmFixture(initial, (url, init) => {
-    if (url === "./api/status") {
-      statusCalls += 1;
-      return uiJsonResponse(statusCalls === 1 ? initial : later);
-    }
-    const body = JSON.parse(String(init?.body ?? "{}"));
-    if (body.mode === "preview") {
-      previewCalls += 1;
-      return uiJsonResponse({
-        preview: true,
-        evidence: "observed",
-        ready: false,
-        reasons: ["line busy: quiet interval not met"],
-        readinessRevision: "r1",
-        frameHex: "f70b01190240110100b6ee",
-      });
-    }
-    if (body.mode === "commit") {
-      commitCalls += 1;
-      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
-    }
-    return uiJsonResponse({});
-  });
-
-  await fixture.flush();
-  fixture.click("light-1-on");
-  await fixture.flush();
-  assert.equal(previewCalls, 1);
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, true, "not-ready preview must remain non-committable against cached green status");
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 0, "cached green status must not permit immediate commit of a not-ready preview");
-
-  fixture.fireTimer();
-  await fixture.flush();
-  assert.equal(statusCalls, 2, "a successful post-preview status poll must revalidate current TX gates");
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, false, "post-preview green status may enable the reviewed commit");
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 1, "post-preview revalidation must permit exactly one reviewed commit");
-});
-
-test("RED-next: observed preview ignores a pre-preview status response until a new poll", async () => {
-  const initial = uiStatusPayload();
-  const later = {
-    ...initial,
-    tx: { ...initial.tx, readinessRevision: "r2" },
-  };
-  let statusCalls = 0;
-  let previewCalls = 0;
-  let commitCalls = 0;
-  let resolvePrePreviewStatus!: (value: AnyRecord) => void;
-  let postPreviewStatusStarted = false;
-  const fixture = await createUiVmFixture(initial, (url, init) => {
-    if (url === "./api/status") {
-      statusCalls += 1;
-      if (statusCalls === 1) return uiJsonResponse(initial);
-      if (statusCalls === 2) {
-        return new Promise((resolve) => {
-          resolvePrePreviewStatus = (value) => resolve(uiJsonResponse(value));
-        });
-      }
-      postPreviewStatusStarted = true;
-      return uiJsonResponse(later);
-    }
-    const body = JSON.parse(String(init?.body ?? "{}"));
-    if (body.mode === "preview") {
-      previewCalls += 1;
-      return uiJsonResponse({
-        preview: true,
-        evidence: "observed",
-        ready: false,
-        reasons: ["line busy: quiet interval not met"],
-        readinessRevision: "r1",
-        frameHex: "f70b01190240110100b6ee",
-      });
-    }
-    if (body.mode === "commit") {
-      commitCalls += 1;
-      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
-    }
-    return uiJsonResponse({});
-  });
-
-  await fixture.flush();
-  assert.equal(statusCalls, 1, "initial green status must be applied before the second poll");
-  fixture.fireTimer();
-  await fixture.flush();
-  assert.equal(statusCalls, 2, "the second status request must start before preview");
-
-  fixture.click("light-1-on");
-  await fixture.flush();
-  assert.equal(previewCalls, 1, "observed preview must complete while the earlier status request is unresolved");
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, true, "not-ready preview must stay disabled before the earlier status resolves");
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 0, "pre-preview status request must not permit immediate commit");
-
-  resolvePrePreviewStatus(initial);
-  await fixture.flush();
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, true, "a green response from the pre-preview request must remain non-committable");
-  assert.equal(commitCalls, 0, "pre-preview status resolution must produce zero commit requests");
-
-  fixture.fireTimer();
-  await fixture.flush();
-  assert.equal(statusCalls, 3, "a new status request must start after preview completion and the pre-preview response");
-  assert.equal(postPreviewStatusStarted, true, "the third status request must be the post-preview revalidation");
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, false, "only the new green post-preview status may enable Commit");
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 1, "post-preview revalidation must permit exactly one commit request");
-});
-
 test("RED-final: emitted UI cancels late preview/challenge and blocks capture around challenge", async () => {
   const problems: string[] = [];
   const require = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
@@ -5036,25 +4856,34 @@ test("RED-final: emitted UI fails closed on readiness drift/poll failure, preser
   require(/7f620000ee|0x7e/.test(unknownDetail) && /0x2a/.test(unknownDetail) && /age|stale/.test(unknownDetail) && /generation/.test(unknownDetail), "ambiguous/unknown detail must render cluster/rawHex age and generation via textContent");
   require(unknownDetail.length <= 1_200, "ambiguous/unknown detail must remain bounded for long rawHex");
 
+  // M4.8: an observed control is one tap, so failing closed means the tap issues no
+  // request at all rather than leaving a Commit button greyed out.
+  const actionCalls = (): number => fixture.fetchCalls.filter((call) => String(call.url).includes("/api/action")).length;
+  const greenBefore = actionCalls();
   fixture.click("light-1-on");
   await fixture.flush();
-  require(fixture.nodes.get("review-commit")?.disabled === false, "reviewed observed action should initially be commit-ready");
+  require(actionCalls() > greenBefore, "a green status must let one tap reach the server");
   status = { ...status, tx: { ...status.tx, readinessRevision: "r2" } };
   fixture.fireTimer();
   await fixture.flush();
-  require(fixture.nodes.get("review-commit")?.disabled === false, "observed revision drift must remain commit-ready when current gates are green");
   require(!/revision|stale|changed|재검토/i.test(fixture.nodes.get("alert")?.textContent ?? ""), "observed revision drift must clear the historical warning");
   status = { ...status, tx: { ...status.tx, readinessRevision: undefined } };
   fixture.fireTimer();
   await fixture.flush();
-  require(fixture.nodes.get("review-commit")?.disabled === true, "missing revision must fail closed");
+  const missingBefore = actionCalls();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  require(actionCalls() === missingBefore, "missing revision must fail closed");
   status = { ...status, tx: { ...status.tx, readinessRevision: "r3" } };
   rejectNextStatus = true;
   const beforeFailure = fixture.fetchCalls.length;
   fixture.fireTimer();
   await fixture.flush();
   require(fixture.fetchCalls.length > beforeFailure, "poll failure scenario must issue a status request");
-  require(fixture.nodes.get("review-commit")?.disabled === true, "poll failure must fail closed while reviewed");
+  const failureBefore = actionCalls();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  require(actionCalls() === failureBefore, "poll failure must fail closed");
   require(/poll|status|stale|재확인/i.test(fixture.nodes.get("alert")?.textContent ?? ""), "poll failure must be announced");
 
   assert.equal(problems.length, 0, problems.join("\n"));
@@ -5263,7 +5092,6 @@ test("RED-M4.2: protocol and UI never present aged or wrong-generation debug evi
   await pollUi.flush();
   pollUi.click("light-1-on");
   await pollUi.flush();
-  assert.equal(pollUi.nodes.get("review-commit")?.disabled, false);
   pollUi.fireTimer();
   await pollUi.flush();
   assert.ok(pollUi.timers.size > 0, "a never-settling status poll needs a bounded deadline");
@@ -6044,6 +5872,8 @@ test("RED-repair1: Capture and Stop mutation leases exclude all review mutations
     fixture.click("issue-challenge");
     fixture.click("review-commit");
     fixture.click("review-cancel");
+    // M4.8: an observed control is one tap, so the lease has to stop the control itself.
+    fixture.click("light-1-on");
     await fixture.flush();
     if (calls.challenge !== before.challenge || calls.commit !== before.commit || calls.cancel !== before.cancel) {
       problems.push(`${label}: programmatic review activation overlapped the capture/stop lease`);
@@ -6076,9 +5906,6 @@ test("RED-repair1: Capture and Stop mutation leases exclude all review mutations
       return uiJsonResponse({});
     });
     await fixture.flush();
-    fixture.click("light-1-on");
-    await fixture.flush();
-    if (fixture.nodes.get("review-commit")?.disabled !== false) problems.push("observed Capture: review commit was not ready before the lease");
     fixture.click("capture-start");
     await fixture.flush();
     await checkReviewLease(fixture, calls, "observed Capture POST");
@@ -6334,24 +6161,21 @@ test("M4.5 RED: Light 1 ON observes later same-generation RX exactly once", asyn
   assert.equal(fixture.nodes.get("outcome")?.getAttribute("aria-live"), "polite");
   assert.equal(fixture.nodes.get("alert")?.getAttribute("role"), "alert");
   assert.equal(fixture.nodes.get("alert")?.getAttribute("aria-live"), "assertive");
+  // M4.8: an observed control is one tap. The single activation classifies and writes.
   fixture.click("light-1-on");
   await fixture.flush();
   assert.equal(previewCalls, 1);
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, false);
-  fixture.click("review-commit");
+  assert.equal(commitCalls, 1, "one tap must classify then write, with no second activation");
+  fixture.click("light-1-on");
   await fixture.flush();
-  assert.equal(commitCalls, 1);
-  assert.equal(fixture.nodes.get("review-commit")?.disabled, true, "Commit must stay locked while the write is pending");
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 1, "a pending write must reject a programmatic resend");
+  assert.equal(commitCalls, 1, "a pending write must reject a second tap");
 
   resolveCommit(uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false }));
   await fixture.flush();
   let outcome = fixture.nodes.get("outcome")?.textContent ?? "";
   assert.match(outcome, /소켓 쓰기 완료 · 상태 확인 대기/);
   assert.doesNotMatch(outcome, /failure|failed|실패|ACK|device confirmed|device confirmation|장치 확인됨|장치 확인 성공/i);
-  fixture.click("review-commit");
+  fixture.click("light-1-on");
   await fixture.flush();
   assert.equal(commitCalls, 1, "the pending observation must remain single-write");
 
@@ -6361,9 +6185,7 @@ test("M4.5 RED: Light 1 ON observes later same-generation RX exactly once", asyn
   assert.match(fixture.nodes.get("light-state-1")?.textContent ?? "", /on.*fresh/);
   assert.match(outcome, /state_observed_after_write · 송신 후 요청 상태 수신/);
   assert.doesNotMatch(outcome, /ACK|device confirmed|device confirmation|장치 확인됨|장치 확인 성공/i);
-  fixture.click("review-commit");
-  await fixture.flush();
-  assert.equal(commitCalls, 1, "observed completion must not make Commit resendable");
+  assert.equal(commitCalls, 1, "completing the observation must not itself resend");
 });
 
 test("M4.5 RED: contradictory Light 1 RX stays pending then times out without retry", async () => {
@@ -6949,4 +6771,123 @@ test("M4.7 RED: the send banner names the blocker in consequences and points at 
   off.fireTimer();
   await off.flush();
   assert.equal(titleNode.textContent, sentinel, "an unchanged banner must not be rewritten, or it re-announces every poll");
+});
+
+test("M4.8 RED: an observed control sends on one tap and a candidate still asks for confirmation", async () => {
+  const status = uiStatusPayload();
+  const bodies: AnyRecord[] = [];
+  const fixture = await createUiVmFixture(status, (url, init) => {
+    if (!String(url).includes("/api/action")) return uiJsonResponse(status);
+    const body = JSON.parse(String((init as AnyRecord)?.body ?? "{}")) as AnyRecord;
+    bodies.push(body);
+    const observed = body.kind === "light" || body.kind === "gas";
+    if (body.mode === "preview") {
+      return uiJsonResponse({
+        preview: true,
+        outcome: "preview",
+        evidence: observed ? "observed" : "inferred_candidate",
+        ready: true,
+        reasons: [],
+        readinessRevision: status.tx ? (status.tx as AnyRecord).readinessRevision : "r1",
+        frameHex: "f70b01190240110100b6ee",
+      });
+    }
+    return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+  });
+  await fixture.flush();
+
+  // 1. One activation on an observed control must reach the socket. The operator never
+  //    found the second button, so a control that only opens a preview reads as broken.
+  fixture.click("light-1-on");
+  await fixture.flush();
+  const modes = bodies.map((b) => String(b.mode));
+  assert.deepStrictEqual(
+    modes,
+    ["preview", "commit"],
+    "one tap on an observed control must classify then send, with no second activation",
+  );
+  assert.equal(bodies[1].kind, "light", "the committed action must be the one that was tapped");
+  assert.equal(bodies[1].target, 1);
+  assert.equal(bodies[1].state, "on");
+
+  // 2. Tapping again while the observation is pending must not send a second frame.
+  fixture.click("light-1-on");
+  await fixture.flush();
+  assert.equal(bodies.filter((b) => b.mode === "commit").length, 1, "exactly one write per activation");
+
+  // 3. A candidate action carries no observed evidence, so it must stop and ask for the
+  //    typed confirmation instead of transmitting on the first tap.
+  const candidateBodies: AnyRecord[] = [];
+  const candidate = await createUiVmFixture(status, (url, init) => {
+    if (!String(url).includes("/api/action")) return uiJsonResponse(status);
+    const body = JSON.parse(String((init as AnyRecord)?.body ?? "{}")) as AnyRecord;
+    candidateBodies.push(body);
+    if (body.mode === "preview") {
+      return uiJsonResponse({
+        preview: true, outcome: "preview", evidence: "inferred_candidate", ready: true, reasons: [],
+        readinessRevision: status.tx ? (status.tx as AnyRecord).readinessRevision : "r1",
+        frameHex: "f70b01180240110100b6ee",
+      });
+    }
+    return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+  });
+  await candidate.flush();
+  candidate.click("heat-zone-2-on");
+  await candidate.flush();
+  assert.deepStrictEqual(
+    candidateBodies.map((b) => String(b.mode)),
+    ["preview"],
+    "a candidate must not transmit before the typed confirmation",
+  );
+});
+
+test("M4.8 RED: a one-tap send fails closed on an untrustworthy status", async () => {
+  // Replaces the three RED-next revalidation tests. Those pinned the two-activation
+  // flow's rule that a reviewed observed preview had to wait for a later green status
+  // before Commit could be pressed. One tap has no waiting preview: the commit round
+  // trip is immediate and the server re-evaluates every gate. What still has to hold is
+  // that an untrustworthy status stops the tap before anything reaches the bus.
+  const invalid = uiStatusPayload();
+  (invalid.tx as AnyRecord).readinessRevision = undefined;
+  const invalidCalls: AnyRecord[] = [];
+  const closed = await createUiVmFixture(invalid, (url, init) => {
+    if (String(url).includes("/api/action")) invalidCalls.push(JSON.parse(String((init as AnyRecord)?.body ?? "{}")));
+    return uiJsonResponse(invalid);
+  });
+  await closed.flush();
+  closed.click("light-1-on");
+  await closed.flush();
+  assert.deepStrictEqual(invalidCalls, [], "a status without a usable revision must stop the tap before any request");
+  assert.match(
+    String(closed.nodes.get("outcome")?.textContent ?? ""),
+    /보내지 못했습니다/,
+    "the refusal must be stated, not silent",
+  );
+
+  // A trustworthy status sends exactly once for one activation and does not retry.
+  const good = uiStatusPayload();
+  const goodCalls: AnyRecord[] = [];
+  const open = await createUiVmFixture(good, (url, init) => {
+    if (!String(url).includes("/api/action")) return uiJsonResponse(good);
+    const body = JSON.parse(String((init as AnyRecord)?.body ?? "{}")) as AnyRecord;
+    goodCalls.push(body);
+    if (body.mode === "preview") {
+      return uiJsonResponse({
+        preview: true, outcome: "preview", evidence: "observed", ready: true, reasons: [],
+        readinessRevision: (good.tx as AnyRecord).readinessRevision, frameHex: "f70b01190240110100b6ee",
+      });
+    }
+    return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+  });
+  await open.flush();
+  open.click("light-1-on");
+  await open.flush();
+  assert.deepStrictEqual(goodCalls.map((b) => String(b.mode)), ["preview", "commit"]);
+  open.fireTimer();
+  await open.flush();
+  assert.equal(
+    goodCalls.filter((b) => b.mode === "commit").length,
+    1,
+    "a timer firing must never produce a second write",
+  );
 });

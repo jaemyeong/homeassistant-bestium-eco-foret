@@ -6,6 +6,21 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
+- Send an observed control on one activation. A light button used to open a
+  preview whose actual write lived behind a second button in a separate card
+  further down the page; the operator reported the control as not working
+  because they never found that second button, and the frame never left. One tap
+  now classifies the action and, when the server calls it observed, writes it
+  immediately. A candidate still stops for its typed confirmation, and the RAW
+  lab keeps its three steps. Exactly one write per activation, no retry, and the
+  pending observation still locks the other controls.
+- Stop gating the observed commit on the client's own `readinessRevision`
+  comparison. That value is a hash of `rxByteEpoch`, `readEpoch`,
+  `validFrameEpoch`, and `tailHash`, so it changed between the preview and the
+  next poll whenever a frame arrived. The server re-evaluates every gate on the
+  live request and names its own refusal, which is what the page now shows.
+- Fail closed on an untrustworthy status: a tap issues no request at all when the
+  last status carried no usable revision or the poll failed, and says so.
 - Stop binding a speculative challenge to inbound byte counters. `rejectChallenge`
   required `rxByteEpoch`, `readEpoch`, and `readinessRevision` to be unchanged
   between issuing a challenge and committing it, and all three advance on every

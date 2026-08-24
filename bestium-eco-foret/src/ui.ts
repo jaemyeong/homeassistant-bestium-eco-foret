@@ -241,6 +241,7 @@ export function renderAppHtml(): string {
       const setCaptureBusy = (value) => { captureBusy = value; startButton?.setAttribute("aria-busy", value || pendingObservation !== null ? "true" : "false"); stopButton?.setAttribute("aria-busy", value || pendingObservation !== null ? "true" : "false"); setCaptureControls(); setReviewBusy(reviewBusy); };
       const makeController = () => typeof AbortController === "function" ? new AbortController() : { signal: undefined, abort() {} };
       const readable = (action) => action ? [action.kind, action.target || action.zone || action.direction || action.action || "", action.state || (action.temperatureC !== undefined ? action.temperatureC + "°C" : "")].filter(Boolean).join(" · ") : "";
+      const describePreview = (action, preview) => { const reasons = Array.isArray(preview.reasons) ? " · reasons: " + preview.reasons.join(", ") : ""; setText("review-summary", "검토: " + readable(action) + " · evidence: " + String(preview.evidence || "unknown") + " · transport: " + String(preview.transportEvidence || "observed") + " · readinessRevision: " + String(preview.readinessRevision || preview.readiness?.readinessRevision || "—") + reasons); const frames = Array.isArray(preview.framesHex) ? preview.framesHex : preview.frameHex ? [preview.frameHex] : []; setText("review-frames", "frameHex: " + String(preview.frameHex || "—") + " · framesHex: " + frames.join(", ") + (preview.evidence === "unsafe_candidate" || preview.evidence === "inferred_candidate" ? " · wrong-device/collision warning · transport unverified" : "")); };
       const postAction = async (action, mode, extra = {}, signal) => { const body = { ...action, mode, ...extra }; const response = await fetch("./api/action", { method:"POST", headers:{ "content-type":"application/json", "x-csrf-token":csrfToken }, body:JSON.stringify(body), signal }); if (!response.ok) throw new Error("semantic action rejected"); return response.json(); };
       const postCancel = async (id) => { if (!id) return false; const response = await fetch("./api/action", { method:"POST", headers:{ "content-type":"application/json", "x-csrf-token":csrfToken }, body:JSON.stringify({ mode:"cancel", challengeId:id }) }); return response.ok; };
       const lockIndeterminate = (message) => { txRetryLocked = true; pendingChallenge = null; phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("outcome", "indeterminate · " + message + " · device not confirmed"); setText("alert", "reconciliation required · 재확인 필요 · do not retry"); setReviewBusy(false); setCaptureBusy(captureBusy); }; const lockMutation = (message) => { mutationLocked = true; mutationEpoch += 1; if (mutationDeadlineTimer !== null) { clearTimeout(mutationDeadlineTimer); mutationDeadlineTimer = null; } mutationController = null; setCaptureBusy(false); setText("outcome", "indeterminate · " + message + " · device not confirmed"); setText("alert", "mutation indeterminate · status reconciliation required · 재확인 필요 · do not retry"); void poll(true); };
@@ -253,7 +254,7 @@ export function renderAppHtml(): string {
       const schedulePendingObservation = (baseline) => { clearPendingObservation(); const startedAtMs = Date.now(); const deadlineMs = startedAtMs + boundedObservationTimeout(latestStatusPayload?.tx?.observationTimeoutMs); const pending = { ...baseline, startedAtMs, deadlineMs }; pendingObservation = pending; setText("outcome", "소켓 쓰기 완료 · 상태 확인 대기"); setReviewBusy(reviewBusy); pendingObservationTimer = window.setTimeout(() => { if (pendingObservation !== pending) return; clearPendingObservation(); setText("outcome", "socket_written_unconfirmed · 소켓 전송됨 · 요청 상태 미관측"); }, Math.max(1, deadlineMs - Date.now())); if (latestStatusPayload) draw(latestStatusPayload); };
       const cancelReview = async () => { if (captureBusy || mutationLocked || cancelInFlight || commitInFlight || pendingObservation || phase === "committing") return; cancelInFlight = true; try { const barrier = challengeBarrier; const waitingForIssue = challengeBarrierPending; const id = pendingChallenge?.id; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("countdown", ""); if (waitingForIssue) { setText("outcome", "Canceling challenge · 챌린지 취소 중"); setReviewBusy(true); const canceled = await barrier; if (canceled && !txRetryLocked) setText("outcome", "Challenge canceled · 챌린지 취소됨"); if (!txRetryLocked) setReviewBusy(false); } else if (id) { setText("outcome", "Canceling challenge · 챌린지 취소 중"); challengeBarrierPending = true; challengeBarrier = cancelChallenge(id); setReviewBusy(true); const canceled = await challengeBarrier; challengeBarrierPending = false; if (canceled && !txRetryLocked) { setText("outcome", "Challenge canceled · 챌린지 취소됨"); setReviewBusy(false); } } else { if (!txRetryLocked) setText("outcome", "Review canceled · 검토 취소됨"); setReviewBusy(false); } focusReturn?.focus?.(); } finally { cancelInFlight = false; setReviewBusy(reviewBusy); } };
       const showCandidateExpiry = () => { if (!pendingChallenge) return; const remaining = Math.max(0, Number(pendingChallenge.expiresAtMs || 0) - Date.now()); setText("countdown", remaining > 0 ? "challenge expires in " + Math.ceil(remaining / 1000) + "s · 만료까지 " + Math.ceil(remaining / 1000) + "초" : "challenge expired · 챌린지 만료"); if (remaining <= 0) { pendingChallenge = null; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); setText("alert", "challenge expired · 챌린지 만료"); setReviewBusy(false); return; } countdownTimer = window.setTimeout(showCandidateExpiry, 500); };
-      const beginPreview = async (action, trigger) => { if (reviewBusy || captureBusy || txRetryLocked || pendingObservation) return; clearReviewState(); const epoch = ++reviewEpoch; focusReturn = trigger; phase = "previewing"; setText("review-phase", phaseLabels[phase]); setReviewBusy(true); previewController = makeController(); try { const preview = await postAction(action, "preview", {}, previewController.signal); if (epoch !== reviewEpoch) return; reviewedAction = action; reviewPreview = { ...preview, action }; previewPollEpoch = pollEpoch; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); const reasons = Array.isArray(preview.reasons) ? " · reasons: " + preview.reasons.join(", ") : ""; setText("review-summary", "검토: " + readable(action) + " · evidence: " + String(preview.evidence || "unknown") + " · transport: " + String(preview.transportEvidence || "observed") + " · readinessRevision: " + String(preview.readinessRevision || preview.readiness?.readinessRevision || "—") + reasons); const frames = Array.isArray(preview.framesHex) ? preview.framesHex : preview.frameHex ? [preview.frameHex] : []; setText("review-frames", "frameHex: " + String(preview.frameHex || "—") + " · framesHex: " + frames.join(", ") + (preview.evidence === "unsafe_candidate" || preview.evidence === "inferred_candidate" ? " · wrong-device/collision warning · transport unverified" : "")); setText("outcome", "Preview only · 미리보기만 수행됨"); setReviewBusy(false); } catch { if (epoch !== reviewEpoch) return; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("alert", "Preview rejected · 미리보기 거부"); setReviewBusy(false); } };
+      const beginPreview = async (action, trigger) => { if (reviewBusy || captureBusy || txRetryLocked || pendingObservation) return; clearReviewState(); const epoch = ++reviewEpoch; focusReturn = trigger; phase = "previewing"; setText("review-phase", phaseLabels[phase]); setReviewBusy(true); previewController = makeController(); try { const preview = await postAction(action, "preview", {}, previewController.signal); if (epoch !== reviewEpoch) return; reviewedAction = action; reviewPreview = { ...preview, action }; previewPollEpoch = pollEpoch; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); describePreview(action, preview); setText("outcome", "Preview only · 미리보기만 수행됨"); setReviewBusy(false); } catch { if (epoch !== reviewEpoch) return; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("alert", "Preview rejected · 미리보기 거부"); setReviewBusy(false); } };
       const issueChallenge = async () => {
         if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || pendingChallenge || txRetryLocked || pendingObservation || !reviewedAction || !reviewPreview || reviewPreview.evidence === "observed") return;
         const phrase = String($("confirmation-phrase").value || "");
@@ -305,6 +306,76 @@ export function renderAppHtml(): string {
           finishBarrier(false);
           lockIndeterminate(epoch === requestEpoch ? "challenge issuance failed; state unknown" : "challenge request aborted before issuance");
         }
+      };
+      const commitObserved = async (action) => {
+        const observationBaseline = captureLightObservationBaseline(action);
+        phase = "committing"; setText("review-phase", phaseLabels[phase]);
+        commitInFlight = true; setReviewBusy(true);
+        try {
+          const result = await postAction(action, "commit", { schedule: "immediate" });
+          if (result.outcome === "partial_indeterminate") {
+            txRetryLocked = true;
+            const quarantine = result.quarantined === true ? "true" : result.quarantined === false ? "false" : "unknown/unavailable";
+            setText("outcome", "partial_indeterminate · framesWritten: " + String(result.framesWritten ?? 0) + " · quarantined: " + quarantine + " · reconciliation required · do not retry");
+            setText("alert", "partial_indeterminate · reconciliation required · 재확인 필요 · do not retry");
+            setCaptureBusy(captureBusy);
+            phase = "reviewed"; setText("review-phase", phaseLabels[phase]);
+          } else if (result.outcome === "socket_written_unconfirmed") {
+            setText("outcome", "socket_written_unconfirmed · device not confirmed · 장치 확인 안 됨");
+            clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
+            if (result.deviceConfirmed !== true && observationBaseline) schedulePendingObservation(observationBaseline);
+          } else {
+            const why = Array.isArray(result.reasons) && result.reasons.length ? result.reasons.join(", ") : String(result.reason || result.outcome || "rejected");
+            setText("outcome", "보내지 못했습니다 · " + why);
+            setText("alert", "전송 거부 · " + why);
+            clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
+          }
+        } catch {
+          txRetryLocked = true;
+          setText("outcome", "indeterminate · socket result unknown; device not confirmed");
+          setText("alert", "indeterminate · status/journal reconciliation required · 상태/저널 재확인 필요");
+          setCaptureBusy(captureBusy);
+          void poll(true);
+        } finally {
+          commitInFlight = false; setReviewBusy(false);
+        }
+      };
+      const oneTapSend = async (action, trigger) => {
+        if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || commitInFlight || txRetryLocked || pendingObservation) return;
+        // Fail closed: if the last status could not be trusted, do not put a frame on the bus.
+        if (statusInvalid) { setText("outcome", "보내지 못했습니다 · 상태를 아직 확인하지 못했습니다"); setText("alert", "상태 확인 실패 · 재확인 필요"); return; }
+        clearReviewState();
+        const epoch = ++reviewEpoch;
+        focusReturn = trigger;
+        phase = "previewing"; setText("review-phase", phaseLabels[phase]);
+        setReviewBusy(true);
+        previewController = makeController();
+        let preview;
+        try {
+          preview = await postAction(action, "preview", {}, previewController.signal);
+        } catch {
+          if (epoch !== reviewEpoch) return;
+          clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
+          setText("alert", "전송 거부 · Preview rejected"); setReviewBusy(false); return;
+        }
+        if (epoch !== reviewEpoch) return;
+        reviewedAction = action;
+        reviewPreview = { ...preview, action };
+        previewPollEpoch = pollEpoch;
+        describePreview(action, preview);
+        if (preview.evidence !== "observed") {
+          phase = "reviewed"; setText("review-phase", phaseLabels[phase]);
+          setText("outcome", "확인이 필요합니다 · 확인 문구를 입력한 뒤 확인을 누르세요");
+          setReviewBusy(false); return;
+        }
+        if (preview.ready === false) {
+          const why = Array.isArray(preview.reasons) && preview.reasons.length ? preview.reasons.join(", ") : "준비되지 않음";
+          setText("outcome", "보내지 못했습니다 · " + why);
+          clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
+          setReviewBusy(false); return;
+        }
+        setReviewBusy(false);
+        await commitObserved(action);
       };
       const commitReviewed = async () => {
         if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || txRetryLocked || pendingObservation || !reviewedAction || !reviewPreview || !readyForAction(reviewPreview) || (reviewPreview.evidence !== "observed" && !pendingChallenge)) return;
@@ -537,7 +608,7 @@ export function renderAppHtml(): string {
           }
         }
       };
-      for (const [id, factory] of Object.entries(actionCatalog)) $(id)?.addEventListener("click", (event) => { void beginPreview(factory(), event.currentTarget); }); for (const zone of [1,2,3,4]) $("heat-temp-" + zone + "-send")?.addEventListener("click", (event) => { const value = validateTemp(zone, true); if (value !== null) void beginPreview({ kind:"heat", zone, temperatureC:value }, event.currentTarget); }); for (const zone of [1,2,3,4]) $("heat-temp-" + zone)?.addEventListener("input", () => { validateTemp(zone, false); });
+      for (const [id, factory] of Object.entries(actionCatalog)) $(id)?.addEventListener("click", (event) => { void oneTapSend(factory(), event.currentTarget); }); for (const zone of [1,2,3,4]) $("heat-temp-" + zone + "-send")?.addEventListener("click", (event) => { const value = validateTemp(zone, true); if (value !== null) void oneTapSend({ kind:"heat", zone, temperatureC:value }, event.currentTarget); }); for (const zone of [1,2,3,4]) $("heat-temp-" + zone)?.addEventListener("input", () => { validateTemp(zone, false); });
       $("raw-preview")?.addEventListener("click", (event) => { const action = validateRaw(true); if (action) void beginPreview(action, event.currentTarget); }); $("raw-burst")?.addEventListener("blur", () => { validateRaw(false); }); $("raw-burst")?.addEventListener("input", () => { $("raw-burst").setAttribute("aria-invalid", "false"); setText("raw-error", ""); }); $("issue-challenge")?.addEventListener("click", () => { void issueChallenge(); }); $("review-commit")?.addEventListener("click", () => { void commitReviewed(); }); $("review-cancel")?.addEventListener("click", cancelReview); $("capture-start")?.addEventListener("click", () => { void capture("./api/capture"); }); $("capture-stop")?.addEventListener("click", () => { void capture("./api/stop"); }); $("capture-download")?.addEventListener("click", () => { if (!pendingObservation) window.location.assign("./api/download"); }); const selectTab = (name) => { $("surface")?.setAttribute("data-tab", name); for (const id of ["tab-control", "tab-debug"]) $(id)?.setAttribute("aria-selected", id === "tab-" + name ? "true" : "false"); }; $("tab-control")?.addEventListener("click", () => selectTab("control")); $("tab-debug")?.addEventListener("click", () => selectTab("debug")); void poll(true);
     })();
     /* semantic modes: mode: "preview" · mode: "challenge" · mode: "commit"; payload.debug.devices payload.debug.queries payload.debug.frames payload.debug.unknown; device-not-confirmed */
