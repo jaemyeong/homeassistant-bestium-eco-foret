@@ -28,6 +28,11 @@ All notable changes to this project are documented here.
 - The read-only adversarial audit accepted the functional candidate and found
   one P2 overstatement in the progress ledger's LSP wording. After that
   documentation-only correction, re-audit passed with no actionable P0-P3.
+- Signed product commit `9840bb923286177b509f9348c97ad76445aa1093` was
+  published by ordinary fast-forward. Local `main`, `origin/main`, and
+  `git ls-remote` matched; GitHub reported a verified signature and public App
+  config version `0.2.1`. This is publication evidence, not live App or device
+  validation.
 
 ## [0.2.0] - 2026-08-24
 
