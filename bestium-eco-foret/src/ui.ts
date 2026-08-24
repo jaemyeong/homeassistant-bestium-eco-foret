@@ -1,199 +1,211 @@
 export function renderAppHtml(): string {
   return String.raw`<!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="color-scheme" content="light dark">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BESTIUM Eco-Foret capture</title>
+  <meta name="color-scheme" content="light dark">
+  <title>BESTIUM Eco-Foret Protocol Debug · 프로토콜 디버그</title>
   <style>
-    :root { color-scheme: light dark; font-family: system-ui, sans-serif; background: #f5f7fb; color: #172033; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-width: 18rem; background: #f5f7fb; line-height: 1.45; }
-    main { width: min(70rem, 100% - 2rem); margin: 0 auto; padding: 2rem 0 3rem; }
-    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
-    h1, h2, p { margin: 0; }
-    h1 { font-size: clamp(1.55rem, 3vw, 2.25rem); letter-spacing: -.03em; }
-    .eyebrow { color: #4269d0; font-size: .76rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-    .lede { margin-top: .4rem; color: #56627a; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-    .card { border: 1px solid #d8deea; border-radius: 1rem; background: rgba(255,255,255,.86); padding: 1.1rem; box-shadow: 0 .5rem 1.5rem rgba(31,43,74,.07); }
-    .card h2 { display: flex; align-items: center; gap: .55rem; font-size: 1rem; }
-    .card h2 svg { width: 1.25rem; height: 1.25rem; color: #4269d0; }
-    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: 1rem; }
-    .metric { padding: .8rem; border-radius: .75rem; background: #edf1fa; }
-    .metric small { display: block; color: #56627a; font-size: .75rem; }
-    .metric strong { display: block; margin-top: .2rem; font-size: 1.15rem; overflow-wrap: anywhere; }
-    .bounds { grid-column: 1 / -1; }
-    .bound-list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; margin: 1rem 0 0; }
-    .bound-list div { min-width: 0; padding: .75rem; border-radius: .75rem; background: #edf1fa; }
-    .bound-list dt { color: #56627a; font-size: .74rem; }
-    .bound-list dd { margin: .2rem 0 0; font-weight: 750; overflow-wrap: anywhere; }
-    .actions { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1rem; }
-    button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 2.7rem; border: 0; border-radius: .7rem; padding: .65rem 1rem; color: white; background: #4269d0; font: inherit; font-weight: 700; cursor: pointer; }
-    button.secondary { background: #56627a; }
-    button:disabled { cursor: not-allowed; opacity: .45; }
-    button:focus-visible { outline: .2rem solid #f0a43b; outline-offset: .2rem; }
-    button svg { width: 1.1rem; height: 1.1rem; }
-    .preview { grid-column: 1 / -1; }
-    .preview-list { display: grid; gap: .45rem; margin: .9rem 0 0; max-height: 24rem; overflow: auto; padding: 0; list-style: none; }
-    .record { display: grid; grid-template-columns: 4rem 1fr auto; gap: .7rem; align-items: center; padding: .6rem .7rem; border-radius: .6rem; background: #edf1fa; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
-    .record time { color: #56627a; }
-    .empty { color: #56627a; padding: .7rem 0; }
-    .status { display: inline-flex; align-items: center; gap: .4rem; color: #56627a; font-weight: 700; }
-    .status::before { content: ""; width: .65rem; height: .65rem; border-radius: 50%; background: #8993a8; }
-    .status.running::before { background: #3ca36b; box-shadow: 0 0 .5rem #3ca36b; }
-    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-    @media (max-width: 54rem) { .bound-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-    @media (max-width: 42rem) { main { width: min(100% - 1rem, 70rem); padding-top: 1rem; } header { display: block; } .grid { grid-template-columns: 1fr; } .bounds, .preview { grid-column: auto; } .bound-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (prefers-color-scheme: dark) { :root { background: #101522; color: #eef2ff; } body { background: #101522; } .lede, .metric small, .bound-list dt, .empty, .status, .record time { color: #a9b4cc; } .card { border-color: #2d3850; background: #171e2d; box-shadow: none; } .metric, .bound-list div, .record { background: #202a3d; } }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; --ink:#111827; --muted:#475569; --panel:#fff; --line:#334155; --input-border:#334155; --focus:#d97706; --focus-alt:#2563eb; --danger:#991b1b; background:#f8fafc; color:var(--ink); }
+    * { box-sizing:border-box; } body { margin:0; background:#f8fafc; line-height:1.45; } main { width:min(82rem,calc(100% - 2rem)); margin:auto; padding:1.5rem 0 4rem; }
+    header,.row,.actions,.gate-list { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; } header { justify-content:space-between; align-items:flex-start; margin-bottom:1rem; }
+    h1,h2,h3,p { margin:.2rem 0; } h1 { font-size:clamp(1.45rem,3vw,2.3rem); } h2 { font-size:1.05rem; } .muted,.age { color:var(--muted); } .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+    .card { border:1px solid #cbd5e1; border-radius:.8rem; background:var(--panel); padding:1rem; overflow-wrap:anywhere; min-width:0; } .wide { grid-column:1/-1; } .status { font-weight:800; }
+    .pill { display:inline-flex; padding:.32rem .55rem; border-radius:999px; background:#e2e8f0; font-size:.82rem; } .pill.yes { background:#dcfce7; color:#14532d; } .pill.no { background:#fee2e2; color:#7f1d1d; } .pill.warn { background:#fef3c7; color:#78350f; }
+    .controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.55rem; margin-top:.7rem; } button,input { font:inherit; } button { min-height:2.5rem; border:1px solid #1e3a8a; border-radius:.55rem; padding:.5rem .75rem; background:#1d4ed8; color:#fff; font-weight:700; cursor:pointer; } button.secondary { background:#475569; border-color:#1e293b; } button.warning { background:#a16207; border-color:#713f12; } button:disabled { opacity:.48; cursor:not-allowed; }
+    button:focus-visible,input:focus-visible { outline:.2rem solid var(--focus); outline-offset:.2rem; box-shadow:0 0 0 .15rem var(--focus-alt); } input { width:100%; min-height:2.5rem; border:3px solid var(--input-border); border-radius:.5rem; padding:.5rem; background:transparent; color:inherit; } input[aria-invalid="true"] { border-color:var(--danger); } .error { color:var(--danger); min-height:1.4rem; }
+    .monitor { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.55rem; margin-top:.7rem; } .monitor-row { border:1px solid #64748b; border-radius:.55rem; padding:.55rem; min-height:4rem; overflow-wrap:anywhere; min-width:0; } .monitor-row strong { display:block; } .kv { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; margin-top:.7rem; } .kv div { padding:.55rem; background:#e2e8f0; border-radius:.5rem; overflow-wrap:anywhere; min-width:0; }
+    ol { padding-left:1.5rem; } @media (max-width:52rem) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
+    @media (prefers-color-scheme:dark) { :root { --ink:#f1f5f9; --muted:#cbd5e1; --panel:#111827; --input-border:#cbd5e1; --danger:#fca5a5; background:#0f172a; } body { background:#0f172a; } .card { border-color:#475569; } .kv div { background:#1e293b; } .monitor-row { border-color:#94a3b8; } }
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }
   </style>
 </head>
 <body>
-  <svg aria-hidden="true" width="0" height="0" class="sr-only">
-    <symbol id="icon-wave" viewBox="0 0 24 24"><path fill="currentColor" d="M3 12h3l2-7 4 14 2-7h7v2h-8l-1 3-4-14-1 11H3z"/></symbol>
-    <symbol id="icon-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></symbol>
-    <symbol id="icon-stop" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h12v12H6z"/></symbol>
-    <symbol id="icon-download" viewBox="0 0 24 24"><path fill="currentColor" d="M11 3h2v10l3-3 1.4 1.4L12 17.8l-5.4-6.4L8 10l3 3zM4 19h16v2H4z"/></symbol>
-  </svg>
   <main>
-    <header>
-      <div>
-        <p class="eyebrow">RX-only capture</p>
-        <h1>BESTIUM Eco-Foret capture</h1>
-        <p class="lede">Bounded RX-only EW11 data capture</p>
-      </div>
-      <p id="status" class="status" role="status" aria-live="polite" aria-label="Capture state">Loading</p>
-    </header>
-    <section class="grid" aria-label="Capture dashboard">
-      <article class="card">
-        <h2><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-wave"></use></svg>Capture status</h2>
-        <div class="metrics">
-          <div class="metric"><small>Elapsed</small><strong id="elapsed">0 ms</strong></div>
-          <div class="metric"><small>Limit</small><strong id="limit">0 ms</strong></div>
-          <div class="metric"><small>Bytes</small><strong id="bytes">0</strong></div>
-          <div class="metric"><small>Records</small><strong id="count">0</strong></div>
-        </div>
-        <div class="actions">
-          <button id="start" type="button" aria-label="Start bounded capture"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-play"></use></svg><span>Start</span></button>
-          <button id="stop" class="secondary" type="button" aria-label="Stop capture and finalize file" disabled><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-stop"></use></svg><span>Stop</span></button>
-          <button id="download" type="button" aria-label="Download finalized capture" disabled><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-download"></use></svg><span>Download</span></button>
-        </div>
-        <p id="message" class="lede" role="status" aria-live="polite"></p>
-      </article>
-      <article class="card bounds">
-        <h2><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-wave"></use></svg>Configured bounds</h2>
-        <dl class="bound-list">
-          <div><dt>EW11 endpoint</dt><dd id="endpoint">—</dd></div>
-          <div><dt>Connect timeout</dt><dd id="connect-timeout">—</dd></div>
-          <div><dt>Idle timeout</dt><dd id="idle-timeout">—</dd></div>
-          <div><dt>Duration cap</dt><dd id="duration-cap">—</dd></div>
-          <div><dt>Byte cap</dt><dd id="byte-cap">—</dd></div>
-          <div><dt>Record cap</dt><dd id="record-cap">—</dd></div>
-        </dl>
-      </article>
-      <article class="card">
-        <h2><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-wave"></use></svg>Last bounded result</h2>
-        <div class="metrics">
-          <div class="metric"><small>Reason</small><strong id="reason">None</strong></div>
-          <div class="metric"><small>File</small><strong id="file">None</strong></div>
-          <div class="metric"><small>Started</small><strong id="started">None</strong></div>
-          <div class="metric"><small>Finished</small><strong id="finished">None</strong></div>
-        </div>
-      </article>
-      <article class="card preview">
-        <h2><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#icon-wave"></use></svg>Recent preview <span class="sr-only">(up to 20 records)</span></h2>
-        <ol id="preview" class="preview-list" aria-label="Recent capture preview"><li class="empty">No records captured yet.</li></ol>
-      </article>
+    <header><div><p class="muted"><span lang="en">Protocol Debug</span> · 프로토콜 디버그</p><h1>BESTIUM Eco-Foret</h1><p class="muted">한국어 우선 수신 모니터 · <span lang="en">Korean-primary RX monitor</span></p></div><p id="status" class="status" role="status" aria-live="polite">idle · 대기</p></header>
+    <svg aria-hidden="true" width="0" height="0"><symbol id="debug-frame-icon" viewBox="0 0 1 1"><path d="M0 0h1v1H0z"></path></symbol></svg>
+    <section class="card wide" aria-labelledby="gate-title"><h2 id="gate-title">전송 게이트 · <span lang="en">Transmission gate</span></h2><div class="gate-list" id="tx-gates"><span id="tx-disabled" class="pill no">TX disabled · 전송 비활성</span><span id="tx-authorized" class="pill no">authorized · 권한 없음</span><span id="tx-connected" class="pill no">connected · transport 없음</span><span id="tx-inflight" class="pill no">in-flight · 대기 없음</span><span id="tx-quarantine" class="pill no">quarantine · 격리 없음</span><span id="tx-speculative" class="pill warn">speculative · 후보 확인 필요</span><span id="tx-unsafe" class="pill warn">unsafe · 안전하지 않은 후보</span><span id="tx-pending" class="pill no">pendingAppend · append 없음</span><span id="tx-quiet" class="pill no">quiet · bus 확인 필요</span><span id="tx-current-rx" class="pill no">currentGenerationRx · 현재 RX 없음</span><span id="tx-fresh" class="pill no">fresh · 신선도 없음</span><span id="tx-sevenf" class="pill no">sevenFProof · 7F 증거 없음</span></div><p id="trust-message" class="muted">미리보기는 연결 없이 가능합니다. <span lang="en">Preview only; live commit requires an authorized, connected, quiet current transport.</span></p><div class="actions" aria-label="Capture actions · 캡처 동작"><button id="capture-start" type="button" disabled>캡처 시작 · <span lang="en">Start capture</span></button><button id="capture-stop" class="secondary" type="button" disabled>중지 · <span lang="en">Stop</span></button><button id="capture-download" class="secondary" type="button" disabled>다운로드 · <span lang="en">Download</span></button></div></section>
+    <section class="grid" aria-label="Protocol debug monitor · 프로토콜 디버그 모니터">
+      <article class="card"><h2>조명 · <span lang="en">Lights</span></h2><div class="controls"><button id="light-1-on" type="button">1번 켜기 · <span lang="en">Light 1 ON</span></button><button id="light-1-off" type="button">1번 끄기 · <span lang="en">Light 1 OFF</span></button><button id="light-2-on" type="button">2번 켜기 · <span lang="en">Light 2 ON</span></button><button id="light-2-off" type="button">2번 끄기 · <span lang="en">Light 2 OFF</span></button><button id="light-3-on" type="button">3번 켜기 · <span lang="en">Light 3 ON</span></button><button id="light-3-off" type="button">3번 끄기 · <span lang="en">Light 3 OFF</span></button></div><div class="monitor"><div class="monitor-row"><strong>Light 1</strong><span id="light-state-1">unknown · stale</span></div><div class="monitor-row"><strong>Light 2</strong><span id="light-state-2">unknown · stale</span></div><div class="monitor-row"><strong>Light 3</strong><span id="light-state-3">unknown · stale</span></div></div></article>
+      <article class="card"><h2>가스 · <span lang="en">Gas</span></h2><button id="gas-close" type="button">가스 닫기 · <span lang="en">Gas close</span></button><p class="muted">가스 열기 제어는 없습니다. <span lang="en">Gas open is monitored but never offered.</span></p><div class="monitor-row"><strong>Gas state</strong><span id="gas-state">unknown · stale</span></div></article>
+      <article class="card wide"><h2>난방 · <span lang="en">Heating</span></h2><p class="muted">관측값과 추측 후보를 표시합니다. <span lang="en">Measured and inferred_candidate controls stay distinct.</span></p><div class="controls"><button id="heat-zone-1-on" type="button">1번 난방 켜기 · <span lang="en">Zone 1 ON</span></button><button id="heat-zone-1-off" type="button">1번 난방 끄기 · <span lang="en">Zone 1 OFF</span></button><button id="heat-zone-2-on" type="button">2번 난방 켜기 · <span lang="en">Zone 2 ON (inferred)</span></button><button id="heat-zone-2-off" type="button">2번 난방 끄기 · <span lang="en">Zone 2 OFF (inferred)</span></button><button id="heat-zone-3-on" type="button">3번 난방 켜기 · <span lang="en">Zone 3 ON (inferred)</span></button><button id="heat-zone-3-off" type="button">3번 난방 끄기 · <span lang="en">Zone 3 OFF (inferred)</span></button><button id="heat-zone-4-on" type="button">4번 난방 켜기 · <span lang="en">Zone 4 ON (inferred)</span></button><button id="heat-zone-4-off" type="button">4번 난방 끄기 · <span lang="en">Zone 4 OFF (inferred)</span></button><button id="heat-all-off" type="button">전체 난방 끄기 · <span lang="en">All zones OFF</span></button></div><div class="monitor"><div class="monitor-row"><strong>Zone 1</strong><span id="heat-state-1">unknown · stale</span><span id="heating-current-1">currentC: —</span><span id="heating-target-1">targetC: —</span></div><div class="monitor-row"><strong>Zone 2</strong><span id="heat-state-2">unknown · stale</span><span id="heating-current-2">currentC: —</span><span id="heating-target-2">targetC: —</span></div><div class="monitor-row"><strong>Zone 3</strong><span id="heat-state-3">unknown · stale</span><span id="heating-current-3">currentC: —</span><span id="heating-target-3">targetC: —</span></div><div class="monitor-row"><strong>Zone 4</strong><span id="heat-state-4">unknown · stale</span><span id="heating-current-4">currentC: —</span><span id="heating-target-4">targetC: —</span></div></div><div class="controls"><label for="heat-temp-1">1번 설정 온도 · <span lang="en">Zone 1 temperature</span><input id="heat-temp-1" type="number" min="5" max="40" step="1" value="20" required aria-invalid="false" aria-describedby="heat-temp-1-error" inputmode="numeric"><button id="heat-temp-1-send" type="button">Zone 1 설정 · <span lang="en">Set Zone 1 temperature</span></button></label><p id="heat-temp-1-error" class="error" aria-live="polite"></p><label for="heat-temp-2">2번 설정 온도 · <span lang="en">Zone 2 temperature</span><input id="heat-temp-2" type="number" min="5" max="40" step="1" value="20" required aria-invalid="false" aria-describedby="heat-temp-2-error" inputmode="numeric"><button id="heat-temp-2-send" type="button">Zone 2 설정 · <span lang="en">Set Zone 2 temperature</span></button></label><p id="heat-temp-2-error" class="error" aria-live="polite"></p><label for="heat-temp-3">3번 설정 온도 · <span lang="en">Zone 3 temperature</span><input id="heat-temp-3" type="number" min="5" max="40" step="1" value="20" required aria-invalid="false" aria-describedby="heat-temp-3-error" inputmode="numeric"><button id="heat-temp-3-send" type="button">Zone 3 설정 · <span lang="en">Set Zone 3 temperature</span></button></label><p id="heat-temp-3-error" class="error" aria-live="polite"></p><label for="heat-temp-4">4번 설정 온도 · <span lang="en">Zone 4 temperature</span><input id="heat-temp-4" type="number" min="5" max="40" step="1" value="20" required aria-invalid="false" aria-describedby="heat-temp-4-error" inputmode="numeric"><button id="heat-temp-4-send" type="button">Zone 4 설정 · <span lang="en">Set Zone 4 temperature</span></button></label><p id="heat-temp-4-error" class="error" aria-live="polite"></p></div><p class="pill warn">5–40°C · zones 2–4 inferred_candidate / challenge-gated</p></article>
+      <article class="card"><h2>승강기 · <span lang="en">Elevator</span></h2><div class="controls"><button id="elevator-up" class="warning" type="button">위 후보 · <span lang="en">Up candidate</span></button><button id="elevator-down" class="warning" type="button">아래 후보 · <span lang="en">Down candidate</span></button></div><div class="kv"><div><small>현재 층 · <span lang="en">current floor</span></small><strong id="elevator-floor">unknown · stale</strong></div><div><small>방향 · <span lang="en">direction</span></small><strong id="elevator-direction">unknown · stale</strong></div></div></article>
+      <article class="card"><h2>출입구 · <span lang="en">Entrances</span></h2><p id="household-entrance">세대 현관 · household entrance · unknown / unsafe_candidate</p><p id="common-entrance">공동 현관 · common entrance · unknown / unsafe_candidate</p><div class="controls"><button id="household-inactive" class="warning" type="button">세대 비활성 고정 매크로 · <span lang="en">Household inactive macro</span></button><button id="household-ringing" class="warning" type="button">세대 호출 고정 매크로 · <span lang="en">Household ringing macro</span></button><button id="communal-ringing" class="warning" type="button">공동 호출 고정 매크로 · <span lang="en">Communal ringing macro</span></button></div><p class="muted">고정 3프레임 · 200 ms 간격 · 현재 F7 transport unverified. <span lang="en">Fixed macro, 200 ms spacing, unverified transport.</span></p></article>
+      <article class="card"><h2>조회 전용 · <span lang="en">Query-only</span></h2><div class="controls"><button id="outlet-query" type="button">콘센트 조회 · <span lang="en">Outlet query</span></button><button id="ventilation-query" type="button">환기 조회 · <span lang="en">Ventilation query</span></button></div><p id="outlet-query-state">outlet query · unknown / stale</p><p id="ventilation-query-state">ventilation query · unknown / stale</p></article>
+      <article class="card"><h2>프레임 실험실 · <span lang="en">Batch / unknown</span></h2><p>batch/unknown frames are inspection-only · 배치/미지 프레임은 관찰 전용</p><p id="vehicle-unidentified">차량 미식별 · <span lang="en">vehicle unidentified</span> · monitor only</p><p id="cctv-observation">CCTV unknown · stale · CCTV 미확인 · <span lang="en">unknown / stale until a current inspected frame is accepted</span></p><p id="unknown-clusters">unknown clusters · unknown / stale</p><p id="ambiguous-lab">ambiguous clusters · unknown / stale</p></article>
+      <article class="card wide"><h2>단일 버스트 실험실 · <span lang="en">Raw single-burst lab</span></h2><label for="raw-burst">1–256바이트 짝수 16진수 · <span lang="en">Single-burst hex (unsafe candidate)</span><input id="raw-burst" type="text" required maxlength="512" spellcheck="false" autocapitalize="off" inputmode="text" aria-invalid="false" aria-describedby="raw-warning raw-error" placeholder="hex, 1–256 bytes"></label><p id="raw-warning" class="muted">current F7 transport unverified · 현재 F7 transport 미검증. Preview → challenge → commit only.</p><p id="raw-error" class="error" aria-live="polite"></p><button id="raw-preview" class="secondary" type="button">미리보기 · <span lang="en">Preview only</span></button></article>
+      <article class="card wide"><h2>프레임 신선도 · <span lang="en">Frames and freshness</span></h2><p id="freshness" class="age">unknown · stale · age —</p><p id="idle-timeout" class="age">Idle timeout · idle_timeout_ms: —</p><ol id="frame-lab" aria-label="Recent F7 frames · 최근 F7 프레임"></ol><p id="unknown-lab" class="age"></p></article>
     </section>
+    <section id="review" class="card wide" aria-labelledby="review-title" aria-busy="false"><h2 id="review-title">검토 및 확인 · <span lang="en">Review and confirmation</span></h2><p id="review-phase">idle · 대기</p><p id="review-summary" class="muted">검토된 동작 없음 · <span lang="en">No reviewed action</span></p><p id="review-frames" class="muted"></p><div class="actions"><button id="review-cancel" class="secondary" type="button">취소 · <span lang="en">Cancel</span></button><label for="confirmation-phrase">후보 확인 문구 · <span lang="en">Typed confirmation</span><input id="confirmation-phrase" autocomplete="off" spellcheck="false" placeholder="I UNDERSTAND THIS IS AN INFERRED CANDIDATE" aria-invalid="false" aria-describedby="confirmation-help"></label><p id="confirmation-help" class="muted">후보 프레임과 evidence를 검토한 뒤 정확한 문구를 입력하세요. <span lang="en">Review the exact candidate frame before confirming.</span></p><button id="issue-challenge" class="warning" type="button" disabled>후보 챌린지 발급 · <span lang="en">Issue challenge</span></button><button id="review-commit" type="button" disabled>검토한 동작 전송 · <span lang="en">Transmit reviewed action</span></button></div><p id="countdown" class="age"></p><p id="outcome" role="status" aria-live="polite"></p><p id="alert" role="alert" aria-live="assertive"></p></section>
   </main>
   <script>
-    const statusText = document.getElementById("status");
-    const startButton = document.getElementById("start");
-    const stopButton = document.getElementById("stop");
-    const downloadButton = document.getElementById("download");
-    const preview = document.getElementById("preview");
-    const message = document.getElementById("message");
-    const text = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = String(value); };
-    const number = (value, fallback = 0) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; };
-    const formatNumber = (value) => number(value).toLocaleString();
-    const formatMs = (value) => formatNumber(value) + " ms";
-    const formatDate = (value) => { const timestamp = number(value, NaN); return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toLocaleString() : "—"; };
-    const formatBound = (value, suffix = "") => value === undefined || value === null ? "—" : formatNumber(value) + suffix;
-    function draw(payload) {
-      const source = payload && typeof payload === "object" ? payload : {};
-      const result = source.lastResult && typeof source.lastResult === "object" ? source.lastResult : source;
-      const configured = source.bounds || source.settings || result.bounds || source;
-      const endpointHost = typeof configured.ew11_host === "string" ? configured.ew11_host : "";
-      const endpointPort = configured.ew11_port;
-      text("endpoint", endpointHost && endpointPort !== undefined ? endpointHost + ":" + formatNumber(endpointPort) : "—");
-      text("connect-timeout", formatBound(configured.connect_timeout_ms, " ms"));
-      text("idle-timeout", formatBound(configured.idle_timeout_ms, " ms"));
-      text("duration-cap", formatBound(configured.capture_duration_ms, " ms"));
-      text("byte-cap", formatBound(configured.maximum_bytes, " B"));
-      text("record-cap", formatBound(configured.maximum_records));
-      const phase = ["starting", "running", "finalizing", "stopped"].includes(source.phase)
-        ? source.phase
-        : "stopped";
-      const phaseLabels = {
-        starting: "Starting",
-        running: "Running",
-        finalizing: "Finalizing",
-        stopped: "Stopped",
+    (() => {
+      "use strict";
+      let csrfToken = ""; let pollTimer = null; let pollDeadlineTimer = null; let pollController = null; let pollEpoch = 0; let polling = false; let pollPromise = null; let pollResolve = null; let pollResolveEpoch = 0; let reviewBusy = false; let captureBusy = false; let mutationLocked = false; let mutationEpoch = 0; let mutationDeadlineTimer = null; let mutationController = null; let capturePhase = null; let phase = "idle"; let reviewedAction = null; let reviewPreview = null; let pendingChallenge = null; let challengeBarrier = Promise.resolve(true); let challengeBarrierPending = false; let cancelInFlight = false; let focusReturn = null; let countdownTimer = null; let reviewEpoch = 0; let requestEpoch = 0; let previewController = null; let challengeController = null; let commitInFlight = false; let txRetryLocked = false; let statusRevision = ""; let statusInvalid = true;
+      const $ = (id) => document.getElementById(id); const statusText = $("status"); const startButton = $("capture-start"); const stopButton = $("capture-stop"); const review = $("review");
+      const phaseLabels = { idle:"idle · 대기", previewing:"previewing · 미리보기 중", reviewed:"reviewed · 검토됨", challenged:"challenged · 챌린지 발급됨", committing:"committing · 전송 중", starting:"starting · 시작 중", running:"running · 실행 중", finalizing:"finalizing · 마무리 중", stopped:"stopped · 중지됨" };
+      const actionCatalog = { "light-1-on": () => ({ kind:"light", target:1, state:"on" }), "light-1-off": () => ({ kind:"light", target:1, state:"off" }), "light-2-on": () => ({ kind:"light", target:2, state:"on" }), "light-2-off": () => ({ kind:"light", target:2, state:"off" }), "light-3-on": () => ({ kind:"light", target:3, state:"on" }), "light-3-off": () => ({ kind:"light", target:3, state:"off" }), "gas-close": () => ({ kind:"gas", state:"close" }), "heat-zone-1-on": () => ({ kind:"heat", zone:1, state:"on" }), "heat-zone-1-off": () => ({ kind:"heat", zone:1, state:"off" }), "heat-zone-2-on": () => ({ kind:"heat", zone:2, state:"on" }), "heat-zone-2-off": () => ({ kind:"heat", zone:2, state:"off" }), "heat-zone-3-on": () => ({ kind:"heat", zone:3, state:"on" }), "heat-zone-3-off": () => ({ kind:"heat", zone:3, state:"off" }), "heat-zone-4-on": () => ({ kind:"heat", zone:4, state:"on" }), "heat-zone-4-off": () => ({ kind:"heat", zone:4, state:"off" }), "heat-all-off": () => ({ kind:"heat", target:"all", state:"off" }), "elevator-up": () => ({ kind:"elevator", direction:"up" }), "elevator-down": () => ({ kind:"elevator", direction:"down" }), "outlet-query": () => ({ kind:"outlet", action:"query" }), "ventilation-query": () => ({ kind:"ventilation", action:"query" }), "household-inactive": () => ({ kind:"entrance", target:"household", state:"inactive" }), "household-ringing": () => ({ kind:"entrance", target:"household", state:"ringing" }), "communal-ringing": () => ({ kind:"entrance", target:"communal", state:"ringing" }) };
+      const setText = (id, value) => { const node = $(id); if (node) node.textContent = String(value); }; const setGate = (id, yes, good, bad) => { const node = $(id); if (!node) return; node.textContent = yes ? good : bad; node.classList.toggle("yes", yes); node.classList.toggle("no", !yes); };
+      const txState = () => window.__bestiumTx || {}; const validRevision = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256) || Number.isSafeInteger(value); const previewRevision = (preview) => preview?.readinessRevision ?? preview?.readiness?.readinessRevision; const readyForAction = (preview) => { const tx = txState(); const revision = previewRevision(preview); if (!preview || !validRevision(tx.readinessRevision) || !validRevision(revision) || String(tx.readinessRevision) !== String(revision) || statusInvalid || preview.ready === false || (preview.readiness && preview.readiness.ready === false) || tx.enabled !== true || tx.authorized !== true || tx.connected !== true || tx.inFlight === true || tx.quarantined === true || tx.pendingAppend === true || tx.quiet !== true || tx.currentGenerationRx !== true || tx.fresh !== true) return false; if (pendingChallenge && (!validRevision(pendingChallenge.readinessRevision) || String(pendingChallenge.readinessRevision) !== String(revision))) return false; if (preview.evidence === "inferred_candidate" && tx.speculativeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && tx.unsafeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && preview.action?.kind === "entrance" && tx.sevenFProof !== true) return false; return true; };
+      const setReviewBusy = (value) => { reviewBusy = value; review?.setAttribute("aria-busy", value ? "true" : "false"); const issue = $("issue-challenge"); const commit = $("review-commit"); const cancel = $("review-cancel"); const reviewLocked = value || captureBusy || mutationLocked || txRetryLocked; if (cancel) cancel.disabled = captureBusy || mutationLocked || txRetryLocked || cancelInFlight || commitInFlight || phase === "committing"; if (issue) issue.disabled = reviewLocked || cancelInFlight || !reviewedAction || !reviewPreview || reviewPreview.evidence === "observed" || !readyForAction(reviewPreview); if (commit) commit.disabled = reviewLocked || cancelInFlight || !reviewedAction || (reviewPreview && reviewPreview.evidence !== "observed" && !pendingChallenge) || !readyForAction(reviewPreview); setCaptureControls(); };
+      const validCapturePhase = (value) => value === "starting" || value === "running" || value === "finalizing" || value === "stopped";
+      const setCaptureControls = () => { const unknown = !validCapturePhase(capturePhase); const locked = unknown || captureBusy || mutationLocked || txRetryLocked; if (startButton) startButton.disabled = locked || capturePhase !== "stopped"; if (stopButton) stopButton.disabled = locked || capturePhase !== "running"; }; setCaptureControls();
+      const setCaptureBusy = (value) => { captureBusy = value; startButton?.setAttribute("aria-busy", value ? "true" : "false"); stopButton?.setAttribute("aria-busy", value ? "true" : "false"); setCaptureControls(); setReviewBusy(reviewBusy); };
+      const makeController = () => typeof AbortController === "function" ? new AbortController() : { signal: undefined, abort() {} };
+      const readable = (action) => action ? [action.kind, action.target || action.zone || action.direction || action.action || "", action.state || (action.temperatureC !== undefined ? action.temperatureC + "°C" : "")].filter(Boolean).join(" · ") : "";
+      const postAction = async (action, mode, extra = {}, signal) => { const body = { ...action, mode, ...extra }; const response = await fetch("./api/action", { method:"POST", headers:{ "content-type":"application/json", "x-csrf-token":csrfToken }, body:JSON.stringify(body), signal }); if (!response.ok) throw new Error("semantic action rejected"); return response.json(); };
+      const postCancel = async (id) => { if (!id) return false; const response = await fetch("./api/action", { method:"POST", headers:{ "content-type":"application/json", "x-csrf-token":csrfToken }, body:JSON.stringify({ mode:"cancel", challengeId:id }) }); return response.ok; };
+      const lockIndeterminate = (message) => { txRetryLocked = true; pendingChallenge = null; phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("outcome", "indeterminate · " + message + " · device not confirmed"); setText("alert", "reconciliation required · 재확인 필요 · do not retry"); setReviewBusy(false); setCaptureBusy(captureBusy); }; const lockMutation = (message) => { mutationLocked = true; mutationEpoch += 1; if (mutationDeadlineTimer !== null) { clearTimeout(mutationDeadlineTimer); mutationDeadlineTimer = null; } mutationController = null; setCaptureBusy(false); setText("outcome", "indeterminate · " + message + " · device not confirmed"); setText("alert", "mutation indeterminate · status reconciliation required · 재확인 필요 · do not retry"); void poll(true); };
+      const cancelChallenge = async (id) => { try { const ok = await postCancel(id); if (!ok) { lockIndeterminate("challenge cancellation failed"); return false; } return true; } catch { lockIndeterminate("challenge cancellation unavailable"); return false; } };
+      const clearPoll = () => { if (pollResolve) { const resolve = pollResolve; pollResolve = null; pollPromise = null; pollResolveEpoch = 0; resolve(false); } pollEpoch += 1; if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; } if (pollDeadlineTimer !== null) { clearTimeout(pollDeadlineTimer); pollDeadlineTimer = null; } if (pollController) { pollController.abort(); pollController = null; } polling = false; };
+      const clearReviewState = () => { reviewEpoch += 1; requestEpoch += 1; if (countdownTimer !== null) { clearTimeout(countdownTimer); countdownTimer = null; } if (previewController) previewController.abort(); if (challengeController) challengeController.abort(); reviewedAction = null; reviewPreview = null; pendingChallenge = null; $("confirmation-phrase").value = ""; $("confirmation-phrase").setAttribute("aria-invalid", "false"); setText("review-frames", ""); setText("review-summary", "검토된 동작 없음 · No reviewed action"); };
+      const cancelReview = async () => { if (captureBusy || mutationLocked || cancelInFlight || commitInFlight || phase === "committing") return; cancelInFlight = true; try { const barrier = challengeBarrier; const waitingForIssue = challengeBarrierPending; const id = pendingChallenge?.id; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("countdown", ""); if (waitingForIssue) { setText("outcome", "Canceling challenge · 챌린지 취소 중"); setReviewBusy(true); const canceled = await barrier; if (canceled && !txRetryLocked) setText("outcome", "Challenge canceled · 챌린지 취소됨"); if (!txRetryLocked) setReviewBusy(false); } else if (id) { setText("outcome", "Canceling challenge · 챌린지 취소 중"); challengeBarrierPending = true; challengeBarrier = cancelChallenge(id); setReviewBusy(true); const canceled = await challengeBarrier; challengeBarrierPending = false; if (canceled && !txRetryLocked) { setText("outcome", "Challenge canceled · 챌린지 취소됨"); setReviewBusy(false); } } else { if (!txRetryLocked) setText("outcome", "Review canceled · 검토 취소됨"); setReviewBusy(false); } focusReturn?.focus?.(); } finally { cancelInFlight = false; setReviewBusy(reviewBusy); } };
+      const showCandidateExpiry = () => { if (!pendingChallenge) return; const remaining = Math.max(0, Number(pendingChallenge.expiresAtMs || 0) - Date.now()); setText("countdown", remaining > 0 ? "challenge expires in " + Math.ceil(remaining / 1000) + "s · 만료까지 " + Math.ceil(remaining / 1000) + "초" : "challenge expired · 챌린지 만료"); if (remaining <= 0) { pendingChallenge = null; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); setText("alert", "challenge expired · 챌린지 만료"); setReviewBusy(false); return; } countdownTimer = window.setTimeout(showCandidateExpiry, 500); };
+      const beginPreview = async (action, trigger) => { if (reviewBusy || captureBusy || txRetryLocked) return; clearReviewState(); const epoch = ++reviewEpoch; focusReturn = trigger; phase = "previewing"; setText("review-phase", phaseLabels[phase]); setReviewBusy(true); previewController = makeController(); try { const preview = await postAction(action, "preview", {}, previewController.signal); if (epoch !== reviewEpoch) return; reviewedAction = action; reviewPreview = { ...preview, action }; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); const reasons = Array.isArray(preview.reasons) ? " · reasons: " + preview.reasons.join(", ") : ""; setText("review-summary", "검토: " + readable(action) + " · evidence: " + String(preview.evidence || "unknown") + " · transport: " + String(preview.transportEvidence || "observed") + " · readinessRevision: " + String(preview.readinessRevision || preview.readiness?.readinessRevision || "—") + reasons); const frames = Array.isArray(preview.framesHex) ? preview.framesHex : preview.frameHex ? [preview.frameHex] : []; setText("review-frames", "frameHex: " + String(preview.frameHex || "—") + " · framesHex: " + frames.join(", ") + (preview.evidence === "unsafe_candidate" || preview.evidence === "inferred_candidate" ? " · wrong-device/collision warning · transport unverified" : "")); setText("outcome", "Preview only · 미리보기만 수행됨"); setReviewBusy(false); } catch { if (epoch !== reviewEpoch) return; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("alert", "Preview rejected · 미리보기 거부"); setReviewBusy(false); } };
+      const issueChallenge = async () => {
+        if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || pendingChallenge || txRetryLocked || !reviewedAction || !reviewPreview || reviewPreview.evidence === "observed") return;
+        const phrase = String($("confirmation-phrase").value || "");
+        if (phrase !== "I UNDERSTAND THIS IS AN INFERRED CANDIDATE") {
+          $("confirmation-phrase").setAttribute("aria-invalid", "true");
+          setText("alert", "후보 확인 문구를 정확히 입력하세요 · Type the exact confirmation phrase");
+          $("confirmation-phrase").focus();
+          return;
+        }
+        const epoch = ++requestEpoch;
+        let resolveBarrier;
+        challengeBarrierPending = true;
+        challengeBarrier = new Promise((resolve) => { resolveBarrier = resolve; });
+        const finishBarrier = (ok) => { challengeBarrierPending = false; resolveBarrier(ok); };
+        setReviewBusy(true);
+        setText("outcome", "Issuing challenge · 챌린지 발급 중");
+        challengeController = makeController();
+        try {
+          const issued = await postAction(reviewedAction, "challenge", { confirmationPhrase:phrase, schedule:"immediate" }, challengeController.signal);
+          if (epoch !== requestEpoch) {
+            const canceled = typeof issued?.id === "string" ? await cancelChallenge(issued.id) : false;
+            finishBarrier(canceled);
+            if (!canceled) lockIndeterminate("late challenge cancellation failed");
+            return;
+          }
+          const issueCompletedAtMs = Date.now();
+          const validId = typeof issued?.id === "string" && /^[A-Za-z0-9_-]{32}$/.test(issued.id);
+          const validExpiry = Number.isSafeInteger(issued?.expiresAtMs)
+            && issued.expiresAtMs > issueCompletedAtMs
+            && issued.expiresAtMs <= issueCompletedAtMs + 30_000;
+          const revisionMatches = validRevision(issued?.readinessRevision)
+            && String(issued.readinessRevision) === String(previewRevision(reviewPreview))
+            && String(issued.readinessRevision) === String(statusRevision);
+          if (!validId || !validExpiry || !revisionMatches) {
+            if (validId) void cancelChallenge(issued.id);
+            finishBarrier(false);
+            lockIndeterminate(validId && !revisionMatches ? "challenge readiness changed" : "challenge response invalid");
+            return;
+          }
+          pendingChallenge = issued;
+          setText("outcome", "Challenge issued · 챌린지 발급됨");
+          phase = "challenged";
+          setText("review-phase", phaseLabels[phase]);
+          setText("review-frames", "frameHex: " + String(issued.frameHex || "—") + " · framesHex: " + (issued.framesHex || []).join(", ") + " · inferred_candidate / unverified · readinessRevision: " + String(issued.readinessRevision));
+          finishBarrier(true);
+          showCandidateExpiry();
+          setReviewBusy(false);
+        } catch {
+          finishBarrier(false);
+          lockIndeterminate(epoch === requestEpoch ? "challenge issuance failed; state unknown" : "challenge request aborted before issuance");
+        }
       };
-      statusText.textContent = phaseLabels[phase];
-      statusText.classList.toggle("running", phase === "running");
-      text("elapsed", formatMs(result.elapsedMs));
-      text("limit", formatMs(result.limitMs));
-      text("bytes", Number(result.byteCount || 0).toLocaleString());
-      text("count", Number(result.recordCount || 0).toLocaleString());
-      text("reason", source.lastResult ? (result.reason || "None") : "None");
-      text("file", result.file && result.file.name ? result.file.name : "None");
-      text("started", formatDate(result.startedAtMs));
-      text("finished", formatDate(result.stoppedAtMs));
-      if (!actionBusy) {
-        startButton.disabled = phase !== "stopped";
-        stopButton.disabled = phase !== "running";
-      }
-      downloadButton.disabled = !(result.file && result.file.finalized === true);
-      preview.replaceChildren();
-      const items = Array.isArray(result.preview) ? result.preview.slice(-20) : [];
-      if (items.length === 0) { const empty = document.createElement("li"); empty.className = "empty"; empty.textContent = "No records captured yet."; preview.append(empty); return; }
-      for (const record of items) {
-        const row = document.createElement("li"); row.className = "record";
-        const sequence = document.createElement("span"); sequence.textContent = "#" + record.sequence;
-        const hex = document.createElement("code");
-        const rawHex = typeof record.hex === "string" ? record.hex : "";
-        hex.textContent = rawHex.length > 96 ? rawHex.slice(0, 96) + "…" : rawHex;
-        const length = document.createElement("time"); length.textContent = formatNumber(record.byteLength) + " B";
-        row.append(sequence, hex, length); preview.append(row);
-      }
-    }
-    let refreshInFlight = false;
-    let actionBusy = false;
-    async function refresh() {
-      if (refreshInFlight) return;
-      refreshInFlight = true;
-      try { const response = await fetch("./api/status", { cache: "no-store" }); if (!response.ok) throw new Error("status"); draw(await response.json()); }
-      catch { statusText.textContent = "Unavailable"; statusText.classList.remove("running"); if (message) message.textContent = "Status is temporarily unavailable."; }
-      finally { refreshInFlight = false; }
-    }
-    async function action(endpoint) {
-      if (actionBusy) return;
-      actionBusy = true;
-      startButton.disabled = true;
-      stopButton.disabled = true;
-      if (message) message.textContent = "Updating capture…";
-      try { const response = await fetch(endpoint, { method: "POST" }); if (!response.ok) throw new Error("action"); await refresh(); }
-      catch { if (message) message.textContent = "The capture action failed."; }
-      finally { actionBusy = false; await refresh(); }
-    }
-    startButton.addEventListener("click", () => { void action("./api/capture"); });
-    stopButton.addEventListener("click", () => { void action("./api/stop"); });
-    downloadButton.addEventListener("click", () => { window.location.href = "./api/download"; });
-    void refresh();
-    window.setInterval(() => { void refresh(); }, 2000);
+      const commitReviewed = async () => { if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || txRetryLocked || !reviewedAction || !reviewPreview || !readyForAction(reviewPreview) || (reviewPreview.evidence !== "observed" && !pendingChallenge)) return; phase = "committing"; setText("review-phase", phaseLabels[phase]); commitInFlight = true; setReviewBusy(true); const challengeId = pendingChallenge?.id; pendingChallenge = null; try { const extra = reviewPreview.evidence === "observed" ? { schedule:"immediate" } : { challengeId, confirmationPhrase:String($("confirmation-phrase").value || ""), schedule:"immediate" }; const result = await postAction(reviewedAction, "commit", extra); if (result.outcome === "partial_indeterminate") { txRetryLocked = true; const quarantine = result.quarantined === true ? "true" : result.quarantined === false ? "false" : "unknown/unavailable"; setText("outcome", "partial_indeterminate · framesWritten: " + String(result.framesWritten ?? 0) + " · quarantined: " + quarantine + " · reconciliation required · do not retry"); setText("alert", "partial_indeterminate · reconciliation required · 재확인 필요 · do not retry"); setCaptureBusy(captureBusy); phase = "reviewed"; setText("review-phase", phaseLabels[phase]); } else { if (result.outcome === "socket_written_unconfirmed") setText("outcome", "socket_written_unconfirmed · device not confirmed · 장치 확인 안 됨"); else setText("outcome", "device-not-confirmed · " + String(result.reason || result.outcome || "rejected")); clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); } } catch { txRetryLocked = true; setText("outcome", "indeterminate · socket result unknown; device not confirmed"); setText("alert", "indeterminate · status/journal reconciliation required · 상태/저널 재확인 필요"); setCaptureBusy(captureBusy); void poll(true); } finally { commitInFlight = false; setReviewBusy(false); } };
+      const validateRaw = (focusOnError) => { const input = $("raw-burst"); const value = String(input.value || "").trim(); const valid = /^[0-9a-f]+$/i.test(value) && value.length >= 2 && value.length <= 512 && value.length % 2 === 0; input.setAttribute("aria-invalid", valid ? "false" : "true"); setText("raw-error", valid ? "" : "짝수 길이 16진수 1–256바이트를 입력하세요 · Enter 1–256 bytes of even hexadecimal"); if (!valid && focusOnError) input.focus(); return valid ? { kind:"raw", hex:value } : null; };
+      const validateTemp = (zone, focusOnError) => { const input = $("heat-temp-" + zone); const value = Number(input?.value); const valid = Number.isInteger(value) && value >= 5 && value <= 40; input?.setAttribute("aria-invalid", valid ? "false" : "true"); setText("heat-temp-" + zone + "-error", valid ? "" : "5–40°C · 유효한 온도를 입력하세요"); if (!valid && focusOnError) input?.focus(); return valid ? value : null; };
+      const byOne = (collection, index) => collection?.[index] ?? collection?.[String(index)] ?? collection?.[index - 1] ?? collection?.[String(index - 1)];
+      const safeGeneration = (value) => Number.isSafeInteger(value) && value >= 0; const displayGeneration = (value) => safeGeneration(value) ? String(value) : "—"; const ageFor = (entry, serverNow, currentGeneration, runtimePhase, staleAfterMs, lastValidFrameAtMs, lastValidFrameGeneration) => { if (runtimePhase !== "running" || !Number.isSafeInteger(serverNow) || serverNow < 0 || !safeGeneration(currentGeneration) || !Number.isSafeInteger(staleAfterMs) || staleAfterMs <= 0 || !Number.isSafeInteger(lastValidFrameAtMs) || lastValidFrameAtMs <= 0 || !safeGeneration(lastValidFrameGeneration) || lastValidFrameGeneration !== currentGeneration) return null; const globalAge = serverNow - lastValidFrameAtMs; if (globalAge < 0 || globalAge > staleAfterMs) return null; const at = entry?.lastSeenAtMs ?? entry?.atMs; const entryGeneration = entry?.generation; if (entry?.stale !== false || !Number.isSafeInteger(at) || at <= 0 || !safeGeneration(entryGeneration) || entryGeneration !== currentGeneration) return null; const age = serverNow - at; return age >= 0 && age <= staleAfterMs ? age : null; };
+      const draw = (payload) => { const source = payload && typeof payload === "object" ? payload : {}; const configured = source.bounds || {}; const runtimePhase = Object.prototype.hasOwnProperty.call(phaseLabels, source.phase) ? source.phase : "stopped"; const serverNow = source.serverNowMs; const currentGeneration = source.generation; statusText.textContent = phaseLabels[runtimePhase]; const mutationDisabled = captureBusy || mutationLocked || txRetryLocked; startButton.disabled = mutationDisabled || runtimePhase === "running" || runtimePhase === "starting" || runtimePhase === "finalizing"; stopButton.disabled = mutationDisabled || runtimePhase !== "running"; $("capture-download").disabled = !(source.file?.finalized || source.lastResult?.file?.finalized); csrfToken = typeof source.csrfToken === "string" ? source.csrfToken : csrfToken; const tx = source.tx && typeof source.tx === "object" ? source.tx : {}; statusInvalid = !validRevision(tx.readinessRevision); statusRevision = statusInvalid ? "" : String(tx.readinessRevision); window.__bestiumTx = tx; setGate("tx-disabled", tx.enabled === true, "TX enabled · 전송 활성", "TX disabled · 전송 비활성"); setGate("tx-authorized", tx.authorized === true, "authorized · 권한 확인", "authorized · 권한 없음"); setGate("tx-connected", tx.connected === true, "connected · transport 연결", "connected · transport 없음"); setGate("tx-inflight", tx.inFlight === true, "in-flight · 진행 중", "in-flight · 대기 없음"); setGate("tx-quarantine", tx.quarantined === true, "quarantine · 격리됨", "quarantine · 격리 없음"); setGate("tx-speculative", tx.speculativeEnabled === true, "speculative · 활성", "speculative · 후보 확인 필요"); setGate("tx-unsafe", tx.unsafeEnabled === true, "unsafe · 활성", "unsafe · 안전하지 않은 후보"); setGate("tx-pending", tx.pendingAppend === true, "pendingAppend · append 진행", "pendingAppend · append 없음"); setGate("tx-quiet", tx.quiet === true, "quiet · 조용함", "quiet · bus 확인 필요"); setGate("tx-current-rx", tx.currentGenerationRx === true, "currentGenerationRx · 현재 RX", "currentGenerationRx · 현재 RX 없음"); setGate("tx-fresh", tx.fresh === true, "fresh · 신선함", "fresh · stale"); setGate("tx-sevenf", tx.sevenFProof === true, "sevenFProof · 증거 있음", "sevenFProof · 증거 없음"); const debug = source.debug && typeof source.debug === "object" ? source.debug : {}; const staleAfterMs = debug.staleAfterMs ?? source.staleAfterMs; const devices = debug.devices || {}; const queries = debug.queries || {}; const frames = Array.isArray(debug.frames) ? debug.frames : []; const unknown = Array.isArray(debug.unknown) ? debug.unknown : []; const ambiguous = Array.isArray(debug.ambiguous) ? debug.ambiguous : []; const row = (id, value, entry, note) => { const age = ageFor(entry, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration); const freshness = age === null ? "stale" : "age " + age + " ms · fresh"; const evidence = entry?.evidence ? " · evidence " + entry.evidence : ""; const noteText = note ? " · " + note : ""; setText(id, String(value ?? "unknown") + " · " + freshness + noteText + evidence + " · generation " + displayGeneration(entry?.generation ?? source.generation)); }; const detail = (entry) => { const raw = String(entry?.rawHex || entry?.frameHex || "unknown"); const clipped = raw.slice(0, 128) + (raw.length > 128 ? "…" : ""); const age = ageFor(entry, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration); const freshness = age === null ? "stale" : "age " + age + " ms · fresh"; return String(entry?.cluster || "unknown") + " · " + clipped + " · " + freshness + " · generation " + displayGeneration(entry?.generation ?? source.generation); }; const light = (zone) => byOne(devices.lights, zone); const heat = (zone) => byOne(devices.heating, zone); for (const zone of [1,2,3]) row("light-state-" + zone, light(zone)?.state, light(zone)); row("gas-state", devices.gas?.state, devices.gas); for (const zone of [1,2,3,4]) { const entry = heat(zone); row("heat-state-" + zone, entry?.state, entry); row("heating-current-" + zone, entry?.currentC, entry, "currentC"); row("heating-target-" + zone, entry?.targetC, entry, "targetC"); } row("elevator-floor", devices.elevator?.floor, devices.elevator); row("elevator-direction", devices.elevator?.direction, devices.elevator); row("household-entrance", devices.entrances?.household?.state ?? devices.entrances?.household?.call, devices.entrances?.household); row("common-entrance", devices.entrances?.communal?.state ?? devices.entrances?.communal?.call, devices.entrances?.communal); row("outlet-query-state", queries.outlet, devices.outlet, "query count"); row("ventilation-query-state", queries.ventilation, devices.ventilation, "query count"); const vehicle = devices.vehicle || {}; row("vehicle-unidentified", vehicle.evidence || "unidentified", vehicle, "monitor-only"); const cctv = devices.cctv || {}; const cctvAge = ageFor(cctv, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration); const cctvEvidence = cctv.evidence; const cctvAccepted = cctvAge !== null && (cctvEvidence === "observed" || cctvEvidence === "not_observed_this_generation" || cctvEvidence === "not_observed_current_protocol_frame"); setText("cctv-observation", cctvAccepted ? (cctvEvidence === "observed" ? "CCTV observed in the inspected current protocol frame/generation · 검사한 현재 프로토콜 프레임/세대에서 CCTV 관측" : "CCTV not observed in the inspected current protocol frame/generation · 검사한 현재 프로토콜 프레임/세대에서 CCTV 미관측") : "CCTV unknown · stale · evidence unavailable · CCTV 근거 없음"); const unknownCurrent = unknown.length > 0 && unknown.every((entry) => ageFor(entry, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration) !== null); setText("unknown-clusters", unknown.length + " unknown clusters · " + (unknownCurrent ? "generation " + displayGeneration(currentGeneration) : "generation unknown/stale")); const unknownDetails = unknown.slice(-8).map(detail).join(" | "); const ambiguousDetails = ambiguous.slice(-8).map(detail).join(" | "); setText("unknown-lab", ("unknown frames " + unknown.length + " · " + unknownDetails + " · ambiguous " + ambiguousDetails).slice(0, 1100)); setText("ambiguous-lab", ("ambiguous clusters " + ambiguous.length + " · " + ambiguousDetails).slice(0, 900)); const seen = source.lastValidFrameAtMs; const freshnessAge = ageFor({ lastSeenAtMs: seen, generation: currentGeneration, stale: false }, serverNow, currentGeneration, runtimePhase, staleAfterMs, seen, source.lastValidFrameGeneration); setText("freshness", freshnessAge === null || tx.fresh !== true ? "unknown · stale · age —" : "age " + freshnessAge + " ms · fresh · generation " + displayGeneration(currentGeneration)); setText("idle-timeout", "Idle timeout · idle_timeout_ms: " + String(configured.idle_timeout_ms ?? "—")); const list = $("frame-lab"); while (list.firstChild) list.removeChild(list.firstChild); for (const entry of frames.slice(-32)) { const item = document.createElement("li"); const age = ageFor(entry, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration); item.textContent = String(entry.rawHex || entry.frameHex || "unknown") + " · " + (age === null ? "stale" : "age " + age + " ms · fresh") + " · generation " + displayGeneration(entry?.generation ?? source.generation); list.appendChild(item); } if (!mutationLocked && !txRetryLocked && statusInvalid) setText("alert", "status readiness revision missing or malformed · stale · 재검토 필요"); else if (!mutationLocked && !txRetryLocked && reviewPreview && String(previewRevision(reviewPreview)) !== statusRevision) setText("alert", "readiness revision changed · stale · 재검토 필요"); setReviewBusy(reviewBusy); };
+      const markPollFailure = () => { capturePhase = null; statusInvalid = true; statusRevision = ""; window.__bestiumTx = { ...txState(), readinessRevision: "" }; statusText.textContent = "Poll failed · stale · 폴링 실패"; setText("freshness", "stale · poll failed · 폴링 실패"); if (!mutationLocked && !txRetryLocked) setText("alert", "poll/status failed · stale · 재검토 필요"); setCaptureControls(); setReviewBusy(reviewBusy); };
+      const poll = (immediate = false) => { if (immediate) clearPoll(); if (polling && pollPromise) return pollPromise; const epoch = ++pollEpoch; polling = true; const controller = makeController(); pollController = controller; let settled = false; let resolvePromise = null; const promise = new Promise((resolve) => { resolvePromise = resolve; }); pollPromise = promise; pollResolve = resolvePromise; pollResolveEpoch = epoch; const complete = (value) => { if (pollResolveEpoch !== epoch || !pollResolve) return; const resolve = pollResolve; pollResolve = null; pollPromise = null; pollResolveEpoch = 0; resolve(value); }; const retry = () => { if (epoch !== pollEpoch) return; pollTimer = window.setTimeout(() => { pollTimer = null; void poll(); }, 1000); }; const finish = (failed, payload, retryNow = false) => { if (settled || epoch !== pollEpoch) return; settled = true; polling = false; if (pollController === controller) pollController = null; const valid = !failed && payload && typeof payload === "object" && validCapturePhase(payload.phase); if (valid) { capturePhase = payload.phase; draw(payload); } else { markPollFailure(); if (retryNow) retry(); } complete(valid); }; pollDeadlineTimer = window.setTimeout(() => { pollTimer = null; pollDeadlineTimer = null; if (settled) { void poll(); return; } controller.abort(); finish(true, null, true); }, 5000); pollTimer = pollDeadlineTimer; fetch("./api/status", { cache:"no-store", signal:controller.signal }).then((response) => { if (!response.ok) throw new Error("poll failed"); return response.json(); }).then((payload) => finish(false, payload), () => finish(true, null)); return promise; };
+      const capture = async (endpoint) => {
+        const expectedPhase = endpoint === "./api/capture" ? "stopped" : endpoint === "./api/stop" ? "running" : null;
+        const reconciledPhase = endpoint === "./api/capture" ? "running" : endpoint === "./api/stop" ? "stopped" : null;
+        const endpointAllowed = () => expectedPhase !== null && capturePhase === expectedPhase;
+        if (!endpointAllowed()) return;
+        if (mutationLocked || txRetryLocked) return;
+        if (captureBusy || commitInFlight || phase === "previewing" || phase === "committing") {
+          setText("alert", "Capture blocked while review/challenge is busy · 검토/챌린지 중 캡처 차단");
+          return;
+        }
+        if (challengeBarrierPending) {
+          setCaptureBusy(true);
+          try {
+            if (!(await challengeBarrier) || txRetryLocked || !endpointAllowed()) return;
+          } finally {
+            setCaptureBusy(false);
+          }
+        }
+        if (!endpointAllowed()) return;
+        if (reviewBusy) {
+          setText("alert", "Capture blocked while review/challenge is busy · 검토/챌린지 중 캡처 차단");
+          return;
+        }
+        const challengeId = pendingChallenge?.id;
+        if (challengeId) {
+          setCaptureBusy(true);
+          try {
+            if (!(await cancelChallenge(challengeId)) || !endpointAllowed()) return;
+            pendingChallenge = null;
+            phase = "reviewed";
+            setText("review-phase", phaseLabels[phase]);
+          } finally {
+            setCaptureBusy(false);
+          }
+        }
+        if (!endpointAllowed() || mutationLocked || txRetryLocked) return;
+        setCaptureBusy(true);
+        const epoch = ++mutationEpoch;
+        const controller = makeController();
+        mutationController = controller;
+        let settled = false;
+        const deadline = window.setTimeout(() => {
+          if (settled || epoch !== mutationEpoch) return;
+          settled = true;
+          mutationDeadlineTimer = null;
+          controller.abort();
+          mutationController = null;
+          lockMutation("capture/stop deadline exceeded");
+        }, 5_000);
+        mutationDeadlineTimer = deadline;
+        try {
+          const response = await fetch(endpoint, { method:"POST", headers:{ "x-csrf-token":csrfToken }, signal:controller.signal });
+          if (epoch !== mutationEpoch) return;
+          if (!response || response.ok !== true) throw new Error("capture rejected");
+          settled = true;
+          if (mutationDeadlineTimer === deadline) {
+            clearTimeout(deadline);
+            mutationDeadlineTimer = null;
+          }
+          if (mutationController === controller) mutationController = null;
+          statusText.textContent = "Reconciling · 상태 확인 중";
+          if (!(await poll(true)) || capturePhase !== reconciledPhase) {
+            lockMutation("capture/stop reconciliation failed");
+            return;
+          }
+        } catch {
+          if (epoch !== mutationEpoch) return;
+          lockMutation("capture/stop failed");
+        } finally {
+          if (epoch === mutationEpoch) {
+            if (mutationDeadlineTimer === deadline) {
+              clearTimeout(deadline);
+              mutationDeadlineTimer = null;
+            }
+            if (mutationController === controller) mutationController = null;
+            setCaptureBusy(false);
+          }
+        }
+      };
+      for (const [id, factory] of Object.entries(actionCatalog)) $(id)?.addEventListener("click", (event) => { void beginPreview(factory(), event.currentTarget); }); for (const zone of [1,2,3,4]) $("heat-temp-" + zone + "-send")?.addEventListener("click", (event) => { const value = validateTemp(zone, true); if (value !== null) void beginPreview({ kind:"heat", zone, temperatureC:value }, event.currentTarget); }); for (const zone of [1,2,3,4]) $("heat-temp-" + zone)?.addEventListener("input", () => { validateTemp(zone, false); });
+      $("raw-preview")?.addEventListener("click", (event) => { const action = validateRaw(true); if (action) void beginPreview(action, event.currentTarget); }); $("raw-burst")?.addEventListener("blur", () => { validateRaw(false); }); $("raw-burst")?.addEventListener("input", () => { $("raw-burst").setAttribute("aria-invalid", "false"); setText("raw-error", ""); }); $("issue-challenge")?.addEventListener("click", () => { void issueChallenge(); }); $("review-commit")?.addEventListener("click", () => { void commitReviewed(); }); $("review-cancel")?.addEventListener("click", cancelReview); $("capture-start")?.addEventListener("click", () => { void capture("./api/capture"); }); $("capture-stop")?.addEventListener("click", () => { void capture("./api/stop"); }); $("capture-download")?.addEventListener("click", () => window.location.assign("./api/download")); void poll(true);
+    })();
+    /* semantic modes: mode: "preview" · mode: "challenge" · mode: "commit"; payload.debug.devices payload.debug.queries payload.debug.frames payload.debug.unknown; device-not-confirmed */
   </script>
 </body>
 </html>`;

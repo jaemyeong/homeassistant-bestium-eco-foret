@@ -6,11 +6,12 @@ COPY package.json /app/package.json
 COPY src/capture.ts /app/src/capture.ts
 COPY src/settings.ts /app/src/settings.ts
 COPY src/m2.ts /app/src/m2.ts
+COPY src/protocol-debug.ts /app/src/protocol-debug.ts
 
 COPY src/capture-store.ts /app/src/capture-store.ts
 COPY src/ui.ts /app/src/ui.ts
 
-LABEL io.hass.version="0.1.3"
+LABEL io.hass.version="0.2.0"
 LABEL io.hass.type="app"
 LABEL io.hass.arch="aarch64|amd64"
 

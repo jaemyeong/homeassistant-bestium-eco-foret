@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.1.3";
+const EXPECTED_VERSION = "0.2.0";
+const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
 const layoutPaths = {
   repository: new URL("repository.yaml", root),
@@ -60,6 +63,14 @@ const CONFIG_OPTION_DEFAULT_KEYS = [
   "capture_duration_ms",
   "maximum_bytes",
   "maximum_records",
+  "transmit_enabled",
+  "speculative_transmit_enabled",
+  "unsafe_transmit_enabled",
+  "tx_write_timeout_ms",
+  "tx_cooldown_ms",
+  "tx_quiet_ms",
+  "speculative_tx_cooldown_ms",
+  "unsafe_tx_cooldown_ms",
 ] as const;
 const CONFIG_SCHEMA_KEYS = [
   "ew11_host",
@@ -69,6 +80,15 @@ const CONFIG_SCHEMA_KEYS = [
   "capture_duration_ms",
   "maximum_bytes",
   "maximum_records",
+  "transmit_enabled",
+  "speculative_transmit_enabled",
+  "unsafe_transmit_enabled",
+  "transmit_user_id",
+  "tx_write_timeout_ms",
+  "tx_cooldown_ms",
+  "tx_quiet_ms",
+  "speculative_tx_cooldown_ms",
+  "unsafe_tx_cooldown_ms",
 ] as const;
 const REQUIRED_RUNTIME_INPUT_KEYS = ["ew11_host", "ew11_port"] as const;
 const EXACT_ARCH = ["aarch64", "amd64"] as const;
@@ -78,6 +98,7 @@ const DOCKERFILE_COPY_ALLOWLIST = [
   "src/capture-store.ts",
   "src/settings.ts",
   "src/m2.ts",
+  "src/protocol-debug.ts",
   "src/ui.ts",
 ] as const;
 const DOCKERIGNORE_INCLUDES = [
@@ -87,6 +108,7 @@ const DOCKERIGNORE_INCLUDES = [
   "!src/capture-store.ts",
   "!src/settings.ts",
   "!src/m2.ts",
+  "!src/protocol-debug.ts",
   "!src/ui.ts",
 ] as const;
 const DOCKERIGNORE_FORBIDDEN = [".env", ".env*", ".git", ".agent", ".codex", ".serena", ".codegraph", "graphify-out"] as const;
@@ -96,8 +118,8 @@ const EXPECTED_REPOSITORY_LINES = [
   "maintainer: jaemyeong",
 ] as const;
 
-type AnyRecord = Record<string, unknown>;
-type Listener = (...args: unknown[]) => unknown;
+type AnyRecord = Record<string, any>;
+type Listener = (...args: any[]) => void;
 type FakeTransport = {
   on(event: string, listener: Listener): FakeTransport;
   off(event: string, listener: Listener): FakeTransport;
@@ -126,6 +148,7 @@ type FakeReq = {
   url: string;
   socket: { remoteAddress?: string };
   headers: Record<string, string>;
+  body?: string;
 };
 type FakeRes = {
   statusCode: number;
@@ -171,6 +194,11 @@ type CaptureSummary = {
   preview: CaptureRecord[];
   phase?: "starting" | "running" | "finalizing" | "stopped";
   bounds?: AnyRecord;
+};
+type IngressState = CaptureSummary & {
+  state: "running" | "stopped";
+  lastResult?: CoordinatorResult;
+  [key: string]: any;
 };
 type CoordinatorResult = CaptureSummary & {
   reason: string;
@@ -240,6 +268,15 @@ type M2Settings = {
   capture_duration_ms: number;
   maximum_bytes: number;
   maximum_records: number;
+  transmit_enabled?: boolean;
+  speculative_transmit_enabled?: boolean;
+  unsafe_transmit_enabled?: boolean;
+  transmit_user_id?: string;
+  tx_write_timeout_ms?: number;
+  tx_cooldown_ms?: number;
+  tx_quiet_ms?: number;
+  speculative_tx_cooldown_ms?: number;
+  unsafe_tx_cooldown_ms?: number;
 };
 
 type RuntimeExports = {
@@ -261,6 +298,15 @@ type RuntimeExports = {
     startCapture(): Promise<void>;
     stopCapture(): Promise<CoordinatorResult>;
     createDownloadStream?(): AsyncIterable<string | Uint8Array>;
+    getAuthenticatedIngressUserId?(): string | undefined;
+    getConfiguredTransmitUserId?(): string | undefined;
+    getTxStatus?(): Record<string, unknown>;
+    csrfToken?: string;
+    nowMs?(): number;
+    issueSpeculativeChallenge?(action: AnyRecord, request: AnyRecord): Record<string, unknown> | Promise<Record<string, unknown>>;
+    cancelSpeculativeChallenge?(id: string, request: AnyRecord): boolean | Record<string, unknown> | Promise<boolean | Record<string, unknown>>;
+    hasOutstandingSpeculativeChallenge?(): boolean;
+    executeSemanticAction?(action: AnyRecord, request?: AnyRecord): Record<string, unknown> | Promise<Record<string, unknown>>;
   }): (req: FakeReq, res: FakeRes) => Promise<void> | void;
   startM2Runtime(opts: {
     readOptions(path: string): Promise<unknown>;
@@ -283,6 +329,11 @@ type NumericBound = {
     | "capture_duration_ms"
     | "maximum_bytes"
     | "maximum_records"
+    | "tx_write_timeout_ms"
+    | "tx_cooldown_ms"
+    | "tx_quiet_ms"
+    | "speculative_tx_cooldown_ms"
+    | "unsafe_tx_cooldown_ms"
   >;
   min: number;
   max: number;
@@ -294,6 +345,13 @@ const numericBounds: readonly NumericBound[] = [
   { name: "capture_duration_ms", min: 100, max: 86_400_000 },
   { name: "maximum_bytes", min: 1, max: 67_108_864 },
   { name: "maximum_records", min: 1, max: 1_000_000 },
+] as const;
+const txNumericBounds: readonly NumericBound[] = [
+  { name: "tx_write_timeout_ms", min: 100, max: 10_000 },
+  { name: "tx_cooldown_ms", min: 0, max: 10_000 },
+  { name: "tx_quiet_ms", min: 5, max: 1_000 },
+  { name: "speculative_tx_cooldown_ms", min: 1_000, max: 60_000 },
+  { name: "unsafe_tx_cooldown_ms", min: 1_000, max: 60_000 },
 ] as const;
 
 function path(url: URL): string {
@@ -495,6 +553,7 @@ function createReq(init: Partial<FakeReq> = {}): FakeReq {
     url: init.url ?? "/",
     socket: { remoteAddress: init.socket?.remoteAddress },
     headers: init.headers ?? {},
+    body: init.body,
   };
 }
 
@@ -645,6 +704,14 @@ function validSettings(overrides: AnyRecord = {}): M2Settings {
     capture_duration_ms: 5_000,
     maximum_bytes: 65_536,
     maximum_records: 1_000,
+    transmit_enabled: false,
+    speculative_transmit_enabled: false,
+    unsafe_transmit_enabled: false,
+    tx_write_timeout_ms: 1_000,
+    tx_cooldown_ms: 250,
+    tx_quiet_ms: 20,
+    speculative_tx_cooldown_ms: 5_000,
+    unsafe_tx_cooldown_ms: 5_000,
     ...overrides,
   } as M2Settings;
 }
@@ -824,10 +891,22 @@ test("RED: config strictness and exact static contract", () => {
     capture_duration_ms: 5_000,
     maximum_bytes: 65_536,
     maximum_records: 1_000,
+    transmit_enabled: false,
+    speculative_transmit_enabled: false,
+    unsafe_transmit_enabled: false,
+    tx_write_timeout_ms: 1_000,
+    tx_cooldown_ms: 250,
+    tx_quiet_ms: 20,
+    speculative_tx_cooldown_ms: 5_000,
+    unsafe_tx_cooldown_ms: 5_000,
   });
   for (const key of CONFIG_OPTION_DEFAULT_KEYS) {
-    assert.equal(typeof options[key], "number");
-    assert.equal(Number.isSafeInteger(options[key]), true);
+    if (key === "transmit_enabled" || key === "speculative_transmit_enabled" || key === "unsafe_transmit_enabled") {
+      assert.equal(typeof options[key], "boolean");
+    } else {
+      assert.equal(typeof options[key], "number");
+      assert.equal(Number.isSafeInteger(options[key]), true);
+    }
   }
 
   for (const required of REQUIRED_RUNTIME_INPUT_KEYS) {
@@ -843,6 +922,15 @@ test("RED: config strictness and exact static contract", () => {
   assert.equal(schema.capture_duration_ms, "int(100,86400000)");
   assert.equal(schema.maximum_bytes, "int(1,67108864)");
   assert.equal(schema.maximum_records, "int(1,1000000)");
+  assert.equal(schema.transmit_enabled, "bool");
+  assert.equal(schema.speculative_transmit_enabled, "bool");
+  assert.equal(schema.unsafe_transmit_enabled, "bool");
+  assert.equal(schema.transmit_user_id, "str(1,128)?");
+  assert.equal(schema.tx_write_timeout_ms, "int(100,10000)");
+  assert.equal(schema.tx_cooldown_ms, "int(0,10000)");
+  assert.equal(schema.tx_quiet_ms, "int(5,1000)");
+  assert.equal(schema.speculative_tx_cooldown_ms, "int(1000,60000)");
+  assert.equal(schema.unsafe_tx_cooldown_ms, "int(1000,60000)");
 });
 
 test("RED: Dockerfile allowlist and pinned production constraints", () => {
@@ -930,6 +1018,25 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
       { label: `${rule.name} above`, input: { ...base, [rule.name]: rule.max + 1 }, expect: new RegExp(rule.name) },
     );
   }
+  for (const rule of txNumericBounds) {
+    invalid.push(
+      { label: `${rule.name} non-number`, input: { ...base, [rule.name]: `bad-${rule.name}` }, expect: new RegExp(rule.name) },
+      { label: `${rule.name} NaN`, input: { ...base, [rule.name]: Number.NaN }, expect: new RegExp(rule.name) },
+      { label: `${rule.name} infinity`, input: { ...base, [rule.name]: Number.POSITIVE_INFINITY }, expect: new RegExp(rule.name) },
+      { label: `${rule.name} negative`, input: { ...base, [rule.name]: -1 }, expect: new RegExp(rule.name) },
+      { label: `${rule.name} fraction`, input: { ...base, [rule.name]: rule.min + 0.5 }, expect: new RegExp(rule.name) },
+      { label: `${rule.name} below`, input: { ...base, [rule.name]: rule.min - 1 }, expect: new RegExp(rule.name) },
+      { label: `${rule.name} above`, input: { ...base, [rule.name]: rule.max + 1 }, expect: new RegExp(rule.name) },
+    );
+  }
+  invalid.push(
+    { label: "transmit user non-string", input: { ...base, transmit_user_id: 7 }, expect: /transmit_user_id/i },
+    { label: "transmit user empty", input: { ...base, transmit_user_id: "" }, expect: /transmit_user_id/i },
+    { label: "transmit user too long", input: { ...base, transmit_user_id: "x".repeat(129) }, expect: /transmit_user_id/i },
+    { label: "enabled without user", input: { ...base, transmit_enabled: true }, expect: /transmit_user_id|authorized/i },
+    { label: "speculative enabled without user", input: { ...base, speculative_transmit_enabled: true }, expect: /transmit_user_id|authorized/i },
+    { label: "unsafe enabled without user", input: { ...base, unsafe_transmit_enabled: true }, expect: /transmit_user_id|authorized/i },
+  );
 
   for (const check of invalid) {
     assert.throws(() => parse(check.input), check.expect, check.label);
@@ -947,6 +1054,12 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
       assert.equal(parsed[rule.name], input[rule.name]);
     }
   }
+  for (const rule of txNumericBounds) {
+    for (const value of [rule.min, rule.max]) {
+      const parsed = parse({ ...base, [rule.name]: value });
+      assert.equal(parsed[rule.name], value);
+    }
+  }
 
   assert.deepStrictEqual(parse({ ew11_host: "gateway-1", ew11_port: 9001 }), {
     ew11_host: "gateway-1",
@@ -956,7 +1069,21 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     capture_duration_ms: 5_000,
     maximum_bytes: 65_536,
     maximum_records: 1_000,
+    transmit_enabled: false,
+    speculative_transmit_enabled: false,
+    unsafe_transmit_enabled: false,
+    tx_write_timeout_ms: 1_000,
+    tx_cooldown_ms: 250,
+    tx_quiet_ms: 20,
+    speculative_tx_cooldown_ms: 5_000,
+    unsafe_tx_cooldown_ms: 5_000,
   });
+  const enabled = parse({ ...base, transmit_enabled: true, transmit_user_id: "operator-7" });
+  assert.equal(enabled.transmit_enabled, true);
+  assert.equal(enabled.transmit_user_id, "operator-7");
+  assert.equal(parse({ ...base, transmit_user_id: "operator-7" }).transmit_enabled, false);
+  assert.equal(parse({ ...base, speculative_transmit_enabled: true, transmit_user_id: "operator-7" }).speculative_transmit_enabled, true);
+  assert.equal(parse({ ...base, unsafe_transmit_enabled: true, transmit_user_id: "operator-7" }).unsafe_transmit_enabled, true);
 
   for (const host of ["gateway-1", "192.168.1.10", "edge-gateway.local"]) {
     assert.equal(parse({ ...base, ew11_host: host }).ew11_host, host);
@@ -1728,10 +1855,12 @@ test("RED: offline production wiring accepts defaults, uses 8099, and cleans tra
   );
   assert.equal(pre.statusCode, 200);
   assert.equal(connectorInputs.length, 0);
+  const runtimeCsrf = parseJson<AnyRecord>(pre.body).csrfToken as string;
+  const runtimeHeaders = { "x-remote-user-id": "operator-7", "x-csrf-token": runtimeCsrf };
 
   const startCapture = createRes();
   await app.requestHandler(
-    createReq({ socket: { remoteAddress: "::ffff:172.30.32.2" }, method: "POST", url: "/api/capture" }),
+    createReq({ socket: { remoteAddress: "::ffff:172.30.32.2" }, method: "POST", url: "/api/capture", headers: runtimeHeaders }),
     startCapture,
   );
   assert.equal(startCapture.statusCode, 200);
@@ -2003,7 +2132,9 @@ test("RED: status exposes exact bounds and logger emits bounded lifecycle summar
   if (!start || !progress || !finalize) {
     throw new Error("start, progress, and finalize log entries are required");
   }
-  assert.deepStrictEqual(start.summary.bounds, bounds);
+  assert.equal(Object.prototype.hasOwnProperty.call(start.summary, "bounds"), false);
+  assert.equal(JSON.stringify(start.summary).includes("gateway.example"), false);
+  assert.equal(JSON.stringify(start.summary).includes("9001"), false);
   assert.equal(typeof start.summary.startedAtMs, "number");
   assert.equal(progress.summary.byteCount, 2);
   assert.equal(progress.summary.recordCount, 1);
@@ -2116,16 +2247,19 @@ test("RED: finalized and recovered internal stores both serve downloads without 
     createServer: () => server,
     store: normalStore,
   });
+  const normalStatus = createRes();
+  await normal.requestHandler(createReq({ socket: { remoteAddress: "172.30.32.2" }, url: "/api/status" }), normalStatus);
+  const normalHeaders = { "x-remote-user-id": "operator-7", "x-csrf-token": parseJson<AnyRecord>(normalStatus.body).csrfToken as string };
   const capture = createRes();
   await normal.requestHandler(
-    createReq({ socket: { remoteAddress: "172.30.32.2" }, method: "POST", url: "/api/capture" }),
+    createReq({ socket: { remoteAddress: "172.30.32.2" }, method: "POST", url: "/api/capture", headers: normalHeaders }),
     capture,
   );
   transport.emit("connect");
   transport.emit("data", new Uint8Array([0xaa]));
   const stop = createRes();
   await normal.requestHandler(
-    createReq({ socket: { remoteAddress: "172.30.32.2" }, method: "POST", url: "/api/stop" }),
+    createReq({ socket: { remoteAddress: "172.30.32.2" }, method: "POST", url: "/api/stop", headers: normalHeaders }),
     stop,
   );
   const finalDownload = createRes();
@@ -2356,10 +2490,3430 @@ test("RED: dashboard renders exact phases and derives actions from phase", () =>
     assert.match(ui, new RegExp(`[\\"']${phase}[\\"']`), `dashboard phase ${phase}`);
   }
   assert.match(ui, /statusText\.textContent[\s\S]{0,180}phase/);
-  assert.match(ui, /startButton\.disabled[\s\S]{0,180}phase/);
-  assert.match(ui, /stopButton\.disabled[\s\S]{0,180}phase/);
+  assert.match(ui, /startButton\.disabled[\s\S]{0,300}(?:runtimePhase|phaseLabels|source\.phase)/);
+  assert.match(ui, /stopButton\.disabled[\s\S]{0,300}(?:runtimePhase|phaseLabels|source\.phase)/);
   assert.match(ui, /Idle timeout/);
   assert.match(ui, /id="idle-timeout"/);
   assert.match(ui, /configured\.idle_timeout_ms/);
   assert.doesNotMatch(ui, /const running = source\.state === [\\"']running[\\"']/);
+});
+
+test("RED: status redacts EW11/configured user, exposes CSRF/TX gate, and bounds semantic mutation bodies", async () => {
+  const m2 = await importM2();
+  const csrfToken = "csrf-test-token";
+  const actionCalls: AnyRecord[] = [];
+  const state = {
+    ...validSettings({ ew11_host: "gateway-secret", ew11_port: 9001 }),
+    state: "stopped" as const,
+    startedAtMs: 0,
+    elapsedMs: 0,
+    limitMs: 5_000,
+    byteCount: 0,
+    recordCount: 0,
+    file: null,
+    preview: [],
+    authenticatedIngressUserId: "operator-7",
+    configuredTransmitUserId: "configured-secret-user",
+    tx: { enabled: true, speculativeEnabled: false, authorized: true, connected: true },
+  } as IngressState;
+  const handler = m2.createIngressHandler({
+    getState: () => state,
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "configured-secret-user",
+    getTxStatus: () => state.tx,
+    csrfToken,
+    async executeSemanticAction(action: AnyRecord) {
+      actionCalls.push(action);
+      return { sendable: true, confirmed: false, evidence: "observed" };
+    },
+    async startCapture() {},
+    async stopCapture() {
+      throw new Error("unused");
+    },
+  });
+
+  const status = createRes();
+  await handler(createReq({ socket: { remoteAddress: "172.30.32.2" }, url: "/api/status" }), status);
+  assert.equal(status.statusCode, 200);
+  assert.equal(status.headers.get("cache-control"), "no-store");
+  assert.equal(status.headers.has("access-control-allow-origin"), false);
+  const payload = parseJson<AnyRecord>(status.body);
+  assert.equal(payload.tx.authorized, false, "status authorization must be derived from this request user");
+  for (const readiness of [
+    "enabled", "speculativeEnabled", "unsafeEnabled", "connected", "inFlight", "quarantined",
+    "pendingAppend", "quiet", "currentGenerationRx", "fresh", "sevenFProof",
+  ]) assert.equal(typeof payload.tx[readiness], "boolean", `safe TX readiness missing: ${readiness}`);
+  assert.equal(payload.csrfToken, csrfToken);
+  assert.equal("authenticatedIngressUserId" in payload, false);
+  assert.equal("configuredTransmitUserId" in payload, false);
+  assert.equal("challenge" in payload, false);
+  assert.equal("rawBytes" in payload, false);
+  assert.equal("debug" in payload, true);
+  assert.equal(JSON.stringify(payload).includes("gateway-secret"), false);
+  assert.equal(JSON.stringify(payload).includes("9001"), false);
+  assert.equal(JSON.stringify(payload).includes("configured-secret-user"), false);
+  assert.equal(JSON.stringify(payload).includes("operator-7"), false);
+
+  const trustedStatus = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    headers: { "x-remote-user-id": "operator-7" },
+    url: "/api/status",
+  }), trustedStatus);
+  assert.equal(trustedStatus.statusCode, 200);
+  assert.equal(parseJson<AnyRecord>(trustedStatus.body).tx.authorized, true);
+
+  const noUser = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-csrf-token": csrfToken },
+    body: JSON.stringify({ kind: "light", target: 1, state: "on" }),
+  }), noUser);
+  assert.equal(noUser.statusCode, 403);
+
+  const wrongUser = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "other-user", "x-csrf-token": csrfToken },
+    body: JSON.stringify({ kind: "light", target: 1, state: "on" }),
+  }), wrongUser);
+  assert.equal(wrongUser.statusCode, 403);
+
+  const wrongCsrf = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": "wrong" },
+    body: JSON.stringify({ kind: "light", target: 1, state: "on" }),
+  }), wrongCsrf);
+  assert.equal(wrongCsrf.statusCode, 403);
+
+  const arbitraryRaw = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+    body: JSON.stringify({ rawHex: "f700ee" }),
+  }), arbitraryRaw);
+  assert.equal(arbitraryRaw.statusCode, 400);
+
+  const oversized = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+    body: JSON.stringify({ kind: "light", target: 1, state: "on", note: "x".repeat(1_100) }),
+  }), oversized);
+  assert.equal(oversized.statusCode, 400);
+
+  const forbiddenKnobs = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+    body: JSON.stringify({ kind: "light", target: 1, state: "on", host: "gateway-secret", retry: 1, delayMs: 1, repeat: 2, queue: true, batch: [] }),
+  }), forbiddenKnobs);
+  assert.equal(forbiddenKnobs.statusCode, 400);
+
+  const nestedForbiddenKnobs = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+    body: JSON.stringify({ action: { kind: "light", target: 1, state: "on", retry: 1 } }),
+  }), nestedForbiddenKnobs);
+  assert.equal(nestedForbiddenKnobs.statusCode, 400, "nested transport knobs must be rejected");
+
+  for (const body of [
+    JSON.stringify({ kind: "light", target: 1, state: "on", unknownTopLevel: true }),
+    JSON.stringify({ action: { kind: "light", target: 1, state: "on" }, unknownEnvelopeField: true }),
+    JSON.stringify({ action: { kind: "light", target: 1, state: "on", unknownActionField: true } }),
+  ]) {
+    const unknownEnvelope = createRes();
+    await handler(createReq({
+      socket: { remoteAddress: "172.30.32.2" },
+      method: "POST",
+      url: "/api/action",
+      headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+      body,
+    }), unknownEnvelope);
+    assert.equal(unknownEnvelope.statusCode, 400, "action envelopes must use an exact key allowlist");
+  }
+  assert.deepStrictEqual(actionCalls, [], "rejected envelopes must not invoke semantic execution");
+
+  const valid = createRes();
+  await handler(createReq({
+    socket: { remoteAddress: "172.30.32.2" },
+    method: "POST",
+    url: "/api/action",
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+    body: JSON.stringify({ kind: "light", target: 1, state: "on" }),
+  }), valid);
+  assert.equal(valid.statusCode, 200);
+  assert.deepStrictEqual(actionCalls, [{ kind: "light", target: 1, state: "on" }]);
+
+  for (const body of [
+    JSON.stringify({ kind: "light", target: 1, state: "on", schedule: "tomorrow" }),
+    JSON.stringify({ action: { kind: "light", target: 1, state: "on", schedule: "tomorrow" } }),
+  ]) {
+    const scheduled = createRes();
+    await handler(createReq({
+      socket: { remoteAddress: "172.30.32.2" },
+      method: "POST",
+      url: "/api/action",
+      headers: { "x-remote-user-id": "operator-7", "x-csrf-token": csrfToken, "content-type": "application/json" },
+      body,
+    }), scheduled);
+    assert.equal(scheduled.statusCode, 400, "only absent or immediate schedule is accepted");
+  }
+});
+
+test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write, and unconfirmed", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function", "M2 must expose a bounded TX coordinator");
+  if (typeof createTxCoordinator !== "function") return;
+
+  const timer = createFakeTimer();
+  let generation = 1;
+  let rxByteEpoch = 1;
+  let readEpoch = 1;
+  let txByteEpoch = 0;
+  let tailHash = "tail-0";
+  let lastRxByteAtMs = timer.nowMs() - 100;
+  let lastValidFrameAtMs = timer.nowMs() - 100;
+  let lastResumeAtMs = timer.nowMs() - 100;
+  let connected = true;
+  let pendingAppend = false;
+  let rngCounter = 0;
+  const randomBytes = (size: number): Uint8Array => {
+    rngCounter += 1;
+    return Uint8Array.from({ length: size }, (_, index) => (rngCounter + index) & 0xff);
+  };
+  const settings = validSettings({
+    transmit_enabled: true,
+    speculative_transmit_enabled: true,
+    unsafe_transmit_enabled: false,
+    transmit_user_id: "operator-7",
+    tx_write_timeout_ms: 25,
+    tx_cooldown_ms: 100,
+    tx_quiet_ms: 20,
+    speculative_tx_cooldown_ms: 5_000,
+    unsafe_tx_cooldown_ms: 5_000,
+  });
+  const lightOn = { kind: "light", target: 1, state: "on" };
+  const candidate = { kind: "elevator", direction: "up" };
+
+  function makeTransport(opts: { blocked?: boolean; callbackError?: Error } = {}) {
+    let blocked = opts.blocked ?? false;
+    let destroyed = false;
+    let pendingCallback: ((error?: Error | null) => void) | undefined;
+    const listeners = new Map<string, Set<Listener>>();
+    const writes: Uint8Array[] = [];
+    const transport = {
+      write(chunk: Uint8Array, callback: (error?: Error | null) => void) {
+        writes.push(new Uint8Array(chunk));
+        pendingCallback = callback;
+        if (opts.callbackError !== undefined) queueMicrotask(() => callback(opts.callbackError));
+        return !blocked;
+      },
+      once(event: string, listener: Listener) {
+        const bucket = listeners.get(event) ?? new Set<Listener>();
+        bucket.add(listener);
+        listeners.set(event, bucket);
+        return transport;
+      },
+      on(event: string, listener: Listener) {
+        const bucket = listeners.get(event) ?? new Set<Listener>();
+        bucket.add(listener);
+        listeners.set(event, bucket);
+        return transport;
+      },
+      off(event: string, listener: Listener) {
+        listeners.get(event)?.delete(listener);
+        return transport;
+      },
+      destroy() {
+        destroyed = true;
+      },
+      releaseDrain() {
+        blocked = false;
+        for (const listener of listeners.get("drain") ?? []) listener();
+        listeners.delete("drain");
+        pendingCallback?.();
+        pendingCallback = undefined;
+      },
+      writes,
+      isDestroyed: () => destroyed,
+    };
+    return transport;
+  }
+
+  let transport = makeTransport({ blocked: true });
+  const coordinator = createTxCoordinator({
+    settings,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes,
+    challengeTtlMs: 30_000,
+    maxChallenges: 32,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({
+      connected,
+      pendingAppend,
+      rxByteEpoch,
+      readEpoch,
+      txByteEpoch,
+      tailHash,
+      lastRxByteAtMs,
+      lastValidFrameAtMs,
+      lastResumeAtMs,
+    }),
+    journalLimit: 2,
+  });
+
+  async function rejected(call: () => Promise<unknown>, reason: RegExp): Promise<unknown> {
+    try {
+      const result = await call();
+      assert.match(JSON.stringify(result), reason);
+      return result;
+    } catch (error) {
+      assert.match(String(error), reason);
+      return error;
+    }
+  }
+
+  const preview = await coordinator.send(lightOn, { mode: "preview", userId: "operator-7" });
+  assert.equal(preview.preview, true);
+  assert.equal(transport.writes.length, 0);
+
+  const livePending = coordinator.send(lightOn, { mode: "live", userId: "operator-7" });
+  await Promise.resolve();
+  assert.equal(transport.writes.length, 1);
+  await rejected(
+    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /in.flight|busy|pending/i,
+  );
+  transport.releaseDrain();
+  const liveResult = await livePending;
+  assert.equal(liveResult.outcome, "socket_written_unconfirmed");
+  assert.equal(liveResult.deviceConfirmed, false);
+  assert.equal(transport.writes.length, 1, "write(false) must wait for drain without a second write");
+
+  await rejected(
+    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /cooldown/i,
+  );
+  timer.advance(101);
+  lastRxByteAtMs = timer.nowMs() - 1;
+  await rejected(
+    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /quiet|line.busy/i,
+  );
+  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
+  connected = false;
+  await rejected(
+    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /connect|transport|stopped/i,
+  );
+  connected = true;
+  pendingAppend = true;
+  await rejected(
+    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /append|pending|store/i,
+  );
+  pendingAppend = false;
+
+  generation += 1;
+  rxByteEpoch = 0;
+  lastRxByteAtMs = 0;
+  lastValidFrameAtMs = 0;
+  const stale = await coordinator.send(lightOn, { mode: "live", userId: "operator-7" });
+  assert.match(JSON.stringify(stale), /generation|stale|ambiguous/i);
+  assert.equal(transport.writes.length, 1);
+
+  lastValidFrameAtMs = timer.nowMs() - 60_000;
+  await rejected(
+    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /frame|fresh|rx|stale/i,
+  );
+  lastValidFrameAtMs = timer.nowMs() - 1;
+  rxByteEpoch = 2;
+  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
+  lastResumeAtMs = lastRxByteAtMs;
+
+  const challenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  assert.match(challenge.id, /^[A-Za-z0-9_-]{16,}$/);
+  assert.doesNotMatch(challenge.id, /f70d013401411000a5040b35ee/i);
+  assert.equal(challenge.expiresAtMs, timer.nowMs() + 30_000);
+
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "other-user", schedule: "immediate", challengeId: challenge.id }),
+    /user|authorized|challenge/i,
+  );
+  await rejected(
+    () => coordinator.send({ kind: "elevator", direction: "down" }, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: challenge.id }),
+    /action|frame|challenge/i,
+  );
+
+  const generationChallenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  generation += 1;
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: generationChallenge.id }),
+    /generation|stale|challenge/i,
+  );
+  rxByteEpoch += 1;
+  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
+  lastValidFrameAtMs = lastRxByteAtMs;
+  lastResumeAtMs = lastRxByteAtMs;
+
+  const raceChallenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  rxByteEpoch += 1;
+  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: raceChallenge.id }),
+    /rx|byte|race|stale|challenge/i,
+  );
+
+  const readChallenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  readEpoch += 1;
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: readChallenge.id }),
+    /read|resume|stale|challenge/i,
+  );
+
+  const tailChallenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  txByteEpoch += 1;
+  tailHash = "tail-1";
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: tailChallenge.id }),
+    /tail|tx|byte|stale|challenge/i,
+  );
+
+  const retainedChallenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  for (let index = 0; index < 32; index += 1) {
+    coordinator.issueSpeculativeChallenge(candidate, {
+      userId: "operator-7",
+      confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+      schedule: "immediate",
+    });
+  }
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: retainedChallenge.id }),
+    /max|purge|evict|challenge/i,
+  );
+
+  const expiredChallenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  timer.advance(30_001);
+  await rejected(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: expiredChallenge.id }),
+    /expir|challenge/i,
+  );
+  assert.equal(transport.writes.length, 1, "rejected speculative challenges must not write");
+  assert.equal(typeof coordinator.stop, "function", "stop must purge speculative challenges");
+  await coordinator.stop();
+
+  const deadlineTransport = makeTransport({ blocked: true });
+  transport = deadlineTransport;
+  const deadlineCoordinator = createTxCoordinator({
+    settings: { ...settings, tx_cooldown_ms: 0, speculative_transmit_enabled: false },
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch,
+      readEpoch,
+      txByteEpoch,
+      tailHash,
+      lastRxByteAtMs,
+      lastValidFrameAtMs,
+      lastResumeAtMs,
+    }),
+  });
+  const deadlinePending = deadlineCoordinator.send(lightOn, { mode: "live", userId: "operator-7" });
+  await Promise.resolve();
+  assert.equal(deadlineTransport.writes.length, 1);
+  timer.advance(26);
+  const deadlineResult = await deadlinePending;
+  assert.match(JSON.stringify(deadlineResult), /deadline|timeout|ambiguous/i);
+  assert.equal(deadlineTransport.isDestroyed(), true);
+  deadlineTransport.releaseDrain();
+  assert.equal(deadlineTransport.writes.length, 1, "late drain must not retry a quarantined generation");
+  await rejected(
+    () => deadlineCoordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
+    /quarant|destroy|generation|stale/i,
+  );
+
+  const errorTransport = makeTransport({ callbackError: new Error("socket failed") });
+  transport = errorTransport;
+  generation += 1;
+  const errorCoordinator = createTxCoordinator({
+    settings: { ...settings, tx_cooldown_ms: 0, speculative_transmit_enabled: false },
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch,
+      readEpoch,
+      txByteEpoch,
+      tailHash,
+      lastRxByteAtMs,
+      lastValidFrameAtMs,
+      lastResumeAtMs,
+    }),
+  });
+  const errorResult = await errorCoordinator.send(lightOn, { mode: "live", userId: "operator-7" });
+  await Promise.resolve();
+  assert.match(JSON.stringify(errorResult), /error|ambiguous|unconfirmed/i);
+  assert.equal(errorTransport.isDestroyed(), true);
+  assert.equal(errorTransport.writes.length, 1, "socket errors must not retry");
+
+  const speculativeTransport = makeTransport({ callbackError: new Error("candidate failed") });
+  transport = speculativeTransport;
+  generation += 1;
+  const speculativeCoordinator = createTxCoordinator({
+    settings: { ...settings, tx_cooldown_ms: 0 },
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes,
+    challengeTtlMs: 30_000,
+    maxChallenges: 32,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch,
+      readEpoch,
+      txByteEpoch,
+      tailHash,
+      lastRxByteAtMs,
+      lastValidFrameAtMs,
+      lastResumeAtMs,
+    }),
+  });
+  const speculativeChallenge = speculativeCoordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  const speculativeResult = await speculativeCoordinator.send(candidate, {
+    mode: "live",
+    userId: "operator-7",
+    schedule: "immediate",
+    challengeId: speculativeChallenge.id,
+  });
+  await Promise.resolve();
+  assert.match(JSON.stringify(speculativeResult), /error|ambiguous|unconfirmed/i);
+  assert.equal(speculativeTransport.writes.length, 1);
+  const replay = await rejected(
+    () => speculativeCoordinator.send(candidate, { mode: "live", userId: "operator-7", challengeId: speculativeChallenge.id }),
+    /replay|consum|challenge|cooldown/i,
+  );
+  assert.match(JSON.stringify(replay), /replay|consum|challenge|cooldown/i);
+});
+
+type TxTestTransport = {
+  writes: Uint8Array[];
+  write(chunk: Uint8Array, callback?: (error?: Error | null) => void): boolean;
+  once(event: string, listener: Listener): TxTestTransport;
+  off(event: string, listener: Listener): TxTestTransport;
+  destroy(): void;
+  release(): void;
+  isDestroyed(): boolean;
+};
+
+function createTxTestTransport(blocked = false): TxTestTransport {
+  const listeners = new Map<string, Set<Listener>>();
+  let destroyed = false;
+  let pendingCallback: ((error?: Error | null) => void) | undefined;
+  const transport: TxTestTransport = {
+    writes: [],
+    write(chunk, callback) {
+      this.writes.push(new Uint8Array(chunk));
+      pendingCallback = callback;
+      if (!blocked) callback?.();
+      return !blocked;
+    },
+    once(event, listener) {
+      const bucket = listeners.get(event) ?? new Set<Listener>();
+      bucket.add(listener);
+      listeners.set(event, bucket);
+      return this;
+    },
+    off(event, listener) {
+      listeners.get(event)?.delete(listener);
+      return this;
+    },
+    destroy() {
+      destroyed = true;
+    },
+    release() {
+      for (const listener of listeners.get("drain") ?? []) listener();
+      listeners.delete("drain");
+      pendingCallback?.();
+      pendingCallback = undefined;
+    },
+    isDestroyed() {
+      return destroyed;
+    },
+  };
+  return transport;
+}
+
+test("RED: production body bridge counts UTF-8 bytes, aborts, and reaches /api/action", async () => {
+  const m2 = await importM2();
+  const readBoundedJsonBody = (m2 as AnyRecord).readBoundedJsonBody as
+    | ((body: AsyncIterable<string | Uint8Array>, maxBytes?: number) => Promise<string>)
+    | undefined;
+  assert.equal(typeof readBoundedJsonBody, "function", "M2 must expose the production body reader");
+  if (typeof readBoundedJsonBody !== "function") return;
+  const createProductionRequestHandler = (m2 as AnyRecord).createProductionRequestHandler as
+    | ((handler: (req: AnyRecord, res: AnyRecord) => Promise<void> | void, maxBytes?: number) =>
+        (request: AnyRecord, response: AnyRecord) => Promise<void>)
+    | undefined;
+  assert.equal(typeof createProductionRequestHandler, "function", "M2 must expose the reusable IncomingMessage bridge");
+  if (typeof createProductionRequestHandler !== "function") return;
+  const encoder = new TextEncoder();
+  const body = (async function* () {
+    yield encoder.encode('{"kind":"light",');
+    yield encoder.encode('"target":1}');
+  })();
+  assert.equal(await readBoundedJsonBody(body), '{"kind":"light","target":1}');
+  await assert.rejects(
+    readBoundedJsonBody((async function* () { yield encoder.encode("가".repeat(600)); })(), 1_024),
+    /1024|size|large/i,
+  );
+  await assert.rejects(
+    readBoundedJsonBody((async function* () { yield encoder.encode("{"); throw new Error("request aborted"); })(), 1_024),
+    /abort/i,
+  );
+
+  const state = {
+    ...validSettings(),
+    state: "stopped" as const,
+    startedAtMs: 0,
+    elapsedMs: 0,
+    limitMs: 5_000,
+    byteCount: 0,
+    recordCount: 0,
+    file: null,
+    preview: [],
+  } as IngressState;
+  const actionCalls: AnyRecord[] = [];
+  const ingress = m2.createIngressHandler({
+    getState: () => state,
+    async startCapture() {},
+    async stopCapture() { throw new Error("unused"); },
+    async executeSemanticAction(action: AnyRecord) {
+      actionCalls.push(action);
+      return { sendable: true, confirmed: false, evidence: "observed" };
+    },
+  });
+  const seenBodies: string[] = [];
+  const productionHandler = createProductionRequestHandler(async (request, response) => {
+    seenBodies.push(String(request.body ?? ""));
+    await ingress(request as any, response as any);
+  }, 1_024);
+  const makeIncoming = (chunks: Uint8Array[], error?: Error): AnyRecord => ({
+    method: "POST",
+    url: "/api/action",
+    socket: { remoteAddress: "172.30.32.2" },
+    headers: { "content-type": "application/json" },
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) yield chunk;
+      if (error) throw error;
+    },
+  });
+  const validBody = '{"kind":"light","target":1,"state":"on"}';
+  const validResponse = createStreamingRes();
+  await productionHandler(makeIncoming([encoder.encode(validBody.slice(0, 14)), encoder.encode(validBody.slice(14))]), validResponse);
+  assert.equal(validResponse.statusCode, 200);
+  assert.deepStrictEqual(seenBodies, [validBody]);
+  assert.deepStrictEqual(actionCalls, [{ kind: "light", target: 1, state: "on" }]);
+
+  const oversizeResponse = createStreamingRes();
+  await assert.doesNotReject(() => productionHandler(makeIncoming([encoder.encode("가".repeat(600))]), oversizeResponse));
+  assert.ok(oversizeResponse.statusCode >= 400 && oversizeResponse.statusCode < 500);
+  assert.equal(seenBodies.length, 1, "oversize bodies must not reach ingress");
+
+  const abortedResponse = createStreamingRes();
+  await assert.doesNotReject(() => productionHandler(makeIncoming([encoder.encode("{")], new Error("request aborted")), abortedResponse));
+  assert.ok(abortedResponse.statusCode >= 400 && abortedResponse.statusCode < 500);
+  assert.equal(seenBodies.length, 1, "aborted bodies must not reach ingress");
+
+  const source = readText(paths.m2Source, "src/m2.ts");
+  assert.match(source, /readBoundedJsonBody/);
+  assert.match(source, /createProductionRequestHandler/);
+  const runtimeSource = source.slice(source.indexOf("export async function startM2Runtime"));
+  assert.match(runtimeSource, /createProductionRequestHandler/);
+});
+
+test("RED: status and lifecycle logs always redact endpoint and user while retaining bounded debug", async () => {
+  const m2 = await importM2();
+  const frameHex = "f70b01190240110100b6ee";
+  const state = {
+    ...validSettings({ ew11_host: "ew11-status-secret", ew11_port: 8_899 }),
+    state: "stopped" as const,
+    startedAtMs: 0,
+    elapsedMs: 0,
+    limitMs: 5_000,
+    byteCount: 0,
+    recordCount: 0,
+    file: null,
+    preview: [],
+    bounds: { ew11_host: "ew11-status-secret", ew11_port: 8_899 },
+    configuredTransmitUserId: "configured-user-secret",
+    authenticatedIngressUserId: "authenticated-user-secret",
+    protocol: {
+      generation: 3,
+      frames: [{ rawHex: frameHex, generation: 3 }],
+      unknown: [{ rawHex: "7fb70000ee", generation: 3 }],
+      devices: { lights: [{ target: 1, state: "off" }] },
+    },
+  } as IngressState;
+  const handler = m2.createIngressHandler({
+    getState: () => state,
+    async startCapture() {},
+    async stopCapture() { throw new Error("unused"); },
+  });
+  const response = createRes();
+  await handler(createReq({ socket: { remoteAddress: "172.30.32.2" }, url: "/api/status" }), response);
+  assert.equal(response.statusCode, 200);
+  const payload = parseJson<AnyRecord>(response.body);
+  const serialized = JSON.stringify(payload);
+  assert.equal(serialized.includes("ew11-status-secret"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "ew11_host"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "ew11_port"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload.bounds ?? {}, "ew11_host"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload.bounds ?? {}, "ew11_port"), false);
+  assert.equal(JSON.stringify(payload.bounds ?? {}).includes("8899"), false);
+  assert.equal(serialized.includes("configured-user-secret"), false);
+  assert.equal(serialized.includes("authenticated-user-secret"), false);
+  assert.equal(payload.debug.frames[0].rawHex, frameHex);
+  assert.equal(payload.debug.unknown[0].rawHex, "7fb70000ee");
+
+  const logs: AnyRecord[] = [];
+  const timer = createFakeTimer();
+  const coordinator = m2.createBoundedCaptureCoordinator({
+    settings: validSettings({ ew11_host: "ew11-log-secret", ew11_port: 8_898 }),
+    createTransport: () => createFakeTransport(),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    logger: {
+      info: (event, summary) => logs.push({ event, summary }),
+      error: (event, summary) => logs.push({ event, summary }),
+    },
+  });
+  await coordinator.start();
+  await coordinator.stop();
+  const logText = JSON.stringify(logs);
+  assert.equal(logText.includes("ew11-log-secret"), false);
+  assert.equal(logText.includes("8898"), false);
+  assert.equal(logText.includes("rawHex"), false);
+});
+
+test("RED: master/subtype gates and current-generation RX have no artificial handshake", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  let generation = 1;
+  let rxByteEpoch = 1;
+  let readEpoch = 1;
+  let txByteEpoch = 0;
+  let lastRxByteAtMs = timer.nowMs() - 100;
+  let lastValidFrameAtMs = timer.nowMs() - 100;
+  let lastResumeAtMs = timer.nowMs() - 100;
+  let connected = true;
+  let pendingAppend = false;
+  let transport = createTxTestTransport();
+  let randomCounter = 0;
+  const randomBytes = (size: number): Uint8Array => Uint8Array.from({ length: size }, () => randomCounter++ & 0xff);
+  const base = validSettings({
+    transmit_enabled: true,
+    speculative_transmit_enabled: true,
+    unsafe_transmit_enabled: true,
+    transmit_user_id: "operator-7",
+    tx_cooldown_ms: 0,
+    speculative_tx_cooldown_ms: 0,
+    unsafe_tx_cooldown_ms: 0,
+  });
+  const request = { userId: "operator-7", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+  const make = (overrides: AnyRecord = {}) => createTxCoordinator({
+    settings: { ...base, ...overrides },
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({ connected, pendingAppend, rxByteEpoch, readEpoch, txByteEpoch, lastRxByteAtMs, lastValidFrameAtMs, lastResumeAtMs }),
+  });
+  const elevator = { kind: "elevator", direction: "up" };
+  const raw = { kind: "raw", hex: "0102" };
+  const disabledMaster = make({ transmit_enabled: false });
+  assert.throws(() => disabledMaster.issueSpeculativeChallenge(elevator, request), /TX|disabled|master/i);
+  assert.throws(() => disabledMaster.issueSpeculativeChallenge(raw, request), /TX|disabled|master/i);
+  assert.equal(transport.writes.length, 0);
+  const disabledSpeculative = make({ speculative_transmit_enabled: false });
+  assert.throws(() => disabledSpeculative.issueSpeculativeChallenge(elevator, request), /speculative|disabled/i);
+  const disabledUnsafe = make({ unsafe_transmit_enabled: false });
+  assert.throws(() => disabledUnsafe.issueSpeculativeChallenge(raw, request), /unsafe|disabled/i);
+
+  const normal = make({ speculative_transmit_enabled: false, unsafe_transmit_enabled: false });
+  const firstTransport = transport;
+  const first = await normal.send({ kind: "light", target: 1, state: "on" }, { mode: "live", userId: "operator-7" });
+  assert.equal(first.outcome, "socket_written_unconfirmed");
+  assert.equal(firstTransport.writes.length, 1);
+  generation += 1;
+  transport = createTxTestTransport();
+  rxByteEpoch = 0;
+  lastRxByteAtMs = 0;
+  lastValidFrameAtMs = 0;
+  const stale = await normal.send({ kind: "light", target: 1, state: "on" }, { mode: "live", userId: "operator-7" });
+  assert.equal(transport.writes.length, 0);
+  assert.match(JSON.stringify(stale), /generation|frame|fresh|rx|stale/i);
+  rxByteEpoch = 2;
+  lastRxByteAtMs = timer.nowMs() - 100;
+  lastValidFrameAtMs = timer.nowMs() - 100;
+  const fresh = await normal.send({ kind: "light", target: 1, state: "on" }, { mode: "live", userId: "operator-7" });
+  assert.equal(fresh.outcome, "socket_written_unconfirmed");
+  assert.equal(transport.writes.length, 1);
+});
+
+test("RED: coordinator RAW tail rejects semantic/gas/door splits and stop aborts macro safely", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  const signatures = [
+    "f70b01190240110100b6ee", "f70d011b04431100040000b2ee", "f70c011802401102010000b2ee",
+    "f70d013401411000a5040b35ee", "f70d01340141100006040b96ee", "f70b011f0140100000b3ee", "f70b012b014011000086ee",
+    "f70e011e024311040004ffffb6ee",
+    "7fb90000ee", "7fb40000ee", "7fba0000ee", "7fb70000ee", "7fb80000ee", "7f5f0000ee", "7f610000ee", "7f600000ee",
+  ];
+  const misses: string[] = [];
+  let counter = 0;
+  for (const signature of signatures) {
+    let generation = 1;
+    let transport = createTxTestTransport();
+    const prefix = signature.slice(0, -2);
+    const suffix = signature.slice(-2);
+    const coordinator = createTxCoordinator({
+      settings: validSettings({ transmit_enabled: true, unsafe_transmit_enabled: true, transmit_user_id: "operator-7", tx_cooldown_ms: 0, unsafe_tx_cooldown_ms: 0 }),
+      nowMs: timer.nowMs,
+      setTimeout: timer.setTimeout,
+      clearTimeout: timer.clearTimeout,
+      randomBytes: (size: number) => Uint8Array.from({ length: size }, () => counter++ & 0xff),
+      getCurrentUserId: () => "operator-7",
+      getTransport: () => transport,
+      getGeneration: () => generation,
+      getRxState: () => ({ connected: true, pendingAppend: false, rxByteEpoch: 1, readEpoch: 1, txByteEpoch: 0, tailHash: "tail", lastRxByteAtMs: timer.nowMs() - 100, lastValidFrameAtMs: timer.nowMs() - 100, lastValidSevenFFrameAtMs: signature.startsWith("7f") ? timer.nowMs() - 100 : 0, validSevenFFrameGeneration: generation, lastResumeAtMs: timer.nowMs() - 100 }),
+    });
+    const action = (hex: string) => ({ kind: "raw", hex });
+    const request = { userId: "operator-7", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+    const firstChallenge = coordinator.issueSpeculativeChallenge(action(prefix), request);
+    const first = await coordinator.send(action(prefix), { ...request, mode: "live", challengeId: firstChallenge.id });
+    assert.equal(first.outcome, "socket_written_unconfirmed", `prefix must be sendable: ${signature}`);
+    let rejected = false;
+    try {
+      coordinator.issueSpeculativeChallenge(action(suffix), request);
+    } catch (error) {
+      if (!/collision|recognized|boundary|frame/i.test(String(error))) throw error;
+      rejected = true;
+    }
+    if (!rejected) misses.push(signature);
+  }
+  assert.deepStrictEqual(misses, [], `RAW boundary misses: ${misses.join(",")}`);
+
+  let generation = 1;
+  let connected = true;
+  let transport = createTxTestTransport(true);
+  const macro = createTxCoordinator({
+    settings: validSettings({ transmit_enabled: true, speculative_transmit_enabled: true, unsafe_transmit_enabled: true, transmit_user_id: "operator-7", tx_cooldown_ms: 0, speculative_tx_cooldown_ms: 0 }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => Uint8Array.from({ length: size }, (_, index) => (index + 7) & 0xff),
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({ connected, pendingAppend: false, rxByteEpoch: 1, readEpoch: 1, txByteEpoch: 0, tailHash: "tail", lastRxByteAtMs: timer.nowMs() - 100, lastValidFrameAtMs: timer.nowMs() - 100, lastValidSevenFFrameAtMs: timer.nowMs() - 100, validSevenFFrameGeneration: generation, lastResumeAtMs: timer.nowMs() - 100, sevenFProof: { generation, action: "household:ringing", frames: ["7fb70000ee", "7fb40000ee", "7fb80000ee"], completedAtMs: timer.nowMs() - 100 } }),
+  });
+  const macroAction = { kind: "entrance", target: "household", state: "ringing" };
+  const macroRequest = { userId: "operator-7", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+  const challenge = macro.issueSpeculativeChallenge(macroAction, macroRequest);
+  const pending = macro.send(macroAction, { ...macroRequest, mode: "live", challengeId: challenge.id });
+  await Promise.resolve();
+  assert.equal(transport.writes.length, 1);
+  generation += 1;
+  connected = false;
+  macro.stop();
+  transport.release();
+  await Promise.resolve();
+  timer.advance(10_000);
+  await Promise.resolve();
+  const result = await pending;
+  assert.notEqual(result.outcome, "socket_written_unconfirmed");
+  assert.equal(result.quarantined, true, "partial macro outcomes must authoritatively quarantine the generation");
+  assert.equal(transport.writes.length, 1, "stop/reconnect must not write a later macro frame");
+  assert.equal(timer.pendingCount(), 0);
+});
+
+test("RED-final: preview exposes canonical hex and generation one accepts its first tagged RX", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  let generation = 0;
+  let rxByteEpoch = 0;
+  let validFrameEpoch = 0;
+  let validFrameGeneration = 0;
+  let transport = createTxTestTransport();
+  const state = () => ({
+    connected: true,
+    pendingAppend: false,
+    rxByteEpoch,
+    validFrameEpoch,
+    validFrameGeneration,
+    readEpoch: 1,
+    txByteEpoch: 0,
+    lastRxByteAtMs: timer.nowMs() - 100,
+    lastValidFrameAtMs: timer.nowMs() - 100,
+    lastResumeAtMs: timer.nowMs() - 100,
+  });
+  const coordinator = createTxCoordinator({
+    settings: validSettings({ transmit_enabled: true, transmit_user_id: "operator-7", tx_cooldown_ms: 0 }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: state,
+  });
+  generation = 1;
+  rxByteEpoch = 1;
+  validFrameEpoch = 1;
+  validFrameGeneration = 1;
+  const light = { kind: "light", target: 1, state: "on" };
+  const preview = await coordinator.send(light, { mode: "preview", userId: "operator-7" });
+  assert.equal(preview.frameHex, "f70b01190240110100b6ee");
+  assert.deepStrictEqual(preview.framesHex, ["f70b01190240110100b6ee"]);
+  const candidatePreview = await coordinator.send({ kind: "elevator", direction: "up" }, { mode: "preview", userId: "operator-7" });
+  assert.equal(typeof candidatePreview.frameHex, "string");
+  assert.deepStrictEqual(candidatePreview.framesHex, [candidatePreview.frameHex]);
+
+  const first = await coordinator.send(light, { mode: "live", userId: "operator-7" });
+  assert.equal(first.outcome, "socket_written_unconfirmed", "a valid frame tagged to new generation is sufficient");
+  assert.equal(transport.writes.length, 1);
+
+  // RX from the prior generation, or no valid frame at all, cannot be reused.
+  transport = createTxTestTransport();
+  rxByteEpoch = 2;
+  validFrameEpoch = 0;
+  validFrameGeneration = 0;
+  const noCurrentFrame = await coordinator.send(light, { mode: "live", userId: "operator-7" });
+  assert.match(JSON.stringify(noCurrentFrame), /generation|frame|fresh|rx|stale/i);
+  assert.equal(transport.writes.length, 0);
+});
+
+test("RED-final: absent or immediate schedule is accepted; other values reject", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  const transport = createTxTestTransport();
+  const coordinator = createTxCoordinator({
+    settings: validSettings({ transmit_enabled: true, transmit_user_id: "operator-7", tx_cooldown_ms: 0 }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch: 1,
+      validFrameEpoch: 1,
+      validFrameGeneration: 1,
+      readEpoch: 1,
+      txByteEpoch: 0,
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastResumeAtMs: timer.nowMs() - 100,
+    }),
+  });
+  const light = { kind: "light", target: 1, state: "on" };
+  for (const request of [
+    { mode: "live", userId: "operator-7" },
+    { mode: "live", userId: "operator-7", schedule: "immediate" },
+  ]) {
+    const accepted = await coordinator.send(light, request);
+    assert.equal(accepted.outcome, "socket_written_unconfirmed");
+  }
+  const writesBeforeReject = transport.writes.length;
+  const result = await coordinator.send(light, { mode: "live", userId: "operator-7", schedule: "tomorrow" });
+  assert.match(JSON.stringify(result), /schedule|immediate|unsupported|rejected/i);
+  assert.equal(transport.writes.length, writesBeforeReject);
+});
+
+test("RED-final: a new candidate challenge supersedes its predecessor and door proof is action-specific", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  const transport = createTxTestTransport();
+  let sevenFProof: AnyRecord = {
+    generation: 1,
+    action: "communal:ringing",
+    frames: ["7f5f0000ee", "7f610000ee", "7f600000ee"],
+    completedAtMs: timer.nowMs() - 100,
+  };
+  let randomCounter = 0;
+  const coordinator = createTxCoordinator({
+    settings: validSettings({
+      transmit_enabled: true,
+      speculative_transmit_enabled: true,
+      unsafe_transmit_enabled: true,
+      transmit_user_id: "operator-7",
+      speculative_tx_cooldown_ms: 0,
+      unsafe_tx_cooldown_ms: 0,
+    }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => Uint8Array.from({ length: size }, () => randomCounter++ & 0xff),
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch: 1,
+      validFrameEpoch: 1,
+      validFrameGeneration: 1,
+      readEpoch: 1,
+      txByteEpoch: 0,
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastValidSevenFFrameAtMs: timer.nowMs() - 100,
+      validSevenFFrameGeneration: 1,
+      lastResumeAtMs: timer.nowMs() - 100,
+      sevenFProof,
+    } as AnyRecord),
+  });
+  const request = {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  };
+  const household = { kind: "entrance", target: "household", state: "inactive" };
+  assert.throws(() => coordinator.issueSpeculativeChallenge(household, request), /proof|compatib|state|match/i);
+  sevenFProof = { generation: 1, action: "household:inactive", frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"], completedAtMs: timer.nowMs() - 100 };
+  const first = coordinator.issueSpeculativeChallenge(household, request);
+  const second = coordinator.issueSpeculativeChallenge({ kind: "elevator", direction: "up" }, request);
+  assert.notEqual(first.id, second.id);
+  const superseded = await coordinator.send(household, { ...request, mode: "live", challengeId: first.id });
+  assert.match(JSON.stringify(superseded), /supersed|expired|invalid|challenge|replay/i);
+  assert.equal(transport.writes.length, 0);
+
+  sevenFProof = { generation: 1, action: "unknown", frames: ["7f620000ee"] };
+  assert.throws(
+    () => coordinator.issueSpeculativeChallenge({ kind: "raw", hex: "7f620000ee" }, request),
+    /proof|compatib|recognized|door|unsafe|rejected/i,
+    "arbitrary structural 7F is not compatibility proof",
+  );
+});
+
+test("RED-final: synchronous write callback error with write(false) leaves no drain listener or timer", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  let drainListeners = 0;
+  let destroyed = false;
+  const transport = {
+    writes: [] as Uint8Array[],
+    write(chunk: Uint8Array, callback: (error?: Error | null) => void): boolean {
+      this.writes.push(new Uint8Array(chunk));
+      callback(new Error("sync write failure"));
+      return false;
+    },
+    once(event: string, _listener: Listener) {
+      if (event === "drain") drainListeners += 1;
+      return this;
+    },
+    off(event: string, _listener: Listener) {
+      if (event === "drain") drainListeners = Math.max(0, drainListeners - 1);
+      return this;
+    },
+    destroy() { destroyed = true; },
+  };
+  const coordinator = createTxCoordinator({
+    settings: validSettings({ transmit_enabled: true, transmit_user_id: "operator-7", tx_write_timeout_ms: 25, tx_cooldown_ms: 0 }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch: 1,
+      validFrameEpoch: 1,
+      validFrameGeneration: 1,
+      readEpoch: 1,
+      txByteEpoch: 0,
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastResumeAtMs: timer.nowMs() - 100,
+    }),
+  });
+  const result = await coordinator.send({ kind: "light", target: 1, state: "on" }, { mode: "live", userId: "operator-7" });
+  assert.match(JSON.stringify(result), /error|unconfirmed|ambiguous/i);
+  assert.equal(transport.writes.length, 1);
+  assert.equal(drainListeners, 0, "sync callback error must not attach a late drain listener");
+  assert.equal(timer.pendingCount(), 0, "sync callback error must clear its deadline");
+  assert.equal(destroyed, true);
+});
+
+test("RED-final: capture coordinator keeps malformed RX evidence bounded without escaping onData", async () => {
+  const m2 = await importM2();
+  const timer = createFakeTimer();
+  const transport = createFakeTransport();
+  const coordinator = m2.createBoundedCaptureCoordinator({
+    settings: validSettings({ maximum_bytes: 16_384, maximum_records: 32 }),
+    createTransport: () => transport,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    store: createFakeStore(),
+  });
+  await coordinator.start();
+  transport.emit("connect");
+  assert.doesNotThrow(() => transport.emit("data", Uint8Array.from([0xf7, 0x05, 0x01, 0xf3, 0xee])));
+  assert.doesNotThrow(() => transport.emit("data", new Uint8Array(4_096).fill(0x7f)));
+  const debug = (coordinator.getState() as AnyRecord).protocol as AnyRecord;
+  assert.ok(String(debug.parser?.pendingHex ?? "").length <= 512);
+  await coordinator.stop();
+});
+
+test("RED-final: each door macro frame uses the write deadline, not only the five-second total", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const delays: number[] = [];
+  const timer = createFakeTimer(delays);
+  const transport = createTxTestTransport(true);
+  const coordinator = createTxCoordinator({
+    settings: validSettings({
+      transmit_enabled: true,
+      unsafe_transmit_enabled: true,
+      transmit_user_id: "operator-7",
+      tx_write_timeout_ms: 50,
+      unsafe_tx_cooldown_ms: 0,
+    }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => new Uint8Array(size).fill(9),
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch: 1,
+      validFrameEpoch: 1,
+      validFrameGeneration: 1,
+      readEpoch: 1,
+      txByteEpoch: 0,
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastValidSevenFFrameAtMs: timer.nowMs() - 100,
+      validSevenFFrameGeneration: 1,
+      lastResumeAtMs: timer.nowMs() - 100,
+      sevenFProof: {
+        generation: 1,
+        action: "household:inactive",
+        frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
+        completedAtMs: timer.nowMs() - 100,
+      },
+    } as AnyRecord),
+  });
+  const action = { kind: "entrance", target: "household", state: "inactive" };
+  const request = { userId: "operator-7", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+  const challenge = coordinator.issueSpeculativeChallenge(action, request);
+  const pending = coordinator.send(action, { ...request, mode: "live", challengeId: challenge.id });
+  await Promise.resolve();
+  assert.ok(delays.some((delay) => delay <= 50), `macro write deadline must be bounded per frame: ${delays.join(",")}`);
+  coordinator.stop();
+  await pending;
+});
+
+test("RED-exception: every macro frame rechecks RX/read/append/tail state and quarantines partial writes", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+
+  const mutations = ["generation", "rxByteEpoch", "readEpoch", "pendingAppend", "txByteEpoch", "tailHash"] as const;
+  for (const mutation of mutations) {
+    const timer = createFakeTimer();
+    let generation = 1;
+    let rxByteEpoch = 1;
+    let readEpoch = 1;
+    let pendingAppend = false;
+    let txByteEpoch = 0;
+    let tailHash = "tail-0";
+    const transport = createTxTestTransport();
+    const proof = {
+      generation: 1,
+      action: "household:inactive",
+      frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
+      completedAtMs: timer.nowMs() - 100,
+    };
+    const coordinator = createTxCoordinator({
+      settings: validSettings({
+        transmit_enabled: true,
+        unsafe_transmit_enabled: true,
+        transmit_user_id: "operator-7",
+        tx_quiet_ms: 20,
+        unsafe_tx_cooldown_ms: 0,
+      }),
+      nowMs: timer.nowMs,
+      setTimeout: timer.setTimeout,
+      clearTimeout: timer.clearTimeout,
+      randomBytes: (size: number) => new Uint8Array(size).fill(7),
+      getCurrentUserId: () => "operator-7",
+      getTransport: () => transport,
+      getGeneration: () => generation,
+      getRxState: () => ({
+        connected: true,
+        pendingAppend,
+        rxByteEpoch,
+        readEpoch,
+        txByteEpoch,
+        tailHash,
+        lastRxByteAtMs: timer.nowMs() - 100,
+        lastValidFrameAtMs: timer.nowMs() - 100,
+        lastValidSevenFFrameAtMs: timer.nowMs() - 100,
+        validSevenFFrameGeneration: 1,
+        lastResumeAtMs: timer.nowMs() - 100,
+        sevenFProof: proof,
+      }),
+    });
+    const action = { kind: "entrance", target: "household", state: "inactive" };
+    const request = {
+      userId: "operator-7",
+      confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+      schedule: "immediate",
+    };
+    const challenge = coordinator.issueSpeculativeChallenge(action, request);
+    const pending = coordinator.send(action, { ...request, mode: "live", challengeId: challenge.id });
+    for (let index = 0; index < 4; index += 1) await Promise.resolve();
+    assert.equal(transport.writes.length, 1, `${mutation}: first macro frame should be written`);
+
+    if (mutation === "generation") generation = 2;
+    if (mutation === "rxByteEpoch") rxByteEpoch = 2;
+    if (mutation === "readEpoch") readEpoch = 2;
+    if (mutation === "pendingAppend") pendingAppend = true;
+    if (mutation === "txByteEpoch") txByteEpoch = 1;
+    if (mutation === "tailHash") tailHash = "tail-mutated";
+
+    for (let index = 0; index < 12; index += 1) {
+      timer.advance(200);
+      await Promise.resolve();
+    }
+    const result = await pending;
+    assert.equal(result.outcome, "partial_indeterminate", `${mutation} must abort the macro`);
+    assert.equal(result.framesWritten, 1, `${mutation} must report the one attempted frame`);
+    assert.equal(transport.writes.length, 1, `${mutation} must prevent frame 2/3`);
+    assert.equal(transport.isDestroyed(), true, `${mutation} must destroy the exact transport`);
+    assert.equal(coordinator.isQuarantined(1), true, `${mutation} must quarantine generation 1`);
+    assert.equal(timer.pendingCount(), 0, `${mutation} must leave no timers`);
+  }
+});
+
+test("RED-exception: RAW rejects arbitrary structural 7F frames at every offset and across the outbound tail", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+
+  const structural = ["7f620000ee", "007f620000ee00", "aa7f620000ee", "7f620000eeaa"];
+  for (const hex of structural) {
+    const timer = createFakeTimer();
+    const transport = createTxTestTransport();
+    const coordinator = createTxCoordinator({
+      settings: validSettings({
+        transmit_enabled: true,
+        unsafe_transmit_enabled: true,
+        transmit_user_id: "operator-7",
+        unsafe_tx_cooldown_ms: 0,
+      }),
+      nowMs: timer.nowMs,
+      setTimeout: timer.setTimeout,
+      clearTimeout: timer.clearTimeout,
+      randomBytes: (size: number) => new Uint8Array(size).fill(8),
+      getCurrentUserId: () => "operator-7",
+      getTransport: () => transport,
+      getGeneration: () => 1,
+      getRxState: () => ({
+        connected: true,
+        pendingAppend: false,
+        rxByteEpoch: 1,
+        readEpoch: 1,
+        txByteEpoch: 0,
+        tailHash: "tail",
+        lastRxByteAtMs: timer.nowMs() - 100,
+        lastValidFrameAtMs: timer.nowMs() - 100,
+        lastResumeAtMs: timer.nowMs() - 100,
+      }),
+    });
+    assert.throws(
+      () => coordinator.issueSpeculativeChallenge({ kind: "raw", hex }, {
+        userId: "operator-7",
+        confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+        schedule: "immediate",
+      }),
+      /recognized|collision|structural|7f|door|unsafe|rejected/i,
+      `structural 7F must not be challengeable: ${hex}`,
+    );
+    assert.equal(transport.writes.length, 0, `structural 7F must not be written: ${hex}`);
+  }
+
+  const timer = createFakeTimer();
+  const transport = createTxTestTransport();
+  const coordinator = createTxCoordinator({
+    settings: validSettings({
+      transmit_enabled: true,
+      unsafe_transmit_enabled: true,
+      transmit_user_id: "operator-7",
+      unsafe_tx_cooldown_ms: 0,
+    }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => new Uint8Array(size).fill(9),
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch: 1,
+      readEpoch: 1,
+      txByteEpoch: 0,
+      tailHash: "tail",
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastResumeAtMs: timer.nowMs() - 100,
+    }),
+  });
+  const prefix = { kind: "raw", hex: "007f62" };
+  const request = {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  };
+  const first = coordinator.issueSpeculativeChallenge(prefix, request);
+  const firstResult = await coordinator.send(prefix, { ...request, mode: "live", challengeId: first.id });
+  assert.equal(firstResult.outcome, "socket_written_unconfirmed");
+  assert.equal(transport.writes.length, 1);
+  assert.throws(
+    () => coordinator.issueSpeculativeChallenge({ kind: "raw", hex: "0000ee00" }, request),
+    /recognized|collision|boundary|structural|7f|door|unsafe|rejected/i,
+    "a structural 7F signature split across the outbound tail must stay blocked",
+  );
+  assert.equal(transport.writes.length, 1);
+});
+
+test("RED-exception: preview reports server readiness/reasons and commit rechecks changed gates", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  let pendingAppend = false;
+  const transport = createTxTestTransport();
+  const coordinator = createTxCoordinator({
+    settings: validSettings({
+      transmit_enabled: true,
+      speculative_transmit_enabled: true,
+      unsafe_transmit_enabled: true,
+      transmit_user_id: "operator-7",
+      tx_cooldown_ms: 0,
+      speculative_tx_cooldown_ms: 0,
+      unsafe_tx_cooldown_ms: 0,
+    }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => new Uint8Array(size).fill(10),
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend,
+      rxByteEpoch: 1,
+      validFrameEpoch: 1,
+      validFrameGeneration: 1,
+      readEpoch: 1,
+      txByteEpoch: 0,
+      tailHash: "tail",
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastValidSevenFFrameAtMs: timer.nowMs() - 100,
+      validSevenFFrameGeneration: 1,
+      lastResumeAtMs: timer.nowMs() - 100,
+      sevenFProof: {
+        generation: 1,
+        action: "household:inactive",
+        frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
+        completedAtMs: timer.nowMs() - 100,
+      },
+    }),
+  });
+  const light = { kind: "light", target: 1, state: "on" };
+  const preview = await coordinator.send(light, { mode: "preview", userId: "operator-7" });
+  assert.equal(preview.ready, true, "preview readiness must be computed by the server");
+  assert.ok(Array.isArray(preview.reasons), "preview must expose bounded readiness reasons");
+
+  const door = { kind: "entrance", target: "household", state: "inactive" };
+  const doorPreview = await coordinator.send(door, { mode: "preview", userId: "operator-7" });
+  assert.equal(doorPreview.evidence, "unsafe_candidate");
+  assert.ok("ready" in doorPreview && "reasons" in doorPreview, "door proof/cooldown readiness is server-owned");
+  const request = {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  };
+  const challenge = coordinator.issueSpeculativeChallenge(door, request);
+  pendingAppend = true;
+  const rejected = await coordinator.send(door, { ...request, mode: "live", challengeId: challenge.id });
+  assert.match(JSON.stringify(rejected), /append|pending|rejected/i);
+  assert.equal(transport.writes.length, 0, "changed server gate must prevent commit writes");
+});
+
+test("RED-exception: actual status JSON drives the emitted UI monitor with 1-based device DTOs", async () => {
+  const m2 = await importM2();
+  const now = 1_700_000_500;
+  const freshness = (extra: AnyRecord = {}): AnyRecord => ({
+    lastSeenAtMs: now - 25,
+    generation: 9,
+    stale: false,
+    ...extra,
+  });
+  const state = {
+    ...validSettings({ ew11_host: "hidden-status-host", ew11_port: 9_099 }),
+    state: "running" as const,
+    phase: "running" as const,
+    generation: 9,
+    serverNowMs: now,
+    lastRxByteAtMs: now - 20,
+    lastValidFrameAtMs: now - 25,
+    lastValidFrameGeneration: 9,
+    validFrameEpoch: 3,
+    startedAtMs: now - 1_000,
+    elapsedMs: 1_000,
+    limitMs: 5_000,
+    byteCount: 100,
+    recordCount: 3,
+    file: null,
+    preview: [],
+    bounds: { ew11_host: "hidden-status-host", ew11_port: 9_099, idle_timeout_ms: 30_000 },
+    protocol: {
+      generation: 9,
+      staleAfterMs: 100,
+      frames: [{ rawHex: "f70b01190240110100b6ee", atMs: now - 25, generation: 9 }],
+      unknown: [{ rawHex: "7f620000ee", atMs: now - 20, generation: 9 }],
+      queries: { outlet: 2, ventilation: 3 },
+      devices: {
+        lights: {
+          1: freshness({ state: "off" }),
+          2: freshness({ state: "on" }),
+          3: freshness({ state: "off" }),
+        },
+        gas: freshness({ state: "closed" }),
+        heating: {
+          1: freshness({ state: "on", currentC: 21, targetC: 22 }),
+          2: freshness({ state: "off", currentC: 23, targetC: 24 }),
+          3: freshness({ state: "on", currentC: 25, targetC: 26 }),
+          4: freshness({ state: "off", currentC: 27, targetC: 28 }),
+        },
+        elevator: freshness({ floor: 4, direction: "arrival" }),
+        entrances: {
+          household: freshness({ state: "inactive", evidence: "unsafe_candidate" }),
+          communal: freshness({ state: "ringing", evidence: "unsafe_candidate" }),
+        },
+        outlet: freshness({ queryOnly: true }),
+        ventilation: freshness({ queryOnly: true }),
+        vehicle: freshness({ evidence: "unidentified" }),
+        cctv: freshness({ evidence: "not_observed_this_generation" }),
+      },
+    },
+  } as IngressState;
+  const handler = m2.createIngressHandler({
+    getState: () => state,
+    async startCapture() {},
+    async stopCapture() { throw new Error("unused"); },
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "operator-7",
+    getTxStatus: () => ({
+      enabled: false,
+      speculativeEnabled: false,
+      unsafeEnabled: false,
+      connected: true,
+      inFlight: false,
+      quarantined: false,
+      pendingAppend: false,
+      quiet: true,
+      currentGenerationRx: true,
+      fresh: true,
+      sevenFProof: false,
+    }),
+    csrfToken: "csrf-status",
+  });
+  const response = createRes();
+  await handler(createReq({
+    url: "/api/status",
+    headers: { "x-remote-user-id": "operator-7" },
+    socket: { remoteAddress: "172.30.32.2" },
+  }), response);
+  assert.equal(response.statusCode, 200);
+  const payload = parseJson<AnyRecord>(response.body);
+  assert.deepStrictEqual(payload.debug.devices.lights[1], freshness({ state: "off" }));
+
+  const uiModule = await import(pathToFileURL(path(paths.uiSource)).href) as AnyRecord;
+  const html = String(uiModule.renderAppHtml());
+  const script = html.match(/<script>([\s\S]*?)<\/script>/i)?.[1];
+  assert.equal(typeof script, "string", "renderAppHtml must emit an executable script");
+  if (typeof script !== "string") return;
+  const ids = [...html.matchAll(/\bid=["']([^"']+)["']/g)].map((match) => match[1]);
+  const nodes = new Map<string, AnyRecord>();
+  const makeNode = (id: string): AnyRecord => {
+    const attributes: Record<string, string> = {};
+    const children: AnyRecord[] = [];
+    const listeners: Record<string, (...args: unknown[]) => unknown> = {};
+    const node: AnyRecord = {
+      id,
+      textContent: "",
+      value: "",
+      disabled: false,
+      firstChild: null,
+      classList: { toggle() {} },
+      setAttribute(name: string, value: string) { attributes[name] = value; },
+      getAttribute(name: string) { return attributes[name]; },
+      addEventListener(name: string, listener: (...args: unknown[]) => unknown) { listeners[name] = listener; },
+      focus() { node.focused = true; },
+      reportValidity() { return attributes["aria-invalid"] !== "true"; },
+      appendChild(child: AnyRecord) { children.push(child); node.firstChild = children[0] ?? null; return child; },
+      removeChild(child: AnyRecord) { const index = children.indexOf(child); if (index >= 0) children.splice(index, 1); node.firstChild = children[0] ?? null; return child; },
+      children,
+      listeners,
+      attributes,
+    };
+    nodes.set(id, node);
+    return node;
+  };
+  for (const id of ids) makeNode(id);
+  let created = 0;
+  const document = {
+    getElementById(id: string) { return nodes.get(id) ?? null; },
+    createElement(type: string) { created += 1; return makeNode(`${type}-${created}`); },
+  };
+  const pollTimers: Array<(...args: unknown[]) => unknown> = [];
+  const window = {
+    __bestiumTx: {},
+    setTimeout(callback: (...args: unknown[]) => unknown) { pollTimers.push(callback); return pollTimers.length; },
+    clearTimeout() {},
+    location: { assign() {} },
+  };
+  const fetchCalls: AnyRecord[] = [];
+  const fetch = async (url: string, init?: AnyRecord): Promise<AnyRecord> => {
+    fetchCalls.push({ url, init });
+    return { ok: true, async json() { return payload; } };
+  };
+  runInNewContext(script, {
+    window,
+    document,
+    fetch,
+    Date: { now: () => now },
+    setTimeout: window.setTimeout,
+    clearTimeout: window.clearTimeout,
+    console,
+  });
+  for (let index = 0; index < 4; index += 1) await Promise.resolve();
+  assert.equal(fetchCalls[0]?.url, "./api/status");
+  assert.match(nodes.get("light-state-1")?.textContent ?? "", /off/);
+  assert.match(nodes.get("light-state-2")?.textContent ?? "", /on/);
+  assert.match(nodes.get("light-state-3")?.textContent ?? "", /off/);
+  for (const zone of [1, 2, 3, 4]) {
+    assert.ok(nodes.has(`heating-current-${zone}`), `zone ${zone} current DTO row is required`);
+    assert.ok(nodes.has(`heating-target-${zone}`), `zone ${zone} target DTO row is required`);
+    assert.match(nodes.get(`heat-state-${zone}`)?.textContent ?? "", /on|off/);
+  }
+  assert.match(nodes.get("heating-current-4")?.textContent ?? "", /27/);
+  assert.match(nodes.get("heating-target-4")?.textContent ?? "", /28/);
+  assert.match(nodes.get("elevator-floor")?.textContent ?? "", /4/);
+  assert.match(nodes.get("elevator-direction")?.textContent ?? "", /arrival/);
+  assert.match(nodes.get("household-entrance")?.textContent ?? "", /inactive/);
+  assert.match(nodes.get("common-entrance")?.textContent ?? "", /ringing/);
+  assert.match(nodes.get("outlet-query-state")?.textContent ?? "", /2/);
+  assert.match(nodes.get("ventilation-query-state")?.textContent ?? "", /3/);
+  assert.match(nodes.get("vehicle-unidentified")?.textContent ?? "", /unidentified/);
+  assert.match(nodes.get("cctv-observation")?.textContent ?? "", /not_observed_this_generation|not observed/i);
+  assert.match(nodes.get("unknown-clusters")?.textContent ?? "", /1/);
+  assert.equal(pollTimers.length, 1, "the UI must schedule one recursive poll");
+
+  assert.equal(payload.serverNowMs, now, "status must expose safe server time");
+  assert.equal(payload.generation, 9, "status must expose current generation");
+  assert.equal(payload.lastValidFrameAtMs, now - 25, "status must expose last valid frame time");
+  assert.equal(payload.lastValidFrameGeneration, 9, "status must expose valid frame generation");
+});
+
+test("RED-exception: challenge cancellation is authenticated, single-use, and route-backed", async () => {
+  const m2 = await importM2();
+  const csrfToken = "csrf-cancel";
+  const challenge = { id: VALID_CHALLENGE_ID, consumed: false, canceled: false };
+  const cancelCalls: AnyRecord[] = [];
+  const createIngressHandler = m2.createIngressHandler as unknown as (deps: AnyRecord) =>
+    (req: FakeReq, res: FakeRes) => Promise<void> | void;
+  const handler = createIngressHandler({
+    getState: () => ({
+      ...validSettings(), state: "stopped", phase: "stopped", startedAtMs: 0, elapsedMs: 0,
+      limitMs: 5_000, byteCount: 0, recordCount: 0, file: null, preview: [],
+    } as IngressState),
+    async startCapture() {},
+    async stopCapture() { throw new Error("unused"); },
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "operator-7",
+    csrfToken,
+    issueSpeculativeChallenge: async () => ({ id: challenge.id, expiresAtMs: 1_700_001_000 }),
+    cancelSpeculativeChallenge: async (id: string, request: AnyRecord) => {
+      cancelCalls.push({ id, request });
+      if (id !== challenge.id || request.userId !== "operator-7" || challenge.consumed || challenge.canceled) return false;
+      challenge.canceled = true;
+      return true;
+    },
+    executeSemanticAction: async () => { throw new Error("cancel must not execute as a semantic action"); },
+  } as AnyRecord);
+  const request = (userId: string, body: AnyRecord, token = csrfToken): FakeReq => createReq({
+    method: "POST",
+    url: "/api/action",
+    socket: { remoteAddress: "172.30.32.2" },
+    headers: { "content-type": "application/json", "x-remote-user-id": userId, "x-csrf-token": token },
+    body: JSON.stringify(body),
+  });
+  const activeResponse = createRes();
+  await handler(request("operator-7", { mode: "cancel", challengeId: challenge.id }), activeResponse);
+  assert.equal(activeResponse.statusCode, 200, "same-user unconsumed challenge must cancel");
+  assert.equal(challenge.canceled, true);
+  assert.equal(cancelCalls.length, 1);
+
+  const replay = createRes();
+  await handler(request("operator-7", { mode: "cancel", challengeId: challenge.id }), replay);
+  assert.ok(replay.statusCode >= 400 && replay.statusCode < 500, "canceled challenge must not be replayable");
+  const unknown = createRes();
+  await handler(request("operator-7", { mode: "cancel", challengeId: VALID_UNKNOWN_CHALLENGE_ID }), unknown);
+  assert.ok(unknown.statusCode >= 400 && unknown.statusCode < 500, "unknown challenge must reject");
+  const wrongUser = createRes();
+  await handler(request("intruder", { mode: "cancel", challengeId: VALID_UNKNOWN_CHALLENGE_ID }), wrongUser);
+  assert.equal(wrongUser.statusCode, 403, "wrong trusted user must reject before cancellation");
+  const csrf = createRes();
+  await handler(request("operator-7", { mode: "cancel", challengeId: VALID_UNKNOWN_CHALLENGE_ID }, "wrong-csrf"), csrf);
+  assert.equal(csrf.statusCode, 403, "cancel must require CSRF");
+});
+
+test("RED-exception: UI keeps review/capture locks separate and exposes safe candidate accessibility", () => {
+  const ui = readText(paths.uiSource, "src/ui.ts");
+  const script = ui.match(/<script>([\s\S]*?)<\/script>/i)?.[1] ?? ui;
+  assert.match(script, /reviewBusy|captureBusy|reviewEpoch|requestEpoch|AbortController/);
+  assert.match(script, /indeterminate/);
+  assert.match(script, /cancel[^\n]{0,160}challenge|challenge[^\n]{0,160}cancel/i);
+  assert.match(script, /reviewPreview\.ready|preview\.ready|readiness|reasons/);
+  assert.match(ui, /Zone [1-4] temperature[^<]{0,120}Set|Set[^<]{0,120}Zone [1-4] temperature/i);
+  assert.match(ui, /overflow-wrap|word-break|min-width\s*:\s*0/);
+  assert.match(script, /aria-invalid[\s\S]{0,500}(?:false|valid)/i);
+  assert.match(ui, /aria-describedby=["'][^"']*(?:heat|temp)[^"']*["']/i);
+  assert.match(ui, /--(?:danger|input-border|focus)[^:]*:/);
+  assert.match(ui, /한국어|lang=["']en["']/);
+  assert.match(script, /captureBusy|capture\s*=|polling/);
+});
+
+test("RED-final: readiness revision is shared and stale proof rejects preview, challenge, and commit", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+
+  const timer = createFakeTimer();
+  let generation = 1;
+  let rxByteEpoch = 1;
+  let readEpoch = 1;
+  let validFrameEpoch = 1;
+  let phase = "running";
+  let pendingAppend = false;
+  let quarantined = false;
+  let proofCompletedAtMs = timer.nowMs() - 10;
+  let lastValidSevenFFrameAtMs = timer.nowMs() - 10;
+  const proof = {
+    generation: 1,
+    action: "household:inactive",
+    frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
+  };
+  const transport = createTxTestTransport();
+  const getRxState = (): AnyRecord => ({
+    connected: !quarantined,
+    pendingAppend,
+    phase,
+    generation,
+    rxByteEpoch,
+    readEpoch,
+    validFrameEpoch,
+    validFrameGeneration: generation,
+    txByteEpoch: 0,
+    tailHash: "tail",
+    lastRxByteAtMs: timer.nowMs() - 100,
+    lastValidFrameAtMs: timer.nowMs() - 100,
+    lastValidSevenFFrameAtMs,
+    validSevenFFrameGeneration: generation,
+    lastResumeAtMs: timer.nowMs() - 100,
+    sevenFProof: { ...proof, completedAtMs: proofCompletedAtMs },
+  });
+  const coordinator = createTxCoordinator({
+    settings: validSettings({
+      transmit_enabled: true,
+      speculative_transmit_enabled: true,
+      unsafe_transmit_enabled: true,
+      transmit_user_id: "operator-7",
+      tx_cooldown_ms: 0,
+      speculative_tx_cooldown_ms: 0,
+      unsafe_tx_cooldown_ms: 0,
+    }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => new Uint8Array(size).fill(7),
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState,
+  });
+  const candidate = { kind: "heat", zone: 2, state: "on" };
+  const preview = await coordinator.send(candidate, { mode: "preview", userId: "operator-7" });
+  const revision = preview.readinessRevision;
+  assert.ok(
+    (typeof revision === "string" || Number.isSafeInteger(revision)) && String(revision).length <= 256,
+    "preview must expose one bounded server-owned readinessRevision",
+  );
+  const challenge = coordinator.issueSpeculativeChallenge(candidate, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  assert.equal(challenge.readinessRevision, revision, "issued challenge must bind the same readiness revision");
+
+  const statusProvider = (coordinator as AnyRecord).getTxStatus ?? (coordinator as AnyRecord).status;
+  assert.equal(typeof statusProvider, "function", "TX coordinator must expose the server-owned status revision");
+  const status = typeof statusProvider === "function" ? statusProvider.call(coordinator) : {};
+  assert.equal(status.readinessRevision, revision, "status tx must expose the same revision");
+
+  const revisions = [revision];
+  for (const mutate of [
+    () => { generation += 1; },
+    () => { rxByteEpoch += 1; },
+    () => { readEpoch += 1; },
+    () => { validFrameEpoch += 1; },
+    () => { phase = "stopped"; },
+    () => { pendingAppend = true; },
+    () => { quarantined = true; },
+    () => { proofCompletedAtMs += 1; },
+    () => { proof.action = "communal:ringing"; },
+  ]) {
+    mutate();
+    const next = await coordinator.send(candidate, { mode: "preview", userId: "operator-7" });
+    revisions.push(next.readinessRevision);
+  }
+  assert.equal(new Set(revisions.map((value) => String(value))).size, revisions.length, "each readiness input change must revise the server value");
+
+  generation = 1;
+  rxByteEpoch = 1;
+  readEpoch = 1;
+  validFrameEpoch = 1;
+  phase = "running";
+  pendingAppend = false;
+  quarantined = false;
+  proofCompletedAtMs = timer.nowMs() - 10;
+  lastValidSevenFFrameAtMs = timer.nowMs() - 10;
+  proof.action = "household:inactive";
+  const door = { kind: "entrance", target: "household", state: "inactive" };
+  const doorChallenge = coordinator.issueSpeculativeChallenge(door, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  proofCompletedAtMs = timer.nowMs() - 100_000;
+  // A newly refreshed generic timestamp must not revive the older completed proof.
+  lastValidSevenFFrameAtMs = timer.nowMs();
+  const stalePreview = await coordinator.send(door, { mode: "preview", userId: "operator-7" });
+  assert.equal(stalePreview.ready, false, "stale action-specific proof must fail preview readiness");
+  assert.throws(
+    () => coordinator.issueSpeculativeChallenge(door, {
+      userId: "operator-7",
+      confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+      schedule: "immediate",
+    }),
+    /proof|stale|revision|compatib/i,
+  );
+  const staleCommit = await coordinator.send(door, {
+    mode: "live",
+    userId: "operator-7",
+    challengeId: doorChallenge.id,
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
+  assert.match(JSON.stringify(staleCommit), /proof|stale|revision|challenge|rejected/i);
+  assert.equal(transport.writes.length, 0);
+});
+
+function uiStatusPayload(overrides: AnyRecord = {}): AnyRecord {
+  const now = 1_700_020_000;
+  const freshness = (extra: AnyRecord = {}): AnyRecord => ({
+    lastSeenAtMs: now - 25,
+    generation: 9,
+    stale: false,
+    ...extra,
+  });
+  return {
+    serverNowMs: now,
+    phase: "running",
+    state: "running",
+    generation: 9,
+    lastValidFrameAtMs: now - 25,
+    lastValidFrameGeneration: 9,
+    validFrameEpoch: 3,
+    csrfToken: "csrf-ui",
+    bounds: { idle_timeout_ms: 30_000 },
+    tx: {
+      enabled: true,
+      speculativeEnabled: true,
+      unsafeEnabled: true,
+      authorized: true,
+      connected: true,
+      inFlight: false,
+      quarantined: false,
+      pendingAppend: false,
+      quiet: true,
+      currentGenerationRx: true,
+      fresh: true,
+      sevenFProof: true,
+      readinessRevision: "r1",
+    },
+    debug: {
+      staleAfterMs: 30_000,
+      frames: [{ rawHex: "f70d011904401000020102b5ee", atMs: now - 25, generation: 9 }],
+      unknown: [{ cluster: "0x7e", rawHex: "7f620000ee", atMs: now - 20, generation: 9, stale: false }],
+      ambiguous: [{ cluster: "0x2a", rawHex: `7f2a${"aa".repeat(300)}ee`, atMs: now - 30, generation: 9, stale: true }],
+      queries: { outlet: 2, ventilation: 3 },
+      devices: {
+        lights: { 1: freshness({ state: "off" }), 2: freshness({ state: "on" }), 3: freshness({ state: "off" }) },
+        gas: freshness({ state: "closed" }),
+        heating: {
+          1: freshness({ state: "on", currentC: 21, targetC: 22 }),
+          2: freshness({ state: "off", currentC: 23, targetC: 24 }),
+          3: freshness({ state: "on", currentC: 25, targetC: 26 }),
+          4: freshness({ state: "off", currentC: 27, targetC: 28 }),
+        },
+        elevator: freshness({ floor: 4, direction: "arrival" }),
+        entrances: {
+          household: freshness({ state: "inactive", evidence: "unsafe_candidate" }),
+          communal: freshness({ state: "ringing", evidence: "unsafe_candidate" }),
+        },
+        outlet: freshness({ queryOnly: true }),
+        ventilation: freshness({ queryOnly: true }),
+        vehicle: freshness({ evidence: "unidentified" }),
+        cctv: freshness({ evidence: "not_observed_this_generation" }),
+      },
+    },
+    ...overrides,
+  };
+}
+
+type UiVmFixture = {
+  nodes: Map<string, AnyRecord>;
+  fetchCalls: AnyRecord[];
+  timers: Map<number, (...args: unknown[]) => unknown>;
+  flush(): Promise<void>;
+  click(id: string): void;
+  fireTimer(): void;
+};
+
+async function createUiVmFixture(
+  payload: AnyRecord,
+  fetchImpl?: (url: string, init: AnyRecord | undefined, calls: AnyRecord[]) => unknown,
+): Promise<UiVmFixture> {
+  const uiModule = await import(pathToFileURL(path(paths.uiSource)).href) as AnyRecord;
+  const html = String(uiModule.renderAppHtml());
+  const script = html.match(/<script>([\s\S]*?)<\/script>/i)?.[1];
+  assert.equal(typeof script, "string");
+  if (typeof script !== "string") throw new Error("UI script missing");
+  const nodes = new Map<string, AnyRecord>();
+  let serial = 0;
+  const makeNode = (id: string): AnyRecord => {
+    const attributes: Record<string, string> = {};
+    const children: AnyRecord[] = [];
+    const listeners: Record<string, (...args: unknown[]) => unknown> = {};
+    const node: AnyRecord = {
+      id, textContent: "", value: "", disabled: false, firstChild: null, focused: false,
+      classList: { toggle() {} },
+      setAttribute(name: string, value: string) { attributes[name] = value; },
+      getAttribute(name: string) { return attributes[name]; },
+      addEventListener(name: string, listener: (...args: unknown[]) => unknown) { listeners[name] = listener; },
+      focus() { node.focused = true; },
+      reportValidity() { return attributes["aria-invalid"] !== "true"; },
+      appendChild(child: AnyRecord) { children.push(child); node.firstChild = children[0] ?? null; return child; },
+      removeChild(child: AnyRecord) { const index = children.indexOf(child); if (index >= 0) children.splice(index, 1); node.firstChild = children[0] ?? null; return child; },
+      children, listeners, attributes,
+    };
+    nodes.set(id, node);
+    return node;
+  };
+  for (const match of html.matchAll(/\bid=["']([^"']+)["']/g)) makeNode(match[1]);
+  const timers = new Map<number, (...args: unknown[]) => unknown>();
+  let nextTimer = 1;
+  const window = {
+    __bestiumTx: {},
+    setTimeout(callback: (...args: unknown[]) => unknown) { const id = nextTimer++; timers.set(id, callback); return id; },
+    clearTimeout(id: number) { timers.delete(id); },
+    location: { assign() {} },
+  };
+  const fetchCalls: AnyRecord[] = [];
+  const fetch = (url: string, init?: AnyRecord): unknown => {
+    const call = { url, init };
+    fetchCalls.push(call);
+    const response = fetchImpl?.(url, init, fetchCalls) ?? { ok: true, async json() { return payload; } };
+    return Promise.resolve(response);
+  };
+  class FakeAbortController {
+    signal = { aborted: false };
+    abort() { this.signal.aborted = true; }
+  }
+  const document = {
+    getElementById(id: string) { return nodes.get(id) ?? null; },
+    createElement(type: string) { serial += 1; return makeNode(`${type}-${serial}`); },
+  };
+  runInNewContext(script, {
+    window, document, fetch, AbortController: FakeAbortController,
+    Date: { now: () => 1_700_020_000 },
+    setTimeout: window.setTimeout, clearTimeout: window.clearTimeout, console,
+  });
+  return {
+    nodes,
+    fetchCalls,
+    timers,
+    async flush() { for (let index = 0; index < 16; index += 1) await Promise.resolve(); },
+    click(id: string) { nodes.get(id)?.listeners.click?.({ currentTarget: nodes.get(id) }); },
+    fireTimer() {
+      const first = timers.entries().next().value as [number, (...args: unknown[]) => unknown] | undefined;
+      if (!first) return;
+      timers.delete(first[0]);
+      first[1]();
+    },
+  };
+}
+
+function uiJsonResponse(value: AnyRecord, ok = true): AnyRecord {
+  return { ok, async json() { return value; } };
+}
+
+test("RED-final: emitted UI cancels late preview/challenge and blocks capture around challenge", async () => {
+  const problems: string[] = [];
+  const require = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
+  let resolvePreview!: (value: AnyRecord) => void;
+  const previewFixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return new Promise((resolve) => { resolvePreview = resolve; });
+    return uiJsonResponse({ cancelled: true });
+  });
+  await previewFixture.flush();
+  previewFixture.click("light-1-on");
+  await previewFixture.flush();
+  previewFixture.click("review-cancel");
+  resolvePreview(uiJsonResponse({ preview: true, evidence: "observed", ready: true, frameHex: "f70d011904401000020102b5ee" }));
+  await previewFixture.flush();
+  require(/idle/.test(previewFixture.nodes.get("review-phase")?.textContent ?? ""), "late preview must leave the review phase idle");
+  require(previewFixture.nodes.get("review-commit")?.disabled === true, "late preview must not restore review controls");
+
+  let resolveChallenge!: (value: AnyRecord) => void;
+  const cancelCalls: AnyRecord[] = [];
+  const challengeStatus = uiStatusPayload({ phase: "stopped", state: "stopped" });
+  const challengeFixture = await createUiVmFixture(challengeStatus, (url, init, calls) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(challengeStatus);
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, frameHex: "f70c011802401102010000b2ee", framesHex: ["f70c011802401102010000b2ee"] });
+    if (body.mode === "challenge") return new Promise((resolve) => { resolveChallenge = resolve; });
+    if (body.mode === "cancel") { cancelCalls.push({ body, calls }); return uiJsonResponse({ cancelled: true }); }
+    if (url === "./api/capture") return uiJsonResponse({}, true);
+    return uiJsonResponse({});
+  });
+  await challengeFixture.flush();
+  challengeFixture.click("heat-zone-2-on");
+  await challengeFixture.flush();
+  challengeFixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  challengeFixture.click("issue-challenge");
+  await challengeFixture.flush();
+  challengeFixture.click("capture-start");
+  require(challengeFixture.fetchCalls.some((call) => call.url === "./api/capture") === false, "capture must be blocked while issue request is in flight");
+  challengeFixture.click("review-cancel");
+  resolveChallenge(uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" }));
+  await challengeFixture.flush();
+  require(/idle/.test(challengeFixture.nodes.get("review-phase")?.textContent ?? ""), "late minted challenge must not restore challenged state");
+  require(cancelCalls.length === 1, "late minted challenge must be canceled through the authenticated route");
+  require(cancelCalls[0]?.body.challengeId === VALID_CHALLENGE_ID, "late cancel must target the minted challenge");
+
+  const makeCandidateUi = async (opts: { deferChallenge: boolean; cancelFails: boolean }) => {
+    let resolveLate!: (value: AnyRecord) => void;
+    const calls: AnyRecord[] = [];
+    const candidateStatus = uiStatusPayload({ phase: "stopped", state: "stopped" });
+    const fixture = await createUiVmFixture(candidateStatus, (url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (url === "./api/status") return uiJsonResponse(candidateStatus);
+      if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee", framesHex: ["f70c011802401102010000b2ee"] });
+      if (body.mode === "challenge") {
+        if (opts.deferChallenge) return new Promise((resolve) => { resolveLate = resolve; });
+        return uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+      }
+      if (body.mode === "cancel") {
+        calls.push({ kind: "cancel", body });
+        return opts.cancelFails ? uiJsonResponse({}, false) : uiJsonResponse({ cancelled: true });
+      }
+      if (url === "./api/capture") { calls.push({ kind: "capture", body }); return uiJsonResponse({}, true); }
+      return uiJsonResponse({});
+    });
+    return { fixture, calls, resolveLate: (value: AnyRecord): void => resolveLate(value) };
+  };
+
+  const lateFailure = await makeCandidateUi({ deferChallenge: true, cancelFails: true });
+  await lateFailure.fixture.flush();
+  lateFailure.fixture.click("heat-zone-2-on");
+  await lateFailure.fixture.flush();
+  lateFailure.fixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  lateFailure.fixture.click("issue-challenge");
+  await lateFailure.fixture.flush();
+  lateFailure.fixture.click("review-cancel");
+  lateFailure.resolveLate(uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, frameHex: "f70c011802401102010000b2ee" }));
+  await lateFailure.fixture.flush();
+  require(lateFailure.calls.length === 1, "late challenge cancellation failure must still reach the authenticated cancel route");
+  require(/indeterminate|reconcile|재확인/i.test(lateFailure.fixture.nodes.get("outcome")?.textContent ?? "") || /indeterminate|reconcile|재확인/i.test(lateFailure.fixture.nodes.get("alert")?.textContent ?? ""), "cancel failure must be indeterminate");
+  require(lateFailure.fixture.nodes.get("review-commit")?.disabled === true, "cancel failure must keep TX controls locked");
+
+  const stable = await makeCandidateUi({ deferChallenge: false, cancelFails: false });
+  await stable.fixture.flush();
+  stable.fixture.click("heat-zone-2-on");
+  await stable.fixture.flush();
+  stable.fixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  stable.fixture.click("issue-challenge");
+  await stable.fixture.flush();
+  stable.fixture.click("capture-start");
+  await stable.fixture.flush();
+  const stableOrder = stable.calls.map((entry) => entry.kind);
+  require(stableOrder[0] === "cancel" && stableOrder[1] === "capture", "stable challenge capture must cancel successfully before capture POST");
+
+  const stableFailure = await makeCandidateUi({ deferChallenge: false, cancelFails: true });
+  await stableFailure.fixture.flush();
+  stableFailure.fixture.click("heat-zone-2-on");
+  await stableFailure.fixture.flush();
+  stableFailure.fixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  stableFailure.fixture.click("issue-challenge");
+  await stableFailure.fixture.flush();
+  stableFailure.fixture.click("capture-start");
+  await stableFailure.fixture.flush();
+  require(stableFailure.calls.every((entry) => entry.kind !== "capture"), "failed challenge cancel must prevent capture POST");
+  require(/indeterminate|reconcile|재확인/i.test(stableFailure.fixture.nodes.get("outcome")?.textContent ?? "") || /indeterminate|reconcile|재확인/i.test(stableFailure.fixture.nodes.get("alert")?.textContent ?? ""), "failed capture cancellation must be announced as indeterminate");
+
+  let rejectIssue!: (error?: unknown) => void;
+  const abortedCalls: string[] = [];
+  const abortedIssue = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70d011802401102010000b2ee" });
+    if (body.mode === "challenge") return new Promise((_resolve, reject) => { rejectIssue = reject; });
+    if (body.mode === "cancel") return uiJsonResponse({ cancelled: true });
+    if (url === "./api/capture" || url === "./api/stop") { abortedCalls.push(url); return uiJsonResponse({}); }
+    return uiJsonResponse({});
+  });
+  await abortedIssue.flush();
+  abortedIssue.click("heat-zone-2-on");
+  await abortedIssue.flush();
+  abortedIssue.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  abortedIssue.click("issue-challenge");
+  await abortedIssue.flush();
+  abortedIssue.click("review-cancel");
+  rejectIssue(new Error("challenge request aborted"));
+  await abortedIssue.flush();
+  assert.match(`${abortedIssue.nodes.get("outcome")?.textContent ?? ""} ${abortedIssue.nodes.get("alert")?.textContent ?? ""}`, /indeterminate|reconcile|재확인/i, "aborted challenge without an ID must lock indeterminate");
+  abortedIssue.click("capture-start");
+  abortedIssue.click("capture-stop");
+  await abortedIssue.flush();
+  assert.deepStrictEqual(abortedCalls, [], "aborted challenge must prevent later capture and stop POSTs");
+  assert.equal(problems.length, 0, problems.join("\n"));
+});
+
+test("RED-final: emitted UI fails closed on readiness drift/poll failure, preserves debug detail, and never captures around a stable challenge", async () => {
+  let status = uiStatusPayload();
+  let rejectNextStatus = false;
+  const fixture = await createUiVmFixture(status, (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") {
+      if (rejectNextStatus) { rejectNextStatus = false; return Promise.reject(new Error("status unavailable")); }
+      return uiJsonResponse(status);
+    }
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70d011904401000020102b5ee" });
+    if (url === "./api/capture") return uiJsonResponse({}, true);
+    return uiJsonResponse({});
+  });
+  await fixture.flush();
+  const problems: string[] = [];
+  const require = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
+  const query = fixture.nodes.get("outlet-query-state")?.textContent ?? "";
+  require(/2/.test(query) && /age|stale/.test(query) && /generation/.test(query), "outlet query row must retain count, age/stale, and generation");
+  const unknownDetail = fixture.nodes.get("unknown-lab")?.textContent ?? "";
+  require(/7f620000ee|0x7e/.test(unknownDetail) && /0x2a/.test(unknownDetail) && /age|stale/.test(unknownDetail) && /generation/.test(unknownDetail), "ambiguous/unknown detail must render cluster/rawHex age and generation via textContent");
+  require(unknownDetail.length <= 1_200, "ambiguous/unknown detail must remain bounded for long rawHex");
+
+  fixture.click("light-1-on");
+  await fixture.flush();
+  require(fixture.nodes.get("review-commit")?.disabled === false, "reviewed observed action should initially be commit-ready");
+  status = { ...status, tx: { ...status.tx, readinessRevision: "r2" } };
+  fixture.fireTimer();
+  await fixture.flush();
+  require(fixture.nodes.get("review-commit")?.disabled === true, "revision drift must disable commit");
+  require(/revision|stale|changed|재검토/i.test(fixture.nodes.get("alert")?.textContent ?? ""), "revision drift must be announced");
+  status = { ...status, tx: { ...status.tx, readinessRevision: undefined } };
+  fixture.fireTimer();
+  await fixture.flush();
+  require(fixture.nodes.get("review-commit")?.disabled === true, "missing revision must fail closed");
+  status = { ...status, tx: { ...status.tx, readinessRevision: "r3" } };
+  rejectNextStatus = true;
+  const beforeFailure = fixture.fetchCalls.length;
+  fixture.fireTimer();
+  await fixture.flush();
+  require(fixture.fetchCalls.length > beforeFailure, "poll failure scenario must issue a status request");
+  require(fixture.nodes.get("review-commit")?.disabled === true, "poll failure must fail closed while reviewed");
+  require(/poll|status|stale|재확인/i.test(fixture.nodes.get("alert")?.textContent ?? ""), "poll failure must be announced");
+
+  assert.equal(problems.length, 0, problems.join("\n"));
+});
+
+test("RED-final: partial indeterminate commit is explicit and locks page retry", async () => {
+  const fixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70d011904401000020102b5ee" });
+    if (body.mode === "commit") return uiJsonResponse({ outcome: "partial_indeterminate", framesWritten: 1, quarantined: true, reason: "transport generation changed", deviceConfirmed: false });
+    return uiJsonResponse({});
+  });
+  await fixture.flush();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  fixture.click("review-commit");
+  await fixture.flush();
+  const commitCalls = () => fixture.fetchCalls.filter((call) => JSON.parse(String(call.init?.body ?? "{}")).mode === "commit");
+  const outcome = fixture.nodes.get("outcome")?.textContent ?? "";
+  assert.match(outcome, /partial_indeterminate/);
+  assert.match(outcome, /framesWritten|1/);
+  assert.match(outcome, /quarantined|격리/);
+  assert.match(outcome, /reconciliation required|재확인/);
+  assert.match(outcome, /do not retry|retry 금지/);
+  const count = commitCalls().length;
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(commitCalls().length, count, "partial indeterminate must lock a second transmit activation");
+
+  const missingQuarantine = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70d011904401000020102b5ee" });
+    if (body.mode === "commit") return uiJsonResponse({ outcome: "partial_indeterminate", framesWritten: 1, reason: "generation changed", deviceConfirmed: false });
+    return uiJsonResponse({});
+  });
+  await missingQuarantine.flush();
+  missingQuarantine.click("light-1-on");
+  await missingQuarantine.flush();
+  missingQuarantine.click("review-commit");
+  await missingQuarantine.flush();
+  assert.match(missingQuarantine.nodes.get("outcome")?.textContent ?? "", /quarantined[^\n]{0,80}(?:unknown|unavailable|미확인)/i, "missing quarantine must stay unknown, never false");
+  assert.equal(missingQuarantine.nodes.get("review-commit")?.disabled, true);
+});
+
+test("RED-M4.2: deferred challenge cancellation gates capture and deferred commit disables cancel", async () => {
+  let resolveIssue!: (value: AnyRecord) => void;
+  let resolveCancel!: (value: AnyRecord) => void;
+  let resolveCommit!: (value: AnyRecord) => void;
+  const calls: string[] = [];
+  let fixturePhase: "running" | "stopped" = "running";
+  const fixtureStatus = () => uiStatusPayload({ phase: fixturePhase, state: fixturePhase });
+  const fixture = await createUiVmFixture(fixtureStatus(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(fixtureStatus());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: body.kind === "light" ? "observed" : "inferred_candidate", ready: true, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+    if (body.mode === "challenge") return new Promise((resolve) => { resolveIssue = resolve; });
+    if (body.mode === "cancel") { calls.push("cancel"); return new Promise((resolve) => { resolveCancel = resolve; }); }
+    if (body.mode === "commit") return new Promise((resolve) => { resolveCommit = resolve; });
+    if (url === "./api/capture" || url === "./api/stop") { calls.push(url); if (url === "./api/stop") fixturePhase = "stopped"; return uiJsonResponse({}); }
+    return uiJsonResponse({});
+  });
+  await fixture.flush();
+  fixture.click("heat-zone-2-on");
+  await fixture.flush();
+  fixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  fixture.click("issue-challenge");
+  await fixture.flush();
+  fixture.nodes.get("capture-start")!.disabled = false;
+  fixture.nodes.get("capture-stop")!.disabled = false;
+  fixture.click("review-cancel");
+  fixture.click("capture-stop");
+  fixture.click("capture-start");
+  assert.deepStrictEqual(calls, [], "capture controls must stay gated while a canceled issue can still mint");
+  resolveIssue(uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "wrong" }));
+  await fixture.flush();
+  assert.deepStrictEqual(calls, ["cancel"], "malformed/revision-mismatched issued IDs must be authenticated-canceled");
+  resolveCancel(uiJsonResponse({ cancelled: true }));
+  await fixture.flush();
+  fixture.click("light-1-on");
+  await fixture.flush();
+  fixture.click("review-commit");
+  await fixture.flush();
+  assert.equal(fixture.nodes.get("review-cancel")?.disabled, true, "cancel must be disabled during commit");
+  resolveCommit(uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false }));
+  await fixture.flush();
+});
+
+test("RED-M4.2: ingress serializes challenge, capture, live action, cancel, and stop mutations", async () => {
+  const m2 = await importM2();
+  const events: string[] = [];
+  let releaseIssue!: () => void;
+  let releaseAction!: () => void;
+  let rejectNextAction = false;
+  const state = { ...validSettings(), state: "stopped" as const, phase: "stopped", startedAtMs: 0, elapsedMs: 0, limitMs: 5_000, byteCount: 0, recordCount: 0, file: null, preview: [] } as IngressState;
+  const handler = (m2.createIngressHandler as unknown as (deps: AnyRecord) => (req: FakeReq, res: FakeRes) => Promise<void>)({
+    getState: () => state,
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "operator-7",
+    csrfToken: "csrf-order",
+    async issueSpeculativeChallenge() {
+      events.push("issue");
+        return new Promise((resolve) => { releaseIssue = () => { resolve({ id: VALID_CHALLENGE_ID, expiresAtMs: Date.now() + 30_000, readinessRevision: "r1" }); }; });
+    },
+    async cancelSpeculativeChallenge() { events.push("cancel"); return true; },
+    async executeSemanticAction() {
+      events.push("commit");
+      if (rejectNextAction) {
+        rejectNextAction = false;
+        throw new Error("synthetic queued action rejection");
+      }
+      return new Promise((resolve) => { releaseAction = () => resolve({ outcome: "socket_written_unconfirmed" }); });
+    },
+    async startCapture() { events.push("start"); },
+    async stopCapture() { events.push("stop"); return {}; },
+  });
+  const req = (url: string, body: AnyRecord): FakeReq => createReq({ method: "POST", url, socket: { remoteAddress: "172.30.32.2" }, headers: { "x-remote-user-id": "operator-7", "x-csrf-token": "csrf-order", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const action = { kind: "heat", zone: 2, state: "on" };
+  const issue = handler(req("/api/action", { ...action, mode: "challenge", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" }), createRes());
+  await Promise.resolve();
+  const blockedCapture = createRes();
+  await handler(req("/api/capture", {}), blockedCapture);
+  assert.equal(blockedCapture.statusCode, 409);
+  assert.equal(events.includes("start"), false, "deferred issue must block capture");
+  releaseIssue();
+  await issue;
+  const outstandingCapture = createRes();
+  await handler(req("/api/capture", {}), outstandingCapture);
+  assert.equal(outstandingCapture.statusCode, 409);
+  const cancel = createRes();
+  await handler(req("/api/action", { mode: "cancel", challengeId: VALID_CHALLENGE_ID }), cancel);
+  assert.equal(cancel.statusCode, 200);
+  const allowedCapture = createRes();
+  await handler(req("/api/capture", {}), allowedCapture);
+  assert.equal(allowedCapture.statusCode, 200);
+  state.state = "stopped";
+  const commit = handler(req("/api/action", { ...action, mode: "commit", schedule: "immediate" }), createRes());
+  await Promise.resolve();
+  const overlap = createRes();
+  await handler(req("/api/capture", {}), overlap);
+  assert.equal(overlap.statusCode, 409);
+  releaseAction();
+  await commit;
+  const issueAgain = handler(req("/api/action", { ...action, mode: "challenge", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE" }), createRes());
+  await Promise.resolve();
+  const stop = createRes();
+  const pendingStop = handler(req("/api/stop", {}), stop);
+  await Promise.resolve();
+  assert.equal(events[events.length - 1], "issue", "stop must serialize behind a deferred issue");
+  releaseIssue();
+  await issueAgain;
+  await pendingStop;
+  assert.equal(events[events.length - 1], "stop");
+
+  state.state = "running";
+  rejectNextAction = true;
+  const rejectedResponse = createRes();
+  const rejectedCommit = handler(req("/api/action", { ...action, mode: "commit", schedule: "immediate" }), rejectedResponse);
+  await Promise.resolve();
+  const stopAfterRejectedResponse = createRes();
+  const stopAfterRejected = handler(req("/api/stop", {}), stopAfterRejectedResponse);
+  await rejectedCommit;
+  await stopAfterRejected;
+  assert.equal(rejectedResponse.statusCode, 422, "queued mutation rejection must be surfaced as a bounded action error");
+  assert.equal(stopAfterRejectedResponse.statusCode, 200, "rejection-safe mutation tail must still run a later stop");
+  assert.equal(events[events.length - 1], "stop", "later stop must execute after the rejected queued mutation");
+});
+
+test("RED-M4.2: protocol and UI never present aged or wrong-generation debug evidence as fresh", async () => {
+  const protocol = await import("../bestium-eco-foret/src/protocol-debug.ts");
+  let now = 1_700_030_000;
+  const monitor = protocol.createProtocolDebugMonitor({ nowMs: () => now, staleAfterMs: 100, journalLimit: 8 });
+  const toBytes = (value: string): Uint8Array => Uint8Array.from(value.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+  monitor.push(toBytes("7f620000ee"));
+  monitor.push(toBytes("7f2a0000ee"));
+  now += 200;
+  const aged = monitor.snapshot();
+  assert.ok([...aged.unknown, ...aged.ambiguous].length >= 2);
+  assert.equal([...aged.unknown, ...aged.ambiguous].every((entry: AnyRecord) => entry.stale === true), true);
+  monitor.resetGeneration();
+  assert.equal([...monitor.snapshot().unknown, ...monitor.snapshot().ambiguous].every((entry: AnyRecord) => entry.stale === true), true);
+  monitor.stop();
+  assert.equal([...monitor.snapshot().unknown, ...monitor.snapshot().ambiguous].every((entry: AnyRecord) => entry.stale === true), true);
+
+  const stalePayload = uiStatusPayload();
+  stalePayload.debug.unknown = [{ cluster: "0x7e", rawHex: "7f620000ee", atMs: 1_700_029_999, generation: 8 }];
+  stalePayload.debug.ambiguous = [{ cluster: "0x2a", rawHex: "7f2a0000ee", atMs: 1_700_029_999, generation: 8 }];
+  const staleUi = await createUiVmFixture(stalePayload);
+  await staleUi.flush();
+  const detail = staleUi.nodes.get("unknown-lab")?.textContent ?? "";
+  assert.match(detail, /stale|unknown/i);
+  assert.doesNotMatch(detail, /fresh/i, "wrong-generation debug entries must not render fresh");
+
+  let statusCalls = 0;
+  let releaseLateStatus!: (value: AnyRecord) => void;
+  const pollUi = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") {
+      statusCalls += 1;
+      return statusCalls === 1 ? uiJsonResponse(uiStatusPayload()) : new Promise((resolve) => { releaseLateStatus = resolve; });
+    }
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70d011904401000020102b5ee" });
+    return uiJsonResponse({});
+  });
+  await pollUi.flush();
+  pollUi.click("light-1-on");
+  await pollUi.flush();
+  assert.equal(pollUi.nodes.get("review-commit")?.disabled, false);
+  pollUi.fireTimer();
+  await pollUi.flush();
+  assert.ok(pollUi.timers.size > 0, "a never-settling status poll needs a bounded deadline");
+  pollUi.fireTimer();
+  await pollUi.flush();
+  assert.equal(pollUi.nodes.get("review-commit")?.disabled, true);
+  assert.match(pollUi.nodes.get("alert")?.textContent ?? "", /poll|stale|status|재확인/i);
+  releaseLateStatus(uiJsonResponse(uiStatusPayload()));
+  await pollUi.flush();
+  assert.equal(pollUi.nodes.get("review-commit")?.disabled, true, "expired poll success must not restore readiness");
+});
+
+test("RED-sixth: UI accepts only bounded current-revision challenge results", async () => {
+  const validChallenge = {
+    id: VALID_CHALLENGE_ID,
+    expiresAtMs: 1_700_020_001,
+    readinessRevision: "r1",
+    frameHex: "f70c011802401102010000b2ee",
+  };
+  const invalidChallenges: Array<[string, AnyRecord]> = [
+    ["missing id", { ...validChallenge, id: undefined }],
+    ["empty id", { ...validChallenge, id: "" }],
+    ["oversize id", { ...validChallenge, id: "x".repeat(257) }],
+    ["wrong id type", { ...validChallenge, id: 7 }],
+    ["missing expiry", { ...validChallenge, expiresAtMs: undefined }],
+    ["nonfinite NaN expiry", { ...validChallenge, expiresAtMs: Number.NaN }],
+    ["nonfinite Infinity expiry", { ...validChallenge, expiresAtMs: Number.POSITIVE_INFINITY }],
+    ["wrong expiry type", { ...validChallenge, expiresAtMs: "1700020001" }],
+    ["past expiry", { ...validChallenge, expiresAtMs: 1_700_019_999 }],
+    ["over-horizon expiry", { ...validChallenge, expiresAtMs: 1_700_050_001 }],
+    ["wrong revision", { ...validChallenge, readinessRevision: "r2" }],
+  ];
+  const observed: string[] = [];
+  for (const [label, issued] of invalidChallenges) {
+    const calls: string[] = [];
+    const fixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+      if (body.mode === "preview") return uiJsonResponse({
+        preview: true,
+        evidence: "inferred_candidate",
+        ready: true,
+        readiness: { ready: true },
+        readinessRevision: "r1",
+        frameHex: "f70c011802401102010000b2ee",
+      });
+      if (body.mode === "challenge") return uiJsonResponse(issued);
+      if (body.mode === "cancel") return uiJsonResponse({ cancelled: true });
+      if (url === "./api/capture" || url === "./api/stop") calls.push(url);
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.click("heat-zone-2-on");
+    await fixture.flush();
+    fixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+    fixture.click("issue-challenge");
+    await fixture.flush();
+    const message = `${fixture.nodes.get("outcome")?.textContent ?? ""} ${fixture.nodes.get("alert")?.textContent ?? ""}`;
+    if (!/indeterminate|reconcile|재확인/i.test(message)) observed.push(`${label}: missing indeterminate lock (${message})`);
+    if (fixture.nodes.get("review-commit")?.disabled !== true) observed.push(`${label}: commit was not disabled`);
+    fixture.click("capture-start");
+    fixture.click("capture-stop");
+    await fixture.flush();
+    if (calls.length !== 0) observed.push(`${label}: mutation calls ${JSON.stringify(calls)}`);
+  }
+  assert.deepStrictEqual(observed, []);
+});
+
+test("RED-sixth: challenge outstanding state clears only on authoritative success or expiry", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+
+  const timer = createFakeTimer();
+  const transport = createTxTestTransport();
+  let randomCounter = 0;
+  const randomBytes = (size: number): Uint8Array => {
+    randomCounter += 1;
+    return Uint8Array.from({ length: size }, (_, index) => (randomCounter + index) & 0xff);
+  };
+  const settings = validSettings({
+    transmit_enabled: true,
+    speculative_transmit_enabled: true,
+    transmit_user_id: "operator-7",
+    tx_write_timeout_ms: 100,
+    tx_cooldown_ms: 0,
+    tx_quiet_ms: 5,
+    speculative_tx_cooldown_ms: 0,
+  });
+  const state = {
+    connected: true,
+    pendingAppend: false,
+    rxByteEpoch: 1,
+    readEpoch: 1,
+    validFrameEpoch: 1,
+    validFrameGeneration: 1,
+    lastRxByteAtMs: timer.nowMs() - 10,
+    lastValidFrameAtMs: timer.nowMs() - 10,
+    lastResumeAtMs: timer.nowMs() - 10,
+    phase: "running",
+    txByteEpoch: 0,
+    tailHash: "",
+  };
+  const coordinator = createTxCoordinator({
+    settings,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => state,
+  });
+  const action = { kind: "heat", zone: 2, state: "on" };
+  const ingressState = {
+    ...settings,
+    state: "running" as const,
+    phase: "running" as const,
+    startedAtMs: timer.nowMs(),
+    elapsedMs: 0,
+    limitMs: 5_000,
+    byteCount: 0,
+    recordCount: 0,
+    file: null,
+    preview: [],
+  } as IngressState;
+  const request = (body: AnyRecord, url = "/api/action"): FakeReq => createReq({
+    method: "POST",
+    url,
+    socket: { remoteAddress: "172.30.32.2" },
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": "csrf-sixth", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let starts = 0;
+  const authoritative = m2.createIngressHandler({
+    getState: () => ingressState,
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "operator-7",
+    csrfToken: "csrf-sixth",
+    hasOutstandingSpeculativeChallenge: () => coordinator.hasOutstandingSpeculativeChallenge(),
+    issueSpeculativeChallenge: (value, req) => coordinator.issueSpeculativeChallenge(value, {
+      userId: String(req.userId),
+      confirmationPhrase: String(req.confirmationPhrase),
+      schedule: typeof req.schedule === "string" ? req.schedule : "immediate",
+    }),
+    cancelSpeculativeChallenge: (id, req) => coordinator.cancelSpeculativeChallenge(id, String(req.userId)),
+    executeSemanticAction: (value, req) => coordinator.send(value, req),
+    async startCapture() { starts += 1; },
+    async stopCapture() { return {} as CoordinatorResult; },
+  });
+  const issueBody = { ...action, mode: "challenge", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+  const issuedResponse = createRes();
+  await authoritative(request(issueBody), issuedResponse);
+  assert.equal(issuedResponse.statusCode, 200);
+  const issued = parseJson<AnyRecord>(issuedResponse.body);
+  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), true);
+  const commitResponse = createRes();
+  await authoritative(request({ ...action, mode: "commit", challengeId: issued.id, confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" }), commitResponse);
+  assert.equal(commitResponse.statusCode, 200);
+  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), false, "consumed challenge must not remain outstanding");
+  const afterCommitCapture = createRes();
+  await authoritative(request({}, "/api/capture"), afterCommitCapture);
+  assert.equal(afterCommitCapture.statusCode, 200);
+  assert.equal(starts, 1);
+
+  const expiryResponse = createRes();
+  await authoritative(request(issueBody), expiryResponse);
+  assert.equal(expiryResponse.statusCode, 200);
+  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), true);
+  timer.advance(30_001);
+  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), false, "expired challenge must be purged");
+  const afterExpiryCapture = createRes();
+  await authoritative(request({}, "/api/capture"), afterExpiryCapture);
+  assert.equal(afterExpiryCapture.statusCode, 200);
+
+  let fallbackMode: "wrong" | "throw" | "reject" | "success" = "wrong";
+  let fallbackExpiry = timer.nowMs() + 100;
+  const fallbackId = VALID_CHALLENGE_ID;
+  const fallback = m2.createIngressHandler({
+    getState: () => ingressState,
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "operator-7",
+    csrfToken: "csrf-sixth",
+    nowMs: timer.nowMs,
+    issueSpeculativeChallenge: () => ({ id: fallbackId, expiresAtMs: fallbackExpiry, readinessRevision: "r1" }),
+    cancelSpeculativeChallenge: (id) => id === fallbackId,
+    executeSemanticAction: async (_value, req) => {
+      if (req?.challengeId !== fallbackId || fallbackMode === "wrong") throw new Error("challenge mismatch");
+      if (fallbackMode === "throw") throw new Error("commit failed");
+      if (fallbackMode === "reject") return { outcome: "rejected", reason: "commit rejected" };
+      return { outcome: "socket_written_unconfirmed", deviceConfirmed: false };
+    },
+    async startCapture() {},
+    async stopCapture() { return {} as CoordinatorResult; },
+  });
+  const fallbackIssue = createRes();
+  await fallback(request(issueBody), fallbackIssue);
+  assert.equal(fallbackIssue.statusCode, 200);
+  for (const mode of ["wrong", "throw", "reject"] as const) {
+    fallbackMode = mode;
+    const commit = createRes();
+    await fallback(request({ ...action, mode: "commit", challengeId: mode === "wrong" ? "other" : fallbackId, schedule: "immediate" }), commit);
+    const blocked = createRes();
+    await fallback(request({}, "/api/capture"), blocked);
+    assert.equal(blocked.statusCode, 409, `${mode} matching commit must not clear fallback challenge`);
+  }
+  fallbackMode = "success";
+  const successfulCommit = createRes();
+  await fallback(request({ ...action, mode: "commit", challengeId: fallbackId, schedule: "immediate" }), successfulCommit);
+  assert.equal(successfulCommit.statusCode, 200);
+  const fallbackAfterCommit = createRes();
+  await fallback(request({}, "/api/capture"), fallbackAfterCommit);
+  assert.equal(fallbackAfterCommit.statusCode, 200, "successful fallback commit must clear local challenge state");
+
+  const canceledIssue = createRes();
+  fallbackExpiry = timer.nowMs() + 100;
+  await fallback(request(issueBody), canceledIssue);
+  const canceled = createRes();
+  await fallback(request({ mode: "cancel", challengeId: fallbackId }), canceled);
+  assert.equal(canceled.statusCode, 200);
+  const afterCancel = createRes();
+  await fallback(request({}, "/api/capture"), afterCancel);
+  assert.equal(afterCancel.statusCode, 200);
+
+  const expiringIssue = createRes();
+  fallbackExpiry = timer.nowMs() + 100;
+  await fallback(request(issueBody), expiringIssue);
+  timer.advance(101);
+  const fallbackAfterExpiry = createRes();
+  await fallback(request({}, "/api/capture"), fallbackAfterExpiry);
+  assert.equal(fallbackAfterExpiry.statusCode, 200, "fallback expiry must purge local challenge state");
+});
+
+test("RED-sixth: protocol and UI freshness require typed current-generation valid evidence", async () => {
+  const protocol = await import("../bestium-eco-foret/src/protocol-debug.ts");
+  const problems: string[] = [];
+  const require = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
+  let now = 1_700_040_000;
+  const monitor = protocol.createProtocolDebugMonitor({ nowMs: () => now, staleAfterMs: 100, journalLimit: 8 });
+  const valid = Uint8Array.from("f70d011904401000020102b5ee".match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+  monitor.push(valid);
+  let snapshot = monitor.snapshot();
+  const cctv = snapshot.devices.cctv as AnyRecord | undefined;
+  require(snapshot.staleAfterMs === 100, "protocol snapshot must expose staleAfterMs");
+  require(/not.?observed/i.test(String(cctv?.evidence ?? "")), "CCTV must be explicit negative evidence");
+  require(cctv?.lastSeenAtMs === now && cctv?.generation === snapshot.generation && cctv?.stale === false, "CCTV negative evidence must be backed by the latest valid frame");
+  now += 100;
+  snapshot = monitor.snapshot();
+  require(snapshot.devices.cctv?.stale === false, "exact stale threshold must remain fresh");
+  now += 1;
+  require(monitor.snapshot().devices.cctv?.stale === true, "evidence over threshold must be stale");
+  monitor.push(Uint8Array.from([0x55]));
+  require(monitor.snapshot().devices.cctv?.stale === true, "noise must not refresh negative evidence");
+  monitor.resetGeneration();
+  require(monitor.snapshot().devices.cctv?.stale === true, "generation reset must stale negative evidence");
+  monitor.push(valid);
+  require(monitor.snapshot().devices.cctv?.stale === false, "a new valid frame must refresh current-generation evidence");
+  monitor.stop();
+  require(monitor.snapshot().devices.cctv?.stale === true, "stopped capture must not report fresh negative evidence");
+
+  const baseNow = 1_700_020_000;
+  const validPayload = uiStatusPayload();
+  validPayload.debug.staleAfterMs = 100;
+  const validUi = await createUiVmFixture(validPayload);
+  await validUi.flush();
+  const validRow = validUi.nodes.get("light-state-1")?.textContent ?? "";
+  require(/fresh/.test(validRow) && !/stale/.test(validRow), "typed current-generation evidence should render fresh");
+  require(/not observed.*(?:current|inspected).*(?:frame|generation)/i.test(validUi.nodes.get("cctv-observation")?.textContent ?? ""), "CCTV wording must identify the inspected current frame/generation");
+
+  const uiCases: Array<[string, (payload: AnyRecord) => void]> = [
+    ["serverNow string", (payload) => { payload.serverNowMs = String(baseNow); }],
+    ["serverNow NaN", (payload) => { payload.serverNowMs = Number.NaN; }],
+    ["serverNow Infinity", (payload) => { payload.serverNowMs = Number.POSITIVE_INFINITY; }],
+    ["generation string", (payload) => { payload.generation = "9"; }],
+    ["timestamp string", (payload) => { payload.debug.devices.lights[1].lastSeenAtMs = String(baseNow - 25); }],
+    ["timestamp NaN", (payload) => { payload.debug.devices.lights[1].lastSeenAtMs = Number.NaN; }],
+    ["timestamp Infinity", (payload) => { payload.debug.devices.lights[1].lastSeenAtMs = Number.POSITIVE_INFINITY; }],
+    ["timestamp null", (payload) => { payload.debug.devices.lights[1].lastSeenAtMs = null; }],
+    ["wrong generation", (payload) => { payload.debug.devices.lights[1].generation = 8; }],
+    ["over threshold", (payload) => { payload.debug.devices.lights[1].lastSeenAtMs = baseNow - 101; }],
+    ["staleAfter string", (payload) => { payload.debug.staleAfterMs = "100"; }],
+    ["stopped", (payload) => { payload.phase = "stopped"; }],
+    ["no valid frame", (payload) => { payload.lastValidFrameAtMs = 0; payload.debug.frames = []; }],
+  ];
+  for (const [label, mutate] of uiCases) {
+    const payload = uiStatusPayload();
+    payload.debug.staleAfterMs = 100;
+    mutate(payload);
+    const fixture = await createUiVmFixture(payload);
+    await fixture.flush();
+    const row = fixture.nodes.get("light-state-1")?.textContent ?? "";
+    require(/stale|unknown/.test(row) && !/fresh/.test(row), `${label} must fail closed as stale/unknown: ${row}`);
+    require(!/NaN|Infinity/.test(row), `${label} must not render malformed age: ${row}`);
+  }
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-seventh: immediate duplicate capture/stop and indeterminate UI mutations are single-flight and locked", async () => {
+  const problems: string[] = [];
+  const check = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
+  const payloadFor = (phase: "running" | "stopped"): AnyRecord => uiStatusPayload({ phase, state: phase });
+  const makeMutationFixture = async (phase: "running" | "stopped"): Promise<UiVmFixture> => {
+    const payload = payloadFor(phase);
+    return createUiVmFixture(payload, (url) => url === "./api/status" ? uiJsonResponse(payload) : uiJsonResponse({}));
+  };
+
+  const capture = await makeMutationFixture("stopped");
+  await capture.flush();
+  capture.timers.clear();
+  capture.click("capture-start");
+  capture.click("capture-start");
+  check(capture.fetchCalls.filter((call) => call.url === "./api/capture").length === 1, "double Capture must issue one POST");
+  check(capture.nodes.get("capture-start")?.disabled === true && capture.nodes.get("capture-stop")?.disabled === true, "double Capture must synchronously disable both native controls");
+
+  const stop = await makeMutationFixture("running");
+  await stop.flush();
+  stop.timers.clear();
+  stop.click("capture-stop");
+  stop.click("capture-stop");
+  check(stop.fetchCalls.filter((call) => call.url === "./api/stop").length === 1, "double Stop must issue one POST");
+  check(stop.nodes.get("capture-start")?.disabled === true && stop.nodes.get("capture-stop")?.disabled === true, "double Stop must synchronously disable both native controls");
+
+  const invalidPayload = payloadFor("stopped");
+  const invalidCalls: string[] = [];
+  const invalid = await createUiVmFixture(invalidPayload, (url, init) => {
+    if (url === "./api/status") return uiJsonResponse(invalidPayload);
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+    if (body.mode === "challenge") return uiJsonResponse({ id: " ", expiresAtMs: 1_700_020_100, readinessRevision: "r1" });
+    if (url === "./api/capture" || url === "./api/stop") invalidCalls.push(url);
+    return uiJsonResponse({ cancelled: false });
+  });
+  await invalid.flush();
+  invalid.timers.clear();
+  invalid.click("heat-zone-2-on");
+  await invalid.flush();
+  invalid.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  invalid.click("issue-challenge");
+  await invalid.flush();
+  const invalidAlert = invalid.nodes.get("alert")?.textContent ?? "";
+  check(/reconciliation|재확인/i.test(invalidAlert), "invalid challenge must announce reconciliation");
+  check(invalid.nodes.get("capture-start")?.disabled === true && invalid.nodes.get("capture-stop")?.disabled === true, "invalid challenge must keep both capture controls disabled");
+  invalid.click("capture-start");
+  invalid.click("capture-stop");
+  await invalid.flush();
+  check(invalidCalls.length === 0, "programmatic clicks after invalid challenge must not mutate capture state");
+  check(invalid.nodes.get("alert")?.textContent === invalidAlert, "programmatic clicks must not overwrite invalid-challenge reconciliation");
+
+  const partialPayload = payloadFor("stopped");
+  const partialCalls: string[] = [];
+  const partial = await createUiVmFixture(partialPayload, (url, init) => {
+    if (url === "./api/status") return uiJsonResponse(partialPayload);
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70d011904401000020102b5ee" });
+    if (body.mode === "commit") return uiJsonResponse({ outcome: "partial_indeterminate", framesWritten: 1 });
+    if (url === "./api/capture" || url === "./api/stop") partialCalls.push(url);
+    return uiJsonResponse({});
+  });
+  await partial.flush();
+  partial.timers.clear();
+  partial.click("light-1-on");
+  await partial.flush();
+  partial.click("review-commit");
+  await partial.flush();
+  const partialAlert = partial.nodes.get("alert")?.textContent ?? "";
+  check(/reconciliation|재확인/i.test(partialAlert), "partial_indeterminate must announce reconciliation");
+  check(partial.nodes.get("capture-start")?.disabled === true && partial.nodes.get("capture-stop")?.disabled === true, "partial_indeterminate must keep both capture controls disabled");
+  partial.click("capture-start");
+  partial.click("capture-stop");
+  await partial.flush();
+  check(partialCalls.length === 0, "programmatic clicks after partial_indeterminate must not mutate capture state");
+  check(partial.nodes.get("alert")?.textContent === partialAlert, "programmatic clicks must not overwrite partial reconciliation");
+
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-seventh: UI freshness requires global current-generation evidence and bounded retained debug", async () => {
+  const problems: string[] = [];
+  const check = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
+  const baseNow = 1_700_020_000;
+  const freshnessCases: Array<[string, (payload: AnyRecord) => void]> = [
+    ["global generation mismatch", (payload) => { payload.lastValidFrameGeneration = 8; }],
+    ["global frame age over threshold", (payload) => { payload.lastValidFrameAtMs = baseNow - 101; }],
+    ["negative current generation", (payload) => { payload.generation = -1; payload.lastValidFrameGeneration = -1; payload.debug.devices.lights[1].generation = -1; }],
+    ["negative global frame generation", (payload) => { payload.lastValidFrameGeneration = -1; }],
+    ["negative entry generation", (payload) => { payload.debug.devices.lights[1].generation = -1; }],
+    ["NaN generation", (payload) => { payload.generation = Number.NaN; payload.lastValidFrameGeneration = Number.NaN; payload.debug.devices.lights[1].generation = Number.NaN; }],
+    ["Infinity generation", (payload) => { payload.generation = Number.POSITIVE_INFINITY; payload.lastValidFrameGeneration = Number.POSITIVE_INFINITY; payload.debug.devices.lights[1].generation = Number.POSITIVE_INFINITY; }],
+  ];
+  for (const [label, mutate] of freshnessCases) {
+    const payload = uiStatusPayload();
+    payload.debug.staleAfterMs = 100;
+    mutate(payload);
+    const fixture = await createUiVmFixture(payload);
+    await fixture.flush();
+    const row = fixture.nodes.get("light-state-1")?.textContent ?? "";
+    check(/stale|unknown/i.test(row) && !/fresh/i.test(row), `${label} must render stale/unknown: ${row}`);
+    check(!/NaN|Infinity/.test(row), `${label} must not render NaN/Infinity: ${row}`);
+  }
+
+  for (const [label, phase] of [["no frame", "running"], ["stopped", "stopped"]] as const) {
+    const payload = uiStatusPayload({ phase, state: phase });
+    payload.debug.staleAfterMs = 100;
+    payload.lastValidFrameAtMs = 0;
+    payload.lastValidFrameGeneration = 0;
+    payload.debug.frames = [];
+    const fixture = await createUiVmFixture(payload);
+    await fixture.flush();
+    const cctv = fixture.nodes.get("cctv-observation")?.textContent ?? "";
+    check(/unknown|stale/i.test(cctv), `${label} CCTV must be unknown/stale: ${cctv}`);
+    check(!/(?:current.*(?:observed|not observed)|(?:observed|not observed).*current)/i.test(cctv), `${label} CCTV must not claim current observed/not-observed: ${cctv}`);
+  }
+
+  const mixed = uiStatusPayload();
+  mixed.debug.staleAfterMs = 100;
+  mixed.debug.unknown = [
+    { cluster: "0x7e", rawHex: "7f620000ee", atMs: baseNow - 20, generation: 9, stale: false },
+    { cluster: "0x7d", rawHex: "7f610000ee", atMs: baseNow - 20, generation: 8, stale: false },
+  ];
+  const mixedFixture = await createUiVmFixture(mixed);
+  await mixedFixture.flush();
+  const unknownCount = mixedFixture.nodes.get("unknown-clusters")?.textContent ?? "";
+  check(!/generation\s+9\b/i.test(unknownCount), `mixed retained unknown count must not claim current generation: ${unknownCount}`);
+
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-seventh: fallback ingress validates challenge IDs and preserves unknown outstanding guards", async () => {
+  const m2 = await importM2();
+  const problems: string[] = [];
+  const check = (condition: unknown, message: string): void => { if (!condition) problems.push(message); };
+  const state = (): IngressState => ({
+    ...validSettings(), state: "stopped", phase: "stopped", startedAtMs: 0, elapsedMs: 0,
+    limitMs: 5_000, byteCount: 0, recordCount: 0, file: null, preview: [],
+  } as IngressState);
+  const request = (body: AnyRecord, url = "/api/action"): FakeReq => createReq({
+    method: "POST", url, socket: { remoteAddress: "172.30.32.2" },
+    headers: { "x-remote-user-id": "operator-7", "x-csrf-token": "csrf-seventh", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const common = (current: IngressState, timer?: FakeTimer): Pick<Parameters<RuntimeExports["createIngressHandler"]>[0], "getState" | "startCapture" | "stopCapture" | "getAuthenticatedIngressUserId" | "getConfiguredTransmitUserId" | "csrfToken" | "nowMs" | "executeSemanticAction"> => ({
+    getState: () => current,
+    getAuthenticatedIngressUserId: () => "operator-7",
+    getConfiguredTransmitUserId: () => "operator-7",
+    csrfToken: "csrf-seventh",
+    ...(timer ? { nowMs: timer.nowMs } : {}),
+    async startCapture() {},
+    async stopCapture() { return {} as CoordinatorResult; },
+    async executeSemanticAction() { return { outcome: "socket_written_unconfirmed", deviceConfirmed: false }; },
+  });
+
+  const invalidState = state();
+  const invalidHandler = m2.createIngressHandler({
+    ...common(invalidState),
+    cancelSpeculativeChallenge: async () => true,
+  });
+  for (const [label, id] of [["whitespace", " "], ["31-char", "a".repeat(31)], ["invalid-char", `${"a".repeat(31)}!`]] as const) {
+    const response = createRes();
+    await invalidHandler(request({ mode: "cancel", challengeId: id }), response);
+    check(response.statusCode >= 400 && response.statusCode < 500, `${label} challenge ID must reject: ${response.statusCode}`);
+  }
+
+  const falseTimer = createFakeTimer();
+  const falseHandler = m2.createIngressHandler({
+    ...common(state(), falseTimer),
+    issueSpeculativeChallenge: () => ({ id: VALID_CHALLENGE_ID, expiresAtMs: falseTimer.nowMs() + 30_000 }),
+    cancelSpeculativeChallenge: async () => false,
+  });
+  const issueBody = { kind: "heat", zone: 2, state: "on", mode: "challenge", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+  await falseHandler(request(issueBody), createRes());
+  const falseCancel = createRes();
+  await falseHandler(request({ mode: "cancel", challengeId: VALID_CHALLENGE_ID }), falseCancel);
+  check(falseCancel.statusCode === 409, `{cancelled:false} must fail: ${falseCancel.statusCode}`);
+  const blockedFalseCancel = createRes();
+  await falseHandler(request({}, "/api/capture"), blockedFalseCancel);
+  check(blockedFalseCancel.statusCode === 409, `{cancelled:false} must retain the capture block: ${blockedFalseCancel.statusCode}`);
+
+  const runUnknownGuard = async (label: string, failure: "malformed" | "thrown", settle: "cancel" | "expiry"): Promise<void> => {
+    const timer = createFakeTimer();
+    const current = state();
+    let issueCount = 0;
+    const handler = m2.createIngressHandler({
+      ...common(current, timer),
+      issueSpeculativeChallenge: () => {
+        issueCount += 1;
+        if (issueCount === 1) return { id: VALID_CHALLENGE_ID, expiresAtMs: timer.nowMs() + 1_000 };
+        if (failure === "thrown") throw new Error("challenge issue failed");
+        return { id: "bad id", expiresAtMs: timer.nowMs() + 1_000 };
+      },
+      cancelSpeculativeChallenge: async () => true,
+    });
+    const knownIssue = createRes();
+    await handler(request(issueBody), knownIssue);
+    check(knownIssue.statusCode === 200, `${label} known challenge issue must succeed: ${knownIssue.statusCode}`);
+    const guardStartedAt = timer.nowMs();
+    await handler(request(issueBody), createRes());
+    if (settle === "cancel") {
+      const canceled = createRes();
+      await handler(request({ mode: "cancel", challengeId: VALID_CHALLENGE_ID }), canceled);
+      check(canceled.statusCode === 200, `${label} known challenge cancel must succeed: ${canceled.statusCode}`);
+    }
+    timer.advance(Math.max(0, guardStartedAt + 1_001 - timer.nowMs()));
+    const afterKnown = createRes();
+    await handler(request({}, "/api/capture"), afterKnown);
+    check(afterKnown.statusCode === 409, `${label} unknown issue guard must survive known ${settle}: ${afterKnown.statusCode}`);
+    timer.advance(Math.max(0, guardStartedAt + 29_999 - timer.nowMs()));
+    const beforeExpiry = createRes();
+    await handler(request({}, "/api/capture"), beforeExpiry);
+    check(beforeExpiry.statusCode === 409, `${label} guard must remain for 30s: ${beforeExpiry.statusCode}`);
+    timer.advance(1);
+    const afterExpiry = createRes();
+    await handler(request({}, "/api/capture"), afterExpiry);
+    check(afterExpiry.statusCode === 200, `${label} guard may clear after 30s: ${afterExpiry.statusCode}`);
+  };
+  await runUnknownGuard("malformed issue", "malformed", "cancel");
+  await runUnknownGuard("thrown issue", "thrown", "expiry");
+
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-sixth: capture and stop mutation uncertainty lock the page after a bounded deadline", async () => {
+  const scenarios: Array<[string, "./api/capture" | "./api/stop", "reject" | "untrusted" | "never"]> = [
+    ["capture rejection", "./api/capture", "reject"],
+    ["stop untrusted response", "./api/stop", "untrusted"],
+    ["capture never settles", "./api/capture", "never"],
+  ];
+  const problems: string[] = [];
+  for (const [label, endpoint, mode] of scenarios) {
+    let settleMutation: ((value: AnyRecord) => void) | undefined;
+    let mutationSettled = false;
+    let mutationCalls = 0;
+    let statusCalls = 0;
+    const fixturePhase = endpoint === "./api/capture" ? "stopped" : "running";
+    const fixtureStatus = uiStatusPayload({ phase: fixturePhase, state: fixturePhase });
+    const fixture = await createUiVmFixture(fixtureStatus, (url) => {
+      if (url === "./api/status") {
+        statusCalls += 1;
+        return uiJsonResponse(fixtureStatus);
+      }
+      if (url === endpoint) {
+        mutationCalls += 1;
+        if (mode === "reject") return Promise.reject(new Error("mutation network failure"));
+        if (mode === "untrusted") return { ok: false, status: 599 };
+        return new Promise((resolve) => {
+          settleMutation = (value) => {
+            if (mutationSettled) return;
+            mutationSettled = true;
+            resolve(value);
+          };
+        });
+      }
+      return uiJsonResponse({});
+    });
+    try {
+      await fixture.flush();
+      fixture.timers.clear();
+      fixture.click(endpoint === "./api/capture" ? "capture-start" : "capture-stop");
+      await fixture.flush();
+      if (mutationCalls !== 1) problems.push(`${label}: expected one initial mutation, got ${mutationCalls}`);
+      if (fixture.timers.size === 0) problems.push(`${label}: missing bounded mutation deadline`);
+      fixture.fireTimer();
+      await fixture.flush();
+      if (fixture.nodes.get("capture-start")?.disabled !== true || fixture.nodes.get("capture-stop")?.disabled !== true) {
+        problems.push(`${label}: native capture controls were not locked after deadline`);
+      }
+      if (statusCalls < 2) problems.push(`${label}: bounded status reconciliation did not start`);
+      fixture.click("capture-start");
+      fixture.click("capture-stop");
+      await fixture.flush();
+      if (mutationCalls !== 1) problems.push(`${label}: late response/second activation sent ${mutationCalls} mutations`);
+      if (fixture.nodes.get("capture-start")?.disabled !== true || fixture.nodes.get("capture-stop")?.disabled !== true) {
+        problems.push(`${label}: late response unlocked mutation controls`);
+      }
+    } finally {
+      if (mode === "never") {
+        settleMutation?.(uiJsonResponse({ ok: true }));
+        await fixture.flush();
+      }
+    }
+  }
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-eighth: emitted UI starts fail-closed and invalidates capture controls on status drift", async () => {
+  const uiModule = await import(pathToFileURL(path(paths.uiSource)).href) as AnyRecord;
+  const html = String(uiModule.renderAppHtml());
+  assert.equal(/<button id="capture-start"[^>]*disabled/.test(html), true, "emitted Capture control must start disabled");
+  assert.equal(/<button id="capture-stop"[^>]*disabled/.test(html), true, "emitted Stop control must start disabled");
+
+  const initialPayload = uiStatusPayload({ phase: "stopped", state: "stopped" });
+  let resolveInitial!: (value: AnyRecord) => void;
+  let statusCall = 0;
+  const fixture = await createUiVmFixture(initialPayload, (url) => {
+    if (url !== "./api/status") return uiJsonResponse({});
+    statusCall += 1;
+    if (statusCall === 1) return new Promise((resolve) => { resolveInitial = resolve; });
+    if (statusCall === 2) return uiJsonResponse({ ...initialPayload, phase: "corrupted", state: "corrupted" });
+    return Promise.reject(new Error("background status unavailable"));
+  });
+  assert.equal(fixture.nodes.get("capture-start")?.disabled, true, "deferred initial status must disable Capture");
+  assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, "deferred initial status must disable Stop");
+  fixture.click("capture-start");
+  fixture.click("capture-stop");
+  await fixture.flush();
+  assert.equal(fixture.fetchCalls.filter((call) => call.url === "./api/capture" || call.url === "./api/stop").length, 0, "deferred initial status must block mutation POSTs");
+
+  resolveInitial(uiJsonResponse(initialPayload));
+  await fixture.flush();
+  fixture.fireTimer();
+  await fixture.flush();
+  assert.equal(fixture.nodes.get("capture-start")?.disabled, true, "malformed background phase must disable Capture");
+  assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, "malformed background phase must disable Stop");
+  fixture.fireTimer();
+  await fixture.flush();
+  assert.equal(fixture.nodes.get("capture-start")?.disabled, true, "failed background status must disable Capture");
+  assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, "failed background status must disable Stop");
+});
+
+test("RED-eighth: Capture and Stop retain the native busy lease through deferred status reconciliation", async () => {
+  const scenarios: Array<["stopped" | "running", "./api/capture" | "./api/stop", "capture-start" | "capture-stop", "running" | "stopped"]> = [
+    ["stopped", "./api/capture", "capture-start", "running"],
+    ["running", "./api/stop", "capture-stop", "stopped"],
+  ];
+  for (const [initialPhase, endpoint, trigger, reconciledPhase] of scenarios) {
+    const initialPayload = uiStatusPayload({ phase: initialPhase, state: initialPhase });
+    let statusCall = 0;
+    let resolveForced!: (value: AnyRecord) => void;
+    const fixture = await createUiVmFixture(initialPayload, (url) => {
+      if (url === "./api/status") {
+        statusCall += 1;
+        if (statusCall === 1) return uiJsonResponse(initialPayload);
+        return new Promise((resolve) => { resolveForced = resolve; });
+      }
+      if (url === endpoint) return uiJsonResponse({});
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.timers.clear();
+    fixture.click(trigger);
+    await fixture.flush();
+    assert.equal(statusCall, 2, `${endpoint} must start deferred status reconciliation after HTTP 200`);
+    assert.equal(fixture.nodes.get("capture-start")?.disabled, true, `${endpoint} must retain Capture disabled while status is deferred`);
+    assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, `${endpoint} must retain Stop disabled while status is deferred`);
+    fixture.click(trigger);
+    await fixture.flush();
+    assert.equal(fixture.fetchCalls.filter((call) => call.url === endpoint).length, 1, `${endpoint} must reject a second activation while status is deferred`);
+
+    resolveForced(uiJsonResponse(uiStatusPayload({ phase: reconciledPhase, state: reconciledPhase })));
+    await fixture.flush();
+    assert.equal(fixture.nodes.get("capture-start")?.disabled, reconciledPhase === "running", `${endpoint} must enable Capture only for stopped phase`);
+    assert.equal(fixture.nodes.get("capture-stop")?.disabled, reconciledPhase !== "running", `${endpoint} must enable Stop only for running phase`);
+  }
+});
+
+test("RED-eighth: malformed, failed, timed-out, and superseded reconciliation stay a sticky mutation lock", async () => {
+  const scenarios: Array<[string, "malformed" | "failed" | "deadline"]> = [
+    ["malformed", "malformed"],
+    ["failed", "failed"],
+    ["deadline", "deadline"],
+  ];
+  for (const [label, mode] of scenarios) {
+    const initialPayload = uiStatusPayload({ phase: "stopped", state: "stopped" });
+    let resolveForced!: (value: AnyRecord) => void;
+    let statusCall = 0;
+    let mutationCalls = 0;
+    const fixture = await createUiVmFixture(initialPayload, (url) => {
+      if (url === "./api/status") {
+        statusCall += 1;
+        if (statusCall === 1) return uiJsonResponse(initialPayload);
+        if (mode === "malformed") return new Promise((resolve) => { resolveForced = resolve; });
+        if (mode === "failed") return Promise.reject(new Error("forced status failed"));
+        return new Promise((resolve) => { resolveForced = resolve; });
+      }
+      if (url === "./api/capture") {
+        mutationCalls += 1;
+        return uiJsonResponse({});
+      }
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.timers.clear();
+    fixture.click("capture-start");
+    await fixture.flush();
+    if (mode === "malformed") resolveForced(uiJsonResponse({ ...initialPayload, phase: "invalid", state: "invalid" }));
+    if (mode === "deadline") fixture.fireTimer();
+    await fixture.flush();
+    assert.equal(fixture.nodes.get("capture-start")?.disabled, true, `${label} reconciliation must disable Capture`);
+    assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, `${label} reconciliation must disable Stop`);
+    fixture.click("capture-start");
+    fixture.click("capture-stop");
+    await fixture.flush();
+    assert.equal(mutationCalls, 1, `${label} reconciliation lock must prevent later mutation POSTs`);
+    assert.equal(fixture.nodes.get("capture-start")?.disabled, true, `${label} lock must remain on Capture`);
+    assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, `${label} lock must remain on Stop`);
+    if (mode === "deadline") {
+      resolveForced(uiJsonResponse(uiStatusPayload({ phase: "running", state: "running" })));
+      await fixture.flush();
+      assert.equal(fixture.nodes.get("capture-start")?.disabled, true, "late deadline status must not unlock Capture");
+      assert.equal(fixture.nodes.get("capture-stop")?.disabled, true, "late deadline status must not unlock Stop");
+    }
+  }
+
+  let resolveBackground!: (value: AnyRecord) => void;
+  let resolveSuperseding!: (value: AnyRecord) => void;
+  let statusCall = 0;
+  const initialPayload = uiStatusPayload({ phase: "stopped", state: "stopped" });
+  const superseded = await createUiVmFixture(initialPayload, (url) => {
+    if (url === "./api/status") {
+      statusCall += 1;
+      if (statusCall === 1) return uiJsonResponse(initialPayload);
+      if (statusCall === 2) return new Promise((resolve) => { resolveBackground = resolve; });
+      return new Promise((resolve) => { resolveSuperseding = resolve; });
+    }
+    if (url === "./api/capture") return uiJsonResponse({});
+    return uiJsonResponse({});
+  });
+  await superseded.flush();
+  superseded.fireTimer();
+  await superseded.flush();
+  superseded.click("capture-start");
+  await superseded.flush();
+  resolveBackground(uiJsonResponse(uiStatusPayload({ phase: "stopped", state: "stopped" })));
+  await superseded.flush();
+  assert.equal(superseded.nodes.get("capture-start")?.disabled, true, "superseded background status must not unlock Capture");
+  assert.equal(superseded.nodes.get("capture-stop")?.disabled, true, "superseded background status must not unlock Stop");
+  resolveSuperseding(uiJsonResponse(uiStatusPayload({ phase: "running", state: "running" })));
+  await superseded.flush();
+  assert.equal(superseded.nodes.get("capture-start")?.disabled, true, "authoritative superseding status must keep Capture disabled while running");
+  assert.equal(superseded.nodes.get("capture-stop")?.disabled, false, "authoritative superseding status must enable Stop while running");
+});
+
+test("RED-repair1: same-phase endpoint reconciliation is a sticky mutation lock", async () => {
+  const scenarios: Array<["stopped" | "running", "./api/capture" | "./api/stop", "capture-start" | "capture-stop"]> = [
+    ["stopped", "./api/capture", "capture-start"],
+    ["running", "./api/stop", "capture-stop"],
+  ];
+  const problems: string[] = [];
+  for (const [initialPhase, endpoint, trigger] of scenarios) {
+    const initialPayload = uiStatusPayload({ phase: initialPhase, state: initialPhase });
+    let statusCalls = 0;
+    let mutationCalls = 0;
+    const fixture = await createUiVmFixture(initialPayload, (url) => {
+      if (url === "./api/status") {
+        statusCalls += 1;
+        return uiJsonResponse(initialPayload);
+      }
+      if (url === endpoint) {
+        mutationCalls += 1;
+        return uiJsonResponse({});
+      }
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.timers.clear();
+    fixture.click(trigger);
+    await fixture.flush();
+    if (statusCalls < 2) problems.push(`${endpoint}: forced authoritative status did not settle`);
+    if (mutationCalls !== 1) problems.push(`${endpoint}: expected one initial mutation, got ${mutationCalls}`);
+    if (fixture.nodes.get("capture-start")?.disabled !== true || fixture.nodes.get("capture-stop")?.disabled !== true) {
+      problems.push(`${endpoint}: same-phase reconciliation did not keep both native controls locked`);
+    }
+    fixture.click(trigger);
+    await fixture.flush();
+    if (mutationCalls !== 1) problems.push(`${endpoint}: second activation sent ${mutationCalls} mutation POSTs`);
+  }
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-repair1: Capture and Stop mutation leases exclude all review mutations", async () => {
+  const problems: string[] = [];
+  const checkReviewLease = async (fixture: UiVmFixture, calls: Record<string, number>, label: string): Promise<void> => {
+    const before = { ...calls };
+    for (const id of ["issue-challenge", "review-commit", "review-cancel"]) {
+      if (fixture.nodes.get(id)?.disabled !== true) problems.push(`${label}: ${id} was not natively disabled`);
+    }
+    fixture.click("issue-challenge");
+    fixture.click("review-commit");
+    fixture.click("review-cancel");
+    await fixture.flush();
+    if (calls.challenge !== before.challenge || calls.commit !== before.commit || calls.cancel !== before.cancel) {
+      problems.push(`${label}: programmatic review activation overlapped the capture/stop lease`);
+    }
+  };
+
+  {
+    const initialPayload = uiStatusPayload({ phase: "stopped", state: "stopped" });
+    let statusCalls = 0;
+    let resolveCapture: ((value: AnyRecord) => void) | undefined;
+    let resolveForced: ((value: AnyRecord) => void) | undefined;
+    const calls = { capture: 0, challenge: 0, commit: 0, cancel: 0 };
+    const fixture = await createUiVmFixture(initialPayload, (url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (url === "./api/status") {
+        statusCalls += 1;
+        if (statusCalls === 1) return uiJsonResponse(initialPayload);
+        return new Promise((resolve) => { resolveForced = resolve; });
+      }
+      if (body.mode === "preview") {
+        return uiJsonResponse({ preview: true, evidence: "observed", ready: true, readinessRevision: "r1", frameHex: "f70d011904401000020102b5ee" });
+      }
+      if (body.mode === "challenge") { calls.challenge += 1; return uiJsonResponse({}); }
+      if (body.mode === "commit") { calls.commit += 1; return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false }); }
+      if (body.mode === "cancel") { calls.cancel += 1; return uiJsonResponse({ cancelled: true }); }
+      if (url === "./api/capture") {
+        calls.capture += 1;
+        return new Promise((resolve) => { resolveCapture = resolve; });
+      }
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.click("light-1-on");
+    await fixture.flush();
+    if (fixture.nodes.get("review-commit")?.disabled !== false) problems.push("observed Capture: review commit was not ready before the lease");
+    fixture.click("capture-start");
+    await fixture.flush();
+    await checkReviewLease(fixture, calls, "observed Capture POST");
+    resolveCapture?.(uiJsonResponse({}));
+    await fixture.flush();
+    await checkReviewLease(fixture, calls, "observed Capture reconciliation");
+    resolveForced?.(uiJsonResponse(uiStatusPayload({ phase: "running", state: "running" })));
+    await fixture.flush();
+    if (calls.capture !== 1) problems.push(`observed Capture: expected one capture POST, got ${calls.capture}`);
+  }
+
+  {
+    const initialPayload = uiStatusPayload({ phase: "running", state: "running" });
+    let statusCalls = 0;
+    let resolveCancel: ((value: AnyRecord) => void) | undefined;
+    let resolveStop: ((value: AnyRecord) => void) | undefined;
+    let resolveForced: ((value: AnyRecord) => void) | undefined;
+    const calls = { stop: 0, challenge: 0, commit: 0, cancel: 0 };
+    const fixture = await createUiVmFixture(initialPayload, (url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (url === "./api/status") {
+        statusCalls += 1;
+        if (statusCalls === 1) return uiJsonResponse(initialPayload);
+        return new Promise((resolve) => { resolveForced = resolve; });
+      }
+      if (body.mode === "preview") {
+        return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+      }
+      if (body.mode === "challenge") {
+        calls.challenge += 1;
+        return uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+      }
+      if (body.mode === "commit") { calls.commit += 1; return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false }); }
+      if (body.mode === "cancel") {
+        calls.cancel += 1;
+        if (calls.cancel === 1) return new Promise((resolve) => { resolveCancel = resolve; });
+        return uiJsonResponse({ cancelled: true });
+      }
+      if (url === "./api/stop") {
+        calls.stop += 1;
+        return new Promise((resolve) => { resolveStop = resolve; });
+      }
+      return uiJsonResponse({});
+    });
+    await fixture.flush();
+    fixture.click("heat-zone-2-on");
+    await fixture.flush();
+    fixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+    fixture.click("issue-challenge");
+    await fixture.flush();
+    if (calls.challenge !== 1) problems.push(`inferred Stop: expected one challenge setup POST, got ${calls.challenge}`);
+    fixture.click("capture-stop");
+    await fixture.flush();
+    await checkReviewLease(fixture, calls, "inferred Stop cancellation");
+    resolveCancel?.(uiJsonResponse({ cancelled: true }));
+    await fixture.flush();
+    await checkReviewLease(fixture, calls, "inferred Stop POST");
+    resolveStop?.(uiJsonResponse({}));
+    await fixture.flush();
+    await checkReviewLease(fixture, calls, "inferred Stop reconciliation");
+    resolveForced?.(uiJsonResponse(uiStatusPayload({ phase: "stopped", state: "stopped" })));
+    await fixture.flush();
+    if (calls.stop !== 1) problems.push(`inferred Stop: expected one stop POST, got ${calls.stop}`);
+    if (calls.cancel !== 1) problems.push(`inferred Stop: challenge cancellation overlapped the lease (${calls.cancel} cancel POSTs)`);
+  }
+
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-repair2: native Cancel remains available through preview and challenge cancellation", async () => {
+  const problems: string[] = [];
+  const nativeClick = (fixture: UiVmFixture, id: string): void => {
+    if (fixture.nodes.get(id)?.disabled !== true) fixture.click(id);
+  };
+
+  let resolvePreview!: (value: AnyRecord) => void;
+  const previewFixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return new Promise((resolve) => { resolvePreview = resolve; });
+    return uiJsonResponse({ cancelled: true });
+  });
+  await previewFixture.flush();
+  previewFixture.click("light-1-on");
+  await previewFixture.flush();
+  if (previewFixture.nodes.get("review-cancel")?.disabled === true) problems.push("pending preview: Cancel was not natively enabled");
+  nativeClick(previewFixture, "review-cancel");
+  if (!/idle/.test(previewFixture.nodes.get("review-phase")?.textContent ?? "")) problems.push("pending preview: native Cancel did not return review to idle");
+  const previewCancelOutcome = previewFixture.nodes.get("outcome")?.textContent ?? "";
+  if (!/Review canceled/i.test(previewCancelOutcome) || !/취소/.test(previewCancelOutcome)) {
+    problems.push(`pending preview cancellation outcome was not concise bilingual Review canceled: ${previewCancelOutcome}`);
+  }
+  resolvePreview(uiJsonResponse({ preview: true, evidence: "observed", ready: true, frameHex: "f70d011904401000020102b5ee" }));
+  await previewFixture.flush();
+  nativeClick(previewFixture, "review-cancel");
+  await previewFixture.flush();
+
+  let resolveChallenge!: (value: AnyRecord) => void;
+  let resolveChallengeCancel: ((value: AnyRecord) => void) | undefined;
+  const cancelCalls: AnyRecord[] = [];
+  const challengeFixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+    if (body.mode === "challenge") return new Promise((resolve) => { resolveChallenge = resolve; });
+    if (body.mode === "cancel") {
+      cancelCalls.push(body);
+      return new Promise((resolve) => { resolveChallengeCancel = resolve; });
+    }
+    return uiJsonResponse({});
+  });
+  await challengeFixture.flush();
+  challengeFixture.click("heat-zone-2-on");
+  await challengeFixture.flush();
+  challengeFixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  challengeFixture.click("issue-challenge");
+  await challengeFixture.flush();
+  if (challengeFixture.nodes.get("review-cancel")?.disabled === true) problems.push("pending challenge: Cancel was not natively enabled");
+  nativeClick(challengeFixture, "review-cancel");
+  if (challengeFixture.nodes.get("review-cancel")?.disabled !== true) problems.push("challenge cancellation wait: Cancel was not disabled");
+  nativeClick(challengeFixture, "review-cancel");
+  nativeClick(challengeFixture, "review-cancel");
+  resolveChallenge(uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" }));
+  await challengeFixture.flush();
+  const pendingChallengeCancelOutcome = challengeFixture.nodes.get("outcome")?.textContent ?? "";
+  if (!/Canceling challenge/i.test(pendingChallengeCancelOutcome) || !/취소/.test(pendingChallengeCancelOutcome)) {
+    problems.push(`pending challenge cancellation outcome was not concise bilingual Canceling challenge: ${pendingChallengeCancelOutcome}`);
+  }
+  if (cancelCalls.length !== 1) problems.push(`late challenge cancellation: expected exactly one authenticated cancel, got ${cancelCalls.length}`);
+  resolveChallengeCancel?.(uiJsonResponse({ cancelled: true }));
+  await challengeFixture.flush();
+  const challengeCanceledOutcome = challengeFixture.nodes.get("outcome")?.textContent ?? "";
+  if (!/Challenge canceled/i.test(challengeCanceledOutcome) || !/취소/.test(challengeCanceledOutcome)) {
+    problems.push(`pending challenge cancellation did not end with concise bilingual Challenge canceled: ${challengeCanceledOutcome}`);
+  }
+  nativeClick(challengeFixture, "review-cancel");
+  await challengeFixture.flush();
+  resolveChallengeCancel?.(uiJsonResponse({ cancelled: true }));
+  await challengeFixture.flush();
+
+  let resolveStableCancel: ((value: AnyRecord) => void) | undefined;
+  const stableCancelCalls: AnyRecord[] = [];
+  const stableChallengeFixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+    if (body.mode === "challenge") return uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+    if (body.mode === "cancel") {
+      stableCancelCalls.push(body);
+      return new Promise((resolve) => { resolveStableCancel = resolve; });
+    }
+    return uiJsonResponse({});
+  });
+  await stableChallengeFixture.flush();
+  stableChallengeFixture.click("heat-zone-2-on");
+  await stableChallengeFixture.flush();
+  stableChallengeFixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  stableChallengeFixture.click("issue-challenge");
+  await stableChallengeFixture.flush();
+  nativeClick(stableChallengeFixture, "review-cancel");
+  const stablePendingCancelOutcome = stableChallengeFixture.nodes.get("outcome")?.textContent ?? "";
+  if (!/Canceling challenge/i.test(stablePendingCancelOutcome) || !/취소/.test(stablePendingCancelOutcome)) {
+    problems.push(`stable challenge cancellation outcome was not concise bilingual Canceling challenge: ${stablePendingCancelOutcome}`);
+  }
+  if (stableChallengeFixture.nodes.get("review-cancel")?.disabled !== true) problems.push("stable challenge cancellation wait: Cancel was not disabled");
+  nativeClick(stableChallengeFixture, "review-cancel");
+  nativeClick(stableChallengeFixture, "review-cancel");
+  if (stableCancelCalls.length !== 1) problems.push(`stable challenge cancellation duplicated: ${stableCancelCalls.length}`);
+  resolveStableCancel?.(uiJsonResponse({ cancelled: true }));
+  await stableChallengeFixture.flush();
+  const stableChallengeCanceledOutcome = stableChallengeFixture.nodes.get("outcome")?.textContent ?? "";
+  if (!/Challenge canceled/i.test(stableChallengeCanceledOutcome) || !/취소/.test(stableChallengeCanceledOutcome)) {
+    problems.push(`stable challenge cancellation did not end with concise bilingual Challenge canceled: ${stableChallengeCanceledOutcome}`);
+  }
+  assert.deepStrictEqual(problems, []);
+});
+
+test("RED-repair2: live regions announce mutation reconciliation and challenge progress", async () => {
+  const problems: string[] = [];
+  const initialPayload = uiStatusPayload({ phase: "stopped", state: "stopped" });
+  let statusCall = 0;
+  let resolveForced: ((value: AnyRecord) => void) | undefined;
+  const captureFixture = await createUiVmFixture(initialPayload, (url) => {
+    if (url === "./api/status") {
+      statusCall += 1;
+      if (statusCall === 1) return uiJsonResponse(initialPayload);
+      return new Promise((resolve) => { resolveForced = resolve; });
+    }
+    if (url === "./api/capture") return uiJsonResponse({});
+    return uiJsonResponse({});
+  });
+  await captureFixture.flush();
+  captureFixture.timers.clear();
+  captureFixture.click("capture-start");
+  await captureFixture.flush();
+  const reconciliationStatus = captureFixture.nodes.get("status")?.textContent ?? "";
+  if (!/reconcil|pending/i.test(reconciliationStatus) || !/(확인|대기|중)/.test(reconciliationStatus)) {
+    problems.push(`capture reconciliation status was not concise bilingual progress: ${reconciliationStatus}`);
+  }
+  resolveForced?.(uiJsonResponse(uiStatusPayload({ phase: "running", state: "running" })));
+  await captureFixture.flush();
+
+  let resolveIssue!: (value: AnyRecord) => void;
+  const challengeFixture = await createUiVmFixture(uiStatusPayload(), (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url === "./api/status") return uiJsonResponse(uiStatusPayload());
+    if (body.mode === "preview") return uiJsonResponse({ preview: true, evidence: "inferred_candidate", ready: true, readiness: { ready: true }, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" });
+    if (body.mode === "challenge") return new Promise((resolve) => { resolveIssue = resolve; });
+    return uiJsonResponse({});
+  });
+  await challengeFixture.flush();
+  challengeFixture.click("heat-zone-2-on");
+  await challengeFixture.flush();
+  challengeFixture.nodes.get("confirmation-phrase")!.value = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+  challengeFixture.click("issue-challenge");
+  await challengeFixture.flush();
+  const issuingOutcome = challengeFixture.nodes.get("outcome")?.textContent ?? "";
+  if (!/issu|pending|challenge/i.test(issuingOutcome) || !/(발급|대기|중)/.test(issuingOutcome)) {
+    problems.push(`challenge progress outcome was not concise bilingual progress: ${issuingOutcome}`);
+  }
+  resolveIssue(uiJsonResponse({ id: VALID_CHALLENGE_ID, expiresAtMs: 1_700_021_000, readinessRevision: "r1", frameHex: "f70c011802401102010000b2ee" }));
+  await challengeFixture.flush();
+  assert.deepStrictEqual(problems, []);
 });

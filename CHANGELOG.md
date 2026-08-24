@@ -6,12 +6,30 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Prepared an uncommitted clean-room `0.2.0` protocol-debug candidate that
+  monitors bounded current-generation light, gas, heating, elevator, entrance,
+  outlet/ventilation-query, vehicle, CCTV, ambiguous, and unknown evidence
+  without copying legacy product code or capture artifacts into this repository.
+- Added guarded preview/commit surfaces for the three lights, gas CLOSE only,
+  four-zone heating and 5–40°C targets, elevator call candidates, fixed entrance
+  candidates, and one bounded RAW burst. Gas OPEN remains structurally rejected.
+- Added server-owned TX readiness, user/CSRF binding, exact single-use candidate
+  challenges, quiet/cooldown/current-RX checks, one in-flight write, write/drain
+  deadlines, partial-write quarantine, and device-unconfirmed outcomes with no
+  retry or scheduled/batched transmission.
 - Added a dependency-free, offline-only `encodeSingleLightOffCanary()` helper.
   It emits only the three single-light OFF candidates observed at targets
   `0x11`–`0x13`, computes the XOR checksum, and rejects the observed `0x10`
   group/all-OFF target plus every other value.
 - Added native tests for the three exact observed frames, independent frame
   length/header/footer/checksum invariants, and runtime allowlist rejection.
+
+### Changed
+
+- Prepared App/config/package/Docker surfaces at `0.2.0` with master,
+  speculative, and unsafe TX settings disabled by default. Enabling any TX tier
+  requires an explicit configured Home Assistant user ID; no UI control changes
+  these server-owned settings.
 
 ### Verification
 
@@ -44,6 +62,237 @@ All notable changes to this project are documented here.
   Ingress route, UI action, retry, or arbitrary-hex surface. No Home Assistant,
   EW11/private-LAN, device, or live TX action occurred. Sosumi: N/A because this
   work contains no Apple API, HIG, or Swift claim.
+- For the `0.2.0` candidate, exact Luna/max tests-first work produced 51/60 RED
+  with nine intended failures, then 60/60 focused GREEN and 64/64 full native
+  GREEN. JSON/version parsing, emitted-script compilation, dependency checks,
+  `git diff --check`, current Graphify/CodeGraph, and exact-root Serena checks
+  pass; the only LSP errors remain the historical absent Node ambient types.
+- Final read-only runtime and accessibility re-audits returned **FAIL / STOP**.
+  Repeated P1s remain for late preview/challenge resurrection after Cancel,
+  stale operator readiness, incomplete ambiguous/query/unknown freshness,
+  non-contiguous or incorrectly refreshed `7F` door proof, and UI suppression of
+  `partial_indeterminate`. The candidate remains uncommitted and unstaged.
+- The user explicitly authorized one narrowly bounded fourth fake/static repair
+  for those five P1 families without authorizing any live or external action.
+  Exact Luna/max tests first reproduced 60/65 with exactly five intended
+  failures, then reached 65/65 focused and 69/69 full native GREEN. Parent JSON,
+  version, emitted-script, dependency, diff, Graphify/CodeGraph, and exact-root
+  Serena checks also pass.
+- Fourth-round runtime and accessibility audits nevertheless returned
+  **FAIL / STOP**. Capture can overtake unresolved authenticated challenge
+  cancellation; `partial_indeterminate` can render an absent quarantine field
+  as false; old-generation ambiguous/unknown evidence can render as fresh; and
+  a never-settling status poll has no deadline to invalidate an enabled commit.
+  These repeated P1s are not covered by the passing native suite. The candidate
+  remains uncommitted, unstaged, and ineligible for live use.
+- The user explicitly authorized one fifth fake/static repair limited to those
+  four P1 families. Fresh Graphify, CodeGraph, exact-root Serena, current
+  WHATWG/Node/Home Assistant/Context7 evidence, and an exact Luna/max canary
+  preserved the Good-signed baseline, exact 13-path candidate, and empty stage.
+- Pre-repair VM/transport canaries reproduced Capture before late authenticated
+  challenge cancellation, missing authoritative partial quarantine, stale
+  old-generation detail rendered fresh, and a hung status request with no
+  readiness deadline. Focused 65/65 and full 69/69 still pass, confirming the
+  new tests must cover these races before product repair.
+- A first read-only repair-plan audit found that serializing only challenge and
+  Capture paths omitted live Commit and Stop. The corrected minimum uses one
+  rejection-safe local FIFO for all five mutation paths plus a synchronous
+  pending-Commit Capture guard; the second plan audit passed with no actionable
+  P0-P3 before test or product changes.
+- Exact project-local Luna/max then changed only `test/m2.test.ts`. Parent
+  reproduced focused 63/68 with exactly five intended failures: authoritative
+  partial quarantine, missing-quarantine display, deferred challenge/Capture
+  ordering, ingress mutation serialization, and fail-closed debug freshness
+  including a bounded poll deadline/epoch. Product/config hashes and staging
+  remained unchanged; no full suite was run while deliberately RED.
+- The same exact implementer applied the minimum GREEN in the existing ingress,
+  TX, protocol-snapshot, and emitted-UI roots. It adds one rejection-safe FIFO,
+  a challenge/cancel Capture barrier, authoritative partial quarantine,
+  fail-closed debug freshness, and a native five-second abort/epoch status poll.
+  A bounded pre-audit cleanup also proves FIFO recovery after rejection and
+  locks an aborted no-ID challenge as indeterminate without a Capture POST.
+- Implementer and parent pass focused 68/68 and full 72/72. JSON/package/config/
+  Docker `0.2.0`, inline-script compilation, gas CLOSE-only control with OPEN
+  rejected, browser-dependency absence, diff/path/artifact/stage checks,
+  refreshed Graphify 420-node flow, current CodeGraph source, and Serena checks
+  pass; only the historical missing Node ambient diagnostics remain.
+- Both final read-only audits nevertheless returned **FAIL / STOP**. Runtime
+  canaries show that a matching-revision 200 challenge response without a usable
+  ID resolves the barrier and permits `issue-request -> stop-post`; handler-local
+  outstanding state can also outlive authoritative consumption/expiry. The
+  verified FIFO, rejection recovery, and partial quarantine otherwise pass.
+- Accessibility/state canaries show that over-age or malformed time/generation
+  values can still render fresh, CCTV lacks the same freshness contract, and a
+  possibly dispatched Capture with a lost response remains retryable without
+  reconciliation. Additional P2 control/accessibility defects are recorded in
+  M4-E36. Repeated P1s consume the fifth-round exception: the candidate remains
+  unstaged, uncommitted, and ineligible for live use pending fresh authorization.
+- The user explicitly authorized a sixth fake/static repair limited to challenge
+  ID/expiry validation, authoritative outstanding-challenge lifecycle, bounded
+  fail-closed protocol/CCTV freshness, and post-dispatch Capture uncertainty.
+  Fresh entry checks preserve the exact 13-path candidate and empty staging;
+  focused 68/68 and full 72/72 remain green before the new tests-first RED.
+- Current WHATWG Fetch, ECMAScript numeric-validation, Node 24, Home Assistant,
+  Context7, Graphify, CodeGraph, and exact-root Serena evidence was refreshed.
+  UI/protocol diagnostics remain clean; only the historical no-package Node
+  ambient diagnostics remain. Sosumi: N/A because there is no Apple claim.
+- Two read-only plan repairs converged on the minimum fail-closed design: one
+  bounded local challenge record only when no authoritative dependency exists,
+  valid-frame-backed CCTV negative evidence, and a page-lifetime Capture lock
+  driven by the existing five-second AbortController/epoch pattern. The final
+  plan audit passed with no actionable P0-P3.
+- Exact Luna/max changed only `test/m2.test.ts`; parent reproduced focused 68/72
+  with exactly four intentional failures for challenge response validation,
+  consumed/expired challenge lifecycle, typed protocol/CCTV freshness, and
+  Capture/Stop mutation deadline plus sticky uncertainty. All prior 68 tests
+  remain green, staging is empty, and `git diff --check` passes.
+- The same implementer applied the minimum GREEN in the existing coordinator,
+  Ingress, protocol snapshot, and emitted UI roots. Consumed/expired challenges
+  no longer remain outstanding, CCTV negative evidence is backed by a real
+  current-generation valid frame, malformed freshness/challenge DTOs fail
+  closed, and uncertain Capture/Stop POSTs lock until page reload after a native
+  five-second deadline while late settlement is ignored.
+- Implementer and parent pass focused 72/72 and full 76/76. Parent JSON/version,
+  inline-script, gas CLOSE-only, browser-dependency, diff, exact-path, artifact,
+  empty-stage, refreshed 420-node Graphify, current CodeGraph, and Serena checks
+  pass; only the historical no-package Node ambient diagnostics remain.
+- No Home Assistant/browser/Ingress action, real socket or EW11/private-LAN
+  access, packet transmission, device change, package installation, Docker,
+  push, or release occurred. Passing fake/native checks do not prove live
+  transport or device behavior. Sosumi: N/A because this work has no Apple API,
+  HIG, or Swift claim.
+- Both sixth-round final audits returned **FAIL / STOP** despite focused 72/72
+  and full 76/76. Immediate Capture/Stop clicks can emit duplicate POSTs, and
+  indeterminate challenge/partial outcomes do not keep the native controls
+  disabled because the rendered busy/retry lock is not wired into `draw()`.
+- Current-device freshness is not gated by the global current-generation valid
+  frame and its age; CCTV can therefore assert current non-observation while
+  stale, wrong-generation, absent, or stopped. Fallback challenge handling also
+  treats a truthy `{cancelled:false}` result as success and can erase a valid
+  outstanding challenge after a malformed issue response.
+- The runtime audit also found whitespace-only challenge IDs, malformed visible
+  generations, and new TS2345 fake-dependency diagnostics in `test/m2.test.ts`.
+  Repeated P1s consume the sixth-round exception: all 13 candidate paths remain
+  unstaged and uncommitted, and another repair requires fresh authorization.
+- The user explicitly authorized a seventh fake/static repair limited to those
+  sixth-round findings and fresh final audits. Exact-root entry preserved the
+  Good-signed baseline, the same 13 dirty paths, empty staging, focused 72/72,
+  full 76/76, and the two new TS2345 diagnostics; no live/external action is in
+  scope.
+- Current WHATWG HTML/Fetch, ECMAScript, Node 24, Home Assistant, Context7,
+  Graphify, CodeGraph, and Serena evidence was refreshed. The first read-only
+  plan audit found an unknown-issued-challenge gap and negative-generation gap;
+  a separate bounded 30-second unknown guard plus nonnegative generation checks
+  closed both, and the repaired plan passed with no actionable P0-P3.
+- Exact Luna/max then changed only `test/m2.test.ts` and added three bounded
+  seventh-round regressions. Parent execution reproduces all three intended
+  failures. It also found one older redaction assertion can spuriously match the
+  port digits inside a real-time millisecond timestamp; GREEN may repair that
+  test structurally without weakening endpoint/user redaction coverage.
+- Minimum GREEN adds synchronous Capture/Stop single-flight locking, sticky
+  indeterminate native controls, global current-frame freshness for all device
+  and CCTV wording, exact 32-character base64url fallback IDs, explicit-true
+  cancellation, and an independent 30-second unknown-issue guard. Initial CCTV
+  text is unknown/stale, and redaction tests now inspect endpoint keys instead
+  of a real-clock-sensitive numeric substring.
+- Implementer and parent pass focused 75/75 and full 79/79. JSON/version and
+  dependency checks, inline-script compilation, gas CLOSE-only guards, exact
+  path/artifact/empty-stage/diff checks, refreshed 420-node Graphify, current
+  CodeGraph, and exact-root Serena checks pass. The prior TS2345 test findings
+  are gone; only historical missing Node ambient declarations remain. Fresh
+  runtime/accessibility acceptance is still required before a signed commit.
+- Both final read-only audits nevertheless return **FAIL / STOP** on one
+  independently reproduced repeated P1. A timely Capture or Stop 200 response
+  starts fire-and-forget status reconciliation, but the apparent `await` returns
+  immediately and the `finally` block releases the native busy lease. If the
+  status request is deferred, both controls enable against stale phase and a
+  second mutation POST is accepted. The 79 passing tests miss this
+  post-acknowledgement window.
+- No other actionable P0/P2/P3 was confirmed. The exact 13-path candidate stays
+  unstaged and uncommitted; another repair requires fresh explicit authorization.
+  Fake/static evidence remains neither browser/AT nor Home Assistant/EW11/device
+  proof, and no live or external action occurred.
+- The user explicitly authorized one eighth fake/static repair limited to that
+  post-acknowledgement mutation P1, fresh runtime/accessibility audits, and a
+  signed local commit only after final PASS. All live/external gates and push
+  remain unauthorized.
+- Eighth-round re-entry preserved the Good-signed baseline, exact 13 dirty paths,
+  empty staging, current Graphify/CodeGraph flow, exact-root Serena TypeScript
+  `ready`, focused 75/75, full 79/79, and a clean diff check. Current WHATWG and
+  Node 24 evidence was refreshed; Sosumi is N/A because there is no Apple claim.
+- The first eighth-round plan audit found unresolved superseded-poll awaiters and
+  unknown-phase controls. Exact-once poll completion, strict CapturePhase cache
+  invalidation, endpoint/phase rechecks, and initial fail-closed controls closed
+  both; the repaired plan passed with no actionable P0-P3 before any product edit.
+- Exact Luna/max then changed only `test/m2.test.ts`. Parent reproduced all three
+  intended REDs: missing initial disabled controls, post-200 busy release during
+  deferred reconciliation, and fail-open malformed reconciliation. The tests
+  additionally bind Capture/Stop success phases, deadlines, late settlement,
+  sticky locks, background invalidation, and poll supersession.
+- Minimum GREEN keeps the existing poll and mutation roots: Capture/Stop starts
+  disabled, uses one strict cached runtime phase, awaits bounded forced status,
+  settles superseded polls exactly once, rechecks endpoint phase across awaits,
+  and enters the existing sticky mutation lock on reconciliation failure.
+- Exact Luna/max and parent verification pass focused 78/78 and full 82/82.
+  JSON/version/dependency, emitted-script, gas CLOSE-only, exact-path/artifact/
+  empty-stage/diff, refreshed 420-node Graphify, current CodeGraph, and Serena
+  UI/protocol checks pass; only historical missing Node ambient types remain.
+- The first eighth-round audits still returned **FAIL / STOP**. A valid but
+  contradictory post-200 phase reopened the same Capture or Stop control, and
+  Capture/Stop busy state did not exclude Issue/Commit/Cancel in the reverse
+  direction. Controlled activation could therefore send a second native
+  mutation or overlap a review mutation; no live endpoint was exercised.
+- Repair round 1 added two exact Luna/max regressions, which parent reproduced
+  at 0/2. Minimum GREEN requires Capture to reconcile to `running` and Stop to
+  `stopped`, otherwise entering the existing sticky lock, and synchronizes the
+  native plus programmatic Issue/Commit/Cancel guards with the capture lease.
+- Parent now passes focused 80/80 and full 84/84 after one stale Stop fixture was
+  mechanically aligned to return `stopped`. JSON/version/dependency,
+  emitted-script, gas CLOSE-only, exact-path/artifact/empty-stage/diff,
+  refreshed 420-node Graphify, current CodeGraph, Good baseline signature, and
+  Serena gates pass; fresh runtime/accessibility acceptance remains pending.
+- Repair-round-1 runtime audit passed with no P0-P3, while accessibility passed
+  both remanded P1s but found generic review busy disabled native Cancel during
+  a pending Preview/challenge issue. It also found no live progress message for
+  deferred status reconciliation or challenge issuance. Real browser and AT
+  interaction were not run.
+- The second and final repair round added two exact Luna/max tests, reproduced
+  by the parent at 0/2. Minimum GREEN adds one cancellation-in-flight guard so
+  pending review requests remain cancelable without duplicate cancellation,
+  and reuses the existing `status`/`outcome` live regions for bilingual progress.
+- Parent passes focused 82/82 and full 86/86. JSON/version/dependency,
+  emitted-script, gas CLOSE-only, exact-path/artifact/empty-stage/diff,
+  refreshed 420-node Graphify, current CodeGraph, Good baseline signature, and
+  Serena gates pass; final runtime/accessibility acceptance remains pending.
+- Final repair-round-2 runtime audit passed with no actionable P0-P3. Final
+  accessibility audit confirmed every P1 closed but failed on one P2: after an
+  authoritative challenge cancellation returns the review to idle, the live
+  `outcome` still says `Issuing challenge` or `Challenge issued`.
+- Both permitted repair rounds are consumed without both-auditor PASS. The
+  exact 13-path candidate remains unstaged and uncommitted; an exceptional
+  cancellation-status repair requires fresh explicit authorization. No real
+  browser/AT, Home Assistant, Ingress, network, EW11, capture, or TX action ran.
+- The user explicitly authorized one exceptional third fake/static repair only
+  for that cancellation-status P2, fresh runtime/accessibility audits, and the
+  contract-required signed local task commit after both audits pass. Push and
+  every live/external action remain unauthorized.
+- Exact Luna/max added only cancellation-outcome assertions for RED; the parent
+  reproduced 0/1 with empty `Review canceled` and stale `Issuing/Issued`
+  outcomes. Minimum GREEN changed only the shared `cancelReview` path to announce
+  local cancellation, authenticated challenge-cancellation progress, and
+  authoritative success without overwriting indeterminate failure.
+- Parent passes m2 71/71 and full 86/86 plus JSON/package/config/Docker `0.2.0`,
+  dependency absence, emitted-script compilation, gas CLOSE-only and OPEN
+  rejection, diff/path/artifact/empty-stage, refreshed Graphify, current
+  CodeGraph, Good entry signature, and exact-root Serena checks. Only historical
+  absent Node ambient diagnostics remain. Current WAI-ARIA and Context7 Node 24
+  evidence was refreshed; Sosumi: N/A because there is no Apple claim.
+- Fresh independent runtime and accessibility audits both pass with no
+  actionable P0-P3. Their fake VM/native/static canaries close cancellation
+  ordering, sticky failure, native control/focus/live-region, DOM, contrast, and
+  prior TX/freshness/quarantine/default-off safety gates. No real browser/AT,
+  Home Assistant/Ingress, network/EW11, Capture, actual TX, or device behavior
+  was tested or authorized.
 
 ## [0.1.3] - 2026-08-22
 

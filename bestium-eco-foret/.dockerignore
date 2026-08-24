@@ -5,4 +5,5 @@
 !src/capture-store.ts
 !src/settings.ts
 !src/m2.ts
+!src/protocol-debug.ts
 !src/ui.ts

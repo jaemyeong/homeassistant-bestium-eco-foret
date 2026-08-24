@@ -8,6 +8,15 @@ export type ParsedSettings = {
   capture_duration_ms: number;
   maximum_bytes: number;
   maximum_records: number;
+  transmit_enabled: boolean;
+  speculative_transmit_enabled: boolean;
+  unsafe_transmit_enabled: boolean;
+  transmit_user_id?: string;
+  tx_write_timeout_ms: number;
+  tx_cooldown_ms: number;
+  tx_quiet_ms: number;
+  speculative_tx_cooldown_ms: number;
+  unsafe_tx_cooldown_ms: number;
 };
 
 export type BoundedStopReason =
@@ -20,15 +29,34 @@ export type BoundedStopReason =
   | "error";
 
 type ParseNumericResult = {
-  key: keyof Omit<ParsedSettings, "ew11_host" | "ew11_port">;
+  key: keyof Pick<ParsedSettings,
+    | "connect_timeout_ms"
+    | "idle_timeout_ms"
+    | "capture_duration_ms"
+    | "maximum_bytes"
+    | "maximum_records"
+    | "tx_write_timeout_ms"
+    | "tx_cooldown_ms"
+    | "tx_quiet_ms"
+    | "speculative_tx_cooldown_ms"
+    | "unsafe_tx_cooldown_ms"
+  >;
 };
 
-const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port"> = {
+const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_id"> = {
   connect_timeout_ms: 3000,
   idle_timeout_ms: 30_000,
   capture_duration_ms: 5000,
   maximum_bytes: 65_536,
   maximum_records: 1_000,
+  transmit_enabled: false,
+  speculative_transmit_enabled: false,
+  unsafe_transmit_enabled: false,
+  tx_write_timeout_ms: 1_000,
+  tx_cooldown_ms: 250,
+  tx_quiet_ms: 20,
+  speculative_tx_cooldown_ms: 5_000,
+  unsafe_tx_cooldown_ms: 5_000,
 };
 
 function parseHost(raw: unknown): string {
@@ -102,6 +130,21 @@ function parseNumeric(key: ParseNumericResult["key"], raw: unknown): number {
         throw new TypeError("maximum_records must be in [1,1000000]");
       }
       return raw;
+    case "tx_write_timeout_ms":
+      if (raw < 100 || raw > 10_000) throw new TypeError("tx_write_timeout_ms must be in [100,10000]");
+      return raw;
+    case "tx_cooldown_ms":
+      if (raw < 0 || raw > 10_000) throw new TypeError("tx_cooldown_ms must be in [0,10000]");
+      return raw;
+    case "tx_quiet_ms":
+      if (raw < 5 || raw > 1_000) throw new TypeError("tx_quiet_ms must be in [5,1000]");
+      return raw;
+    case "speculative_tx_cooldown_ms":
+      if (raw < 1_000 || raw > 60_000) throw new TypeError("speculative_tx_cooldown_ms must be in [1000,60000]");
+      return raw;
+    case "unsafe_tx_cooldown_ms":
+      if (raw < 1_000 || raw > 60_000) throw new TypeError("unsafe_tx_cooldown_ms must be in [1000,60000]");
+      return raw;
     default:
       throw new TypeError(`Unsupported numeric setting: ${key}`);
   }
@@ -133,6 +176,26 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
   const capture_duration_ms = readNumeric("capture_duration_ms");
   const maximum_bytes = readNumeric("maximum_bytes");
   const maximum_records = readNumeric("maximum_records");
+  const parseFlag = (key: "transmit_enabled" | "speculative_transmit_enabled" | "unsafe_transmit_enabled"): boolean => {
+    const value = Object.prototype.hasOwnProperty.call(rawRecord, key) ? rawRecord[key] : DEFAULTS[key];
+    if (typeof value !== "boolean") throw new TypeError(`${key} must be a boolean`);
+    return value;
+  };
+  const transmit_enabled = parseFlag("transmit_enabled");
+  const speculative_transmit_enabled = parseFlag("speculative_transmit_enabled");
+  const unsafe_transmit_enabled = parseFlag("unsafe_transmit_enabled");
+  const transmit_user_id = rawRecord.transmit_user_id;
+  if (transmit_user_id !== undefined && (typeof transmit_user_id !== "string" || transmit_user_id.length < 1 || transmit_user_id.length > 128)) {
+    throw new TypeError("transmit_user_id must be a non-empty string of at most 128 characters");
+  }
+  if ((transmit_enabled || speculative_transmit_enabled || unsafe_transmit_enabled) && transmit_user_id === undefined) {
+    throw new TypeError("transmit_user_id is required when transmission is enabled");
+  }
+  const tx_write_timeout_ms = readNumeric("tx_write_timeout_ms");
+  const tx_cooldown_ms = readNumeric("tx_cooldown_ms");
+  const tx_quiet_ms = readNumeric("tx_quiet_ms");
+  const speculative_tx_cooldown_ms = readNumeric("speculative_tx_cooldown_ms");
+  const unsafe_tx_cooldown_ms = readNumeric("unsafe_tx_cooldown_ms");
 
   return {
     ew11_host,
@@ -142,5 +205,14 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     capture_duration_ms,
     maximum_bytes,
     maximum_records,
+    transmit_enabled,
+    speculative_transmit_enabled,
+    unsafe_transmit_enabled,
+    ...(transmit_user_id === undefined ? {} : { transmit_user_id }),
+    tx_write_timeout_ms,
+    tx_cooldown_ms,
+    tx_quiet_ms,
+    speculative_tx_cooldown_ms,
+    unsafe_tx_cooldown_ms,
   };
 }
