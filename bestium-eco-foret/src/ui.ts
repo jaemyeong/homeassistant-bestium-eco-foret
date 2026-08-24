@@ -141,6 +141,8 @@ export function renderAppHtml(): string {
     .banner[data-state="off"], .banner[data-state="quiet"], .banner[data-state="blocked"] { --ha-tint:var(--warning-color); }
     .banner[data-state="ready"] { --ha-tint:var(--success-color); --ha-accent:var(--success-color); }
     .banner[data-state="sending"] { --ha-tint:var(--info-color); --ha-accent:var(--info-color); }
+    .banner[data-state="confirmed"] { --ha-tint:var(--success-color); --ha-accent:var(--success-color); }
+    .banner[data-state="unconfirmed"] { --ha-tint:var(--warning-color); }
 
     @media (max-width:52rem) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } .surface { padding:var(--ha-space-3); } }
   </style>
@@ -169,7 +171,7 @@ export function renderAppHtml(): string {
   <script>
     (() => {
       "use strict";
-      let csrfToken = ""; let pollTimer = null; let pollDeadlineTimer = null; let pollController = null; let pollEpoch = 0; let polling = false; let pollPromise = null; let pollResolve = null; let pollResolveEpoch = 0; let reviewBusy = false; let captureBusy = false; let mutationLocked = false; let mutationEpoch = 0; let mutationDeadlineTimer = null; let mutationController = null; let capturePhase = null; let phase = "idle"; let reviewedAction = null; let reviewPreview = null; let pendingChallenge = null; let pendingObservation = null; let pendingObservationTimer = null; let latestStatusPayload = null; let downloadReady = false; let challengeBarrier = Promise.resolve(true); let challengeBarrierPending = false; let cancelInFlight = false; let focusReturn = null; let countdownTimer = null; let reviewEpoch = 0; let requestEpoch = 0; let previewController = null; let challengeController = null; let commitInFlight = false; let txRetryLocked = false; let statusRevision = ""; let statusInvalid = true;
+      let csrfToken = ""; let pollTimer = null; let pollDeadlineTimer = null; let pollController = null; let pollEpoch = 0; let polling = false; let pollPromise = null; let pollResolve = null; let pollResolveEpoch = 0; let reviewBusy = false; let captureBusy = false; let mutationLocked = false; let mutationEpoch = 0; let mutationDeadlineTimer = null; let mutationController = null; let capturePhase = null; let phase = "idle"; let reviewedAction = null; let reviewPreview = null; let pendingChallenge = null; let pendingObservation = null; let pendingObservationTimer = null; let latestStatusPayload = null; let downloadReady = false; let challengeBarrier = Promise.resolve(true); let challengeBarrierPending = false; let cancelInFlight = false; let focusReturn = null; let countdownTimer = null; let reviewEpoch = 0; let requestEpoch = 0; let previewController = null; let challengeController = null; let commitInFlight = false; let txRetryLocked = false; let statusRevision = ""; let statusInvalid = true; let sendResult = null; let sendLabel = "";
       let appliedPollEpoch = 0; let previewPollEpoch = -1;
       const $ = (id) => document.getElementById(id); const statusText = $("status"); const startButton = $("capture-start"); const stopButton = $("capture-stop"); const review = $("review");
       const phaseLabels = { idle:"idle · 대기", previewing:"previewing · 미리보기 중", reviewed:"reviewed · 검토됨", challenged:"challenged · 챌린지 발급됨", committing:"committing · 전송 중", starting:"starting · 시작 중", running:"running · 실행 중", finalizing:"finalizing · 마무리 중", stopped:"stopped · 중지됨" };
@@ -198,23 +200,28 @@ export function renderAppHtml(): string {
       const renderGateBanner = (tx, runtimePhase) => {
         const blockers = gateBlockers(tx);
         const state = pendingObservation !== null ? "sending"
+          : sendResult !== null ? sendResult
           : runtimePhase !== "running" ? "off"
           : blockers.length === 0 ? "ready"
           : blockers.length === 1 && tx.fresh !== true ? "quiet"
           : "blocked";
         const lines = state === "off" ? OFF_CONSEQUENCES : state === "blocked" ? blockers : [];
-        const signature = state + "\u0000" + lines.join("\u0000");
+        const signature = state + "\u0000" + sendLabel + "\u0000" + lines.join("\u0000");
         if (signature === gateBannerSignature) return;
         gateBannerSignature = signature;
         $("gate-banner")?.setAttribute("data-state", state);
         setText("gate-banner-title",
           state === "sending" ? "보낸 뒤 응답을 관측하고 있습니다"
+          : state === "confirmed" ? "요청한 상태를 확인했습니다"
+          : state === "unconfirmed" ? "소켓으로 보냈지만 요청한 상태는 관측하지 못했습니다"
           : state === "off" ? "수집이 꺼져 있어 제어할 수 없습니다"
           : state === "quiet" ? "버스가 조용해 송신을 보류합니다"
           : state === "ready" ? "제어 준비됨"
           : "지금은 기기를 제어할 수 없습니다");
         setText("gate-banner-lede",
-          state === "sending" ? "요청한 상태가 관측될 때까지 지켜봅니다. 관측되지 않아도 재전송하지 않습니다."
+          state === "sending" ? (sendLabel ? sendLabel + " · 요청한 상태가 관측될 때까지 지켜봅니다." : "요청한 상태가 관측될 때까지 지켜봅니다.")
+          : state === "confirmed" ? sendLabel + " · 상태 프레임으로 확인했습니다."
+          : state === "unconfirmed" ? sendLabel + " · 월패드가 반영하지 않았을 수도, 상태 프레임만 못 보았을 수도 있습니다. 실패로 기록하지 않습니다."
           : state === "off" ? "제어 프레임은 관측한 값에서만 만들 수 있습니다. 수집이 꺼진 동안 막혀 있는 것은 다음 네 가지입니다."
           : state === "quiet" ? "수집은 켜져 있습니다. 월패드가 절전 중일 수도, 배선이 끊겼을 수도 있습니다. 지금 보내면 결과를 확인할 수 없어 보내지 않습니다."
           : state === "ready" ? "상태 프레임을 관측하고 있습니다. 전송은 한 번만 나가며 재시도하지 않습니다."
@@ -226,10 +233,22 @@ export function renderAppHtml(): string {
         }
         setText("gate-banner-fix",
           state === "sending" ? "관측이 끝날 때까지 다른 조작은 잠깁니다."
+          : state === "confirmed" || state === "unconfirmed" ? "전송은 한 번만 나갔고 재시도하지 않았습니다."
           : state === "off" ? "아래 캡처 시작을 누르면 수집 시작하고 제어 열기가 진행됩니다. 관측된 기기부터 제어가 열립니다."
           : state === "quiet" ? "월패드를 한 번 조작하면 프레임을 관측할 수 있습니다."
           : state === "ready" ? ""
           : "");
+      };
+      const onOff = (state) => state === "on" ? "켜기" : state === "off" ? "끄기" : String(state ?? "");
+      const sentLabel = (action) => {
+        if (!action) return "";
+        if (action.kind === "light") return "조명 " + action.target + " · " + onOff(action.state);
+        if (action.kind === "gas") return "가스 · 닫기";
+        if (action.kind === "heat") return "Zone " + action.zone + (action.temperatureC !== undefined ? " · 목표 " + action.temperatureC + "°C" : " · " + onOff(action.state));
+        if (action.kind === "elevator") return "승강기 · " + (action.direction === "up" ? "상행" : "하행") + " 호출";
+        if (action.kind === "entrance") return (action.target === "household" ? "세대" : "공동") + " 현관 열기";
+        if (action.kind === "raw") return "임의 전송 · " + String(action.hex || "").slice(0, 24);
+        return readable(action);
       };
       const setText = (id, value) => { const node = $(id); if (node) node.textContent = String(value); }; const setGate = (id, yes, good, bad) => { const node = $(id); if (!node) return; node.textContent = yes ? good : bad; node.classList.toggle("yes", yes); node.classList.toggle("no", !yes); };
       const txState = () => window.__bestiumTx || {}; const validRevision = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256) || Number.isSafeInteger(value); const previewRevision = (preview) => preview?.readinessRevision ?? preview?.readiness?.readinessRevision; const readyForAction = (preview) => { const tx = txState(); const revision = previewRevision(preview); const observedPreview = preview?.evidence === "observed"; const revisionMatches = validRevision(tx.readinessRevision) && validRevision(revision) && String(tx.readinessRevision) === String(revision); const previewReady = preview?.ready !== false && !(preview?.readiness && preview.readiness.ready === false); const strictReady = revisionMatches && previewReady; const observedRevalidated = observedPreview && Number.isSafeInteger(previewPollEpoch) && appliedPollEpoch > previewPollEpoch; if (!preview || !validRevision(tx.readinessRevision) || !validRevision(revision) || statusInvalid || (!observedPreview && !strictReady) || (observedPreview && !strictReady && !observedRevalidated) || tx.enabled !== true || tx.authorized !== true || tx.connected !== true || tx.inFlight === true || tx.quarantined === true || tx.pendingAppend === true || tx.quiet !== true || tx.currentGenerationRx !== true || tx.fresh !== true) return false; if (!observedPreview && pendingChallenge && (!validRevision(pendingChallenge.readinessRevision) || String(pendingChallenge.readinessRevision) !== String(revision))) return false; if (preview.evidence === "inferred_candidate" && tx.speculativeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && tx.unsafeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && preview.action?.kind === "entrance" && tx.sevenFProof !== true) return false; return true; };
@@ -251,7 +270,7 @@ export function renderAppHtml(): string {
       const boundedObservationTimeout = (value) => Number.isSafeInteger(value) && value >= 1_000 && value <= 30_000 ? value : 10_000;
       const clearPendingObservation = () => { if (pendingObservationTimer !== null) { clearTimeout(pendingObservationTimer); pendingObservationTimer = null; } pendingObservation = null; setReviewBusy(reviewBusy); };
       const captureLightObservationBaseline = (action) => { const source = latestStatusPayload; if (!source || action?.kind !== "light" || ![1,2,3].includes(action.target) || !["on","off"].includes(action.state)) return null; const debug = source.debug && typeof source.debug === "object" ? source.debug : {}; const devices = debug.devices && typeof debug.devices === "object" ? debug.devices : {}; const entry = byOne(devices.lights, action.target); const runtimePhase = Object.prototype.hasOwnProperty.call(phaseLabels, source.phase) ? source.phase : "stopped"; const staleAfterMs = debug.staleAfterMs ?? source.staleAfterMs; const age = ageFor(entry, source.serverNowMs, source.generation, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration); if (age === null || (entry?.state !== "on" && entry?.state !== "off") || !Number.isSafeInteger(entry?.lastSeenAtMs) || !safeGeneration(source.generation) || entry.generation !== source.generation) return null; return { kind:"light", target:action.target, desiredState:action.state, baselineState:entry.state, baselineLastSeenAtMs:entry.lastSeenAtMs, baselineGeneration:entry.generation }; };
-      const schedulePendingObservation = (baseline) => { clearPendingObservation(); const startedAtMs = Date.now(); const deadlineMs = startedAtMs + boundedObservationTimeout(latestStatusPayload?.tx?.observationTimeoutMs); const pending = { ...baseline, startedAtMs, deadlineMs }; pendingObservation = pending; setText("outcome", "소켓 쓰기 완료 · 상태 확인 대기"); setReviewBusy(reviewBusy); pendingObservationTimer = window.setTimeout(() => { if (pendingObservation !== pending) return; clearPendingObservation(); setText("outcome", "socket_written_unconfirmed · 소켓 전송됨 · 요청 상태 미관측"); }, Math.max(1, deadlineMs - Date.now())); if (latestStatusPayload) draw(latestStatusPayload); };
+      const schedulePendingObservation = (baseline) => { clearPendingObservation(); const startedAtMs = Date.now(); const deadlineMs = startedAtMs + boundedObservationTimeout(latestStatusPayload?.tx?.observationTimeoutMs); const pending = { ...baseline, startedAtMs, deadlineMs }; pendingObservation = pending; setText("outcome", "소켓 쓰기 완료 · 상태 확인 대기"); setReviewBusy(reviewBusy); pendingObservationTimer = window.setTimeout(() => { if (pendingObservation !== pending) return; clearPendingObservation(); sendResult = "unconfirmed"; setText("outcome", "socket_written_unconfirmed · 소켓 전송됨 · 요청 상태 미관측"); if (latestStatusPayload) draw(latestStatusPayload); }, Math.max(1, deadlineMs - Date.now())); if (latestStatusPayload) draw(latestStatusPayload); };
       const cancelReview = async () => { if (captureBusy || mutationLocked || cancelInFlight || commitInFlight || pendingObservation || phase === "committing") return; cancelInFlight = true; try { const barrier = challengeBarrier; const waitingForIssue = challengeBarrierPending; const id = pendingChallenge?.id; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("countdown", ""); if (waitingForIssue) { setText("outcome", "Canceling challenge · 챌린지 취소 중"); setReviewBusy(true); const canceled = await barrier; if (canceled && !txRetryLocked) setText("outcome", "Challenge canceled · 챌린지 취소됨"); if (!txRetryLocked) setReviewBusy(false); } else if (id) { setText("outcome", "Canceling challenge · 챌린지 취소 중"); challengeBarrierPending = true; challengeBarrier = cancelChallenge(id); setReviewBusy(true); const canceled = await challengeBarrier; challengeBarrierPending = false; if (canceled && !txRetryLocked) { setText("outcome", "Challenge canceled · 챌린지 취소됨"); setReviewBusy(false); } } else { if (!txRetryLocked) setText("outcome", "Review canceled · 검토 취소됨"); setReviewBusy(false); } focusReturn?.focus?.(); } finally { cancelInFlight = false; setReviewBusy(reviewBusy); } };
       const showCandidateExpiry = () => { if (!pendingChallenge) return; const remaining = Math.max(0, Number(pendingChallenge.expiresAtMs || 0) - Date.now()); setText("countdown", remaining > 0 ? "challenge expires in " + Math.ceil(remaining / 1000) + "s · 만료까지 " + Math.ceil(remaining / 1000) + "초" : "challenge expired · 챌린지 만료"); if (remaining <= 0) { pendingChallenge = null; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); setText("alert", "challenge expired · 챌린지 만료"); setReviewBusy(false); return; } countdownTimer = window.setTimeout(showCandidateExpiry, 500); };
       const beginPreview = async (action, trigger) => { if (reviewBusy || captureBusy || txRetryLocked || pendingObservation) return; clearReviewState(); const epoch = ++reviewEpoch; focusReturn = trigger; phase = "previewing"; setText("review-phase", phaseLabels[phase]); setReviewBusy(true); previewController = makeController(); try { const preview = await postAction(action, "preview", {}, previewController.signal); if (epoch !== reviewEpoch) return; reviewedAction = action; reviewPreview = { ...preview, action }; previewPollEpoch = pollEpoch; phase = "reviewed"; setText("review-phase", phaseLabels[phase]); describePreview(action, preview); setText("outcome", "Preview only · 미리보기만 수행됨"); setReviewBusy(false); } catch { if (epoch !== reviewEpoch) return; clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]); setText("alert", "Preview rejected · 미리보기 거부"); setReviewBusy(false); } };
@@ -344,6 +363,8 @@ export function renderAppHtml(): string {
         if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || commitInFlight || txRetryLocked || pendingObservation) return;
         // Fail closed: if the last status could not be trusted, do not put a frame on the bus.
         if (statusInvalid) { setText("outcome", "보내지 못했습니다 · 상태를 아직 확인하지 못했습니다"); setText("alert", "상태 확인 실패 · 재확인 필요"); return; }
+        sendResult = null;
+        sendLabel = sentLabel(action);
         clearReviewState();
         const epoch = ++reviewEpoch;
         focusReturn = trigger;
@@ -440,7 +461,6 @@ export function renderAppHtml(): string {
         statusInvalid = !validRevision(tx.readinessRevision);
         statusRevision = statusInvalid ? "" : String(tx.readinessRevision);
         window.__bestiumTx = tx;
-        renderGateBanner(tx, runtimePhase);
         const debug = source.debug && typeof source.debug === "object" ? source.debug : {};
         const staleAfterMs = debug.staleAfterMs ?? source.staleAfterMs;
         const devices = debug.devices || {};
@@ -469,6 +489,7 @@ export function renderAppHtml(): string {
           const pending = pendingObservation;
           if (safeGeneration(currentGeneration) && currentGeneration !== pending.baselineGeneration) {
             clearPendingObservation();
+            sendResult = "unconfirmed";
             setText("outcome", "observation_interrupted · 재연결로 상태 확인 중단 · 재시도하지 않음");
             setText("alert", "observation interrupted · 재시도하지 않음");
           } else {
@@ -477,12 +498,14 @@ export function renderAppHtml(): string {
             const newer = age !== null && safeGeneration(currentGeneration) && currentGeneration === pending.baselineGeneration && entry?.generation === pending.baselineGeneration && Number.isSafeInteger(entry?.lastSeenAtMs) && entry.lastSeenAtMs > pending.baselineLastSeenAtMs;
             if (newer && pending.baselineState !== pending.desiredState && entry.state === pending.desiredState) {
               clearPendingObservation();
+              sendResult = "confirmed";
               setText("outcome", "state_observed_after_write · 송신 후 요청 상태 수신");
             } else if (newer && entry.state !== pending.desiredState && (entry.state === "on" || entry.state === "off")) {
               setText("outcome", "소켓 쓰기 완료 · 상태 확인 대기 · 현재 상태 불일치: " + entry.state);
             }
           }
         }
+        renderGateBanner(tx, runtimePhase);
         for (const zone of [1,2,3]) row("light-state-" + zone, light(zone)?.state, light(zone));
         row("gas-state", devices.gas?.state, devices.gas);
         for (const zone of [1,2,3,4]) {

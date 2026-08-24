@@ -6891,3 +6891,50 @@ test("M4.8 RED: a one-tap send fails closed on an untrustworthy status", async (
     "a timer firing must never produce a second write",
   );
 });
+
+test("M4.8 RED: the banner ends every send at confirmed or unconfirmed, never silently", async () => {
+  const base = uiStatusPayload();
+  const state = (f: UiVmFixture): unknown => f.nodes.get("gate-banner")?.attributes?.["data-state"];
+  const title = (f: UiVmFixture): string => String(f.nodes.get("gate-banner-title")?.textContent ?? "");
+  const detail = (f: UiVmFixture): string => String(f.nodes.get("gate-banner-lede")?.textContent ?? "");
+
+  const makeFixture = async (statusFor: (n: number) => AnyRecord): Promise<UiVmFixture> => {
+    let polls = 0;
+    return createUiVmFixture(base, (url, init) => {
+      if (!String(url).includes("/api/action")) { polls += 1; return uiJsonResponse(statusFor(polls)); }
+      const body = JSON.parse(String((init as AnyRecord)?.body ?? "{}")) as AnyRecord;
+      if (body.mode === "preview") {
+        return uiJsonResponse({
+          preview: true, outcome: "preview", evidence: "observed", ready: true, reasons: [],
+          readinessRevision: (base.tx as AnyRecord).readinessRevision, frameHex: "f70b01190240110100b6ee",
+        });
+      }
+      return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+    });
+  };
+
+  // 1. The requested state arriving on a later frame ends the send as confirmed.
+  const seen = await makeFixture((n) => (n === 1 ? base : withLight1State(base, "on", 1_700_020_000 - 5, {})));
+  await seen.flush();
+  seen.click("light-1-on");
+  await seen.flush();
+  assert.equal(state(seen), "sending", "the write must be narrated while the observation runs");
+  seen.fireTimer();
+  await seen.flush();
+  assert.equal(state(seen), "confirmed", "an observed requested state must end the send as confirmed");
+  assert.match(title(seen), /확인했습니다/);
+  assert.match(detail(seen), /조명 1/, "the banner must name what was sent");
+
+  // 2. Nothing arriving must still end the send, and must not be called a failure.
+  const unseen = await makeFixture(() => base);
+  await unseen.flush();
+  unseen.click("light-1-on");
+  await unseen.flush();
+  assert.equal(state(unseen), "sending");
+  for (const id of [...unseen.timers.keys()]) unseen.fireTimer(id);
+  await unseen.flush();
+  assert.equal(state(unseen), "unconfirmed", "a send that observes nothing must still end, as unconfirmed");
+  assert.match(title(unseen), /관측하지 못했습니다/);
+  assert.doesNotMatch(title(unseen), /실패|failed|failure/i, "the headline must not call an unobserved write a failure");
+  assert.match(detail(unseen), /실패로 기록하지 않습니다/, "the page must say plainly that this is not recorded as a failure");
+});

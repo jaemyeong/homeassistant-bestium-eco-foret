@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- End every send in the banner. A write now narrates itself as
+  `보낸 뒤 응답을 관측하고 있습니다`, then resolves to
+  `요청한 상태를 확인했습니다` when a later state frame carries the requested
+  state, or `소켓으로 보냈지만 요청한 상태는 관측하지 못했습니다` when the
+  bounded window closes with nothing. A reconnect during the wait resolves the
+  same way. The unobserved ending is not written as a failure — the page says
+  plainly that it is not recorded as one — and the banner names the action in
+  Korean, so `조명 1 · 켜기` rather than `light · 1 · on`.
+
 ### Fixed
 
 - Send an observed control on one activation. A light button used to open a
