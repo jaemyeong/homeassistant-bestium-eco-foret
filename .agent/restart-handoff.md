@@ -13,15 +13,21 @@ The former trailing-space path must remain absent. The research sibling at
 existence-checked only. Do not read or copy its contents; M4.6 used no legacy
 evidence.
 
-The M4.6 work unit is two signed local commits. The product commit is
-`d4463c5db4a09d440133a99249ac2b4f53680303`, subject
-`fix(m4): unify tx quarantine and monitor labels`, parent
-`297233309325e13e90193c3ef1425b5fcf165d6e`. This document cannot contain the SHA
-of its own commit; the containing documentation correction must have subject
-`docs(m4): record measured m4.6 red and mutants`, parent `d4463c5db4a09d440133a99249ac2b4f53680303`,
-a Good signature, and a clean worktree. It exists because the product commit
-asserted a tests-first RED enumeration inherited from the preceding session
-rather than measured, and amending a signed commit is not permitted.
+The M4.6 work unit is three signed local commits, because amending a signed
+commit is not permitted and two corrections were needed after the fact.
+
+1. `d4463c5db4a09d440133a99249ac2b4f53680303`,
+   `fix(m4): unify tx quarantine and monitor labels`, parent
+   `297233309325e13e90193c3ef1425b5fcf165d6e`. Superseded in part by (3).
+2. `92027c1a5f9130b4dab7eb9cc206f21d2c1380d5`,
+   `docs(m4): record measured m4.6 red and mutants`. It exists because (1)
+   asserted a tests-first RED enumeration inherited from the preceding session
+   rather than measured.
+3. The containing commit, which cannot carry its own SHA. It must have subject
+   `fix(m4): restore rx freshness gate for observed actions`, parent
+   `92027c1a5f9130b4dab7eb9cc206f21d2c1380d5`, a Good signature, and a clean
+   worktree. It is repair round 1 against the P0 an independent audit found in
+   (1).
 
 ## Publication state
 
@@ -42,7 +48,7 @@ commits ahead, and that public `main` remained `0.2.2` were false in the present
 tense and have been corrected.
 
 Publishing `0.2.4` is **not** authorized. After the containing commit, local
-`main` is exactly two signed commits ahead of public `main`.
+`main` is exactly three signed commits ahead of public `main`.
 
 ## Accepted native/static result
 
@@ -56,10 +62,14 @@ Publishing `0.2.4` is **not** authorized. After the containing commit, local
   key. The blocked interval is unchanged, because `currentGenerationRx` was
   already false there; only the reported reason changed, from a quarantine that
   never happened to the missing current-generation RX frame.
-- RX freshness is required only for inferred and unsafe actions. An observed
-  control action still requires `connected`, the quiet interval, and a
-  current-generation valid RX frame. RAW and speculative transmission keep the
-  full freshness gate, and a test asserts that split.
+- RX freshness gates every action class, byte-identically to the parent. The
+  first candidate narrowed it to inferred and unsafe actions; an independent
+  audit returned that as a P0 and repair round 1 reverted it. The justification
+  had compared transport idle recovery, which is armed on socket inactivity,
+  against a freshness threshold that measures valid-frame age, so a line
+  delivering bytes that never parse into a valid frame never reconnected and the
+  exposure was unbounded. A regression test now covers that line for both the
+  preview and the live path and asserts that no byte reaches the socket.
 - Monitor rows read label-first with a unit, `현재 29°C · stale` rather than
   `29 · stale · currentC`. The raw DTO key no longer trails the value, and
   adjacent monitor spans are block-level.
@@ -100,16 +110,21 @@ Publishing `0.2.4` is **not** authorized. After the containing commit, local
   not faked. This session made one product-tree edit, restoring the trailing
   newline that `test/m2.test.ts` had lost, and prepared and signed the commit.
 - The handoff's audit diff predated the `validFrameGeneration = 0` repair, so a
-  freshly generated 380-line diff replaced it.
-- **No independent adversarial review was obtained.** Five freshly spawned
-  read-only reviewer attempts failed across two sessions: one `403 Unable to
-  verify organization membership`, one `529 Overloaded`, and three runs that
-  executed and returned no report, the last two under two different agent
-  configurations in this session, each additionally asked in a follow-up message
-  to emit its report and each replying only with an idle notification. What
-  exists is implementer-side verification by the session that prepared and
-  signed this commit. It is not independent and must not be described as such.
-  An independent read-only audit of `0.2.4` is outstanding.
+  freshly generated diff replaced it.
+- An independent adversarial review was obtained on the sixth attempt. Five
+  freshly spawned reviewers failed first: one `403 Unable to verify organization
+  membership`, one `529 Overloaded`, and three that executed and returned no
+  report. The sixth succeeded once it was asked to write its report to a file
+  instead of returning text. It did not write the code, did not inherit the
+  implementer's context, and left the repository unmodified, verified against a
+  baseline recorded before it started. It returned one P0, three P2, and one P3,
+  and contradicted the implementer's own freshness conclusion. The P0 was
+  reproduced independently before being repaired.
+- Three mutants are killed by the repaired test: the old `quarantinedFor` form,
+  `quarantinedFor` returning `false` unconditionally, and removal of both
+  freshness gates. Reverting the six product and configuration paths to the
+  parent while holding the tests at their repaired expectations reproduces
+  exactly 5 failures of 99.
 - Graphify is refreshed at 438 nodes/498 edges/42 communities and CodeGraph at
   15 files/527 nodes/2,793 edges; both are Git-ignored and neither is staged.
   Exact-root Serena 1.7.0 reports TypeScript LSP `ready`, `ui.ts` is
@@ -123,12 +138,12 @@ TCP/EW11 behavior, protocol ACK, causality, actual TX, or device state.
 `boot: auto` is a manifest value only; it reaches the installed App solely if the
 user updates the App in Home Assistant, which this session did not do.
 
-Two items are knowingly left open. A socket inactivity timer is reset by
-outbound writes as well as inbound bytes, so writes repeated faster than
-`idle_timeout_ms` can defer idle recovery on a socket that has stopped
-receiving. The live quarantine rejection in `send` still names a speculative
-challenge although `send` also serves observed actions; that wording predates
-M4.6.
+Three items are knowingly left open by user decision. The vehicle monitor row
+reads `관찰 전용 …` because its old trailing note became a leading label. No test
+pins the adjacency of `generation += 1` and `validFrameGeneration = 0` inside
+`attachTransport`, on which the quarantine repair's safety depends. The live
+quarantine rejection in `send` still names a speculative challenge although
+`send` also serves observed actions; that wording predates M4.6.
 
 This handoff does not authorize push, Home Assistant/browser/Ingress access or
 mutation, Capture/Stop/Download, production socket or EW11/private-LAN access,
@@ -155,11 +170,9 @@ research sibling은 존재 여부만 확인하고 내용을 읽지 마.
 다음을 확인해:
 
 - exact root/toplevel과 trailing-space path 부재
-- HEAD subject `docs(m4): record measured m4.6 red and mutants`, parent
-  `d4463c5db4a09d440133a99249ac2b4f53680303`, Good signature
-- parent subject `fix(m4): unify tx quarantine and monitor labels`, parent
-  `297233309325e13e90193c3ef1425b5fcf165d6e`, Good signature
-- clean worktree, empty staging, local `main`이 정확히 2 commits ahead
+- HEAD subject `fix(m4): restore rx freshness gate for observed actions`, parent
+  `92027c1a5f9130b4dab7eb9cc206f21d2c1380d5`, Good signature
+- clean worktree, empty staging, local `main`이 정확히 3 commits ahead
 - `origin/main`, `git ls-remote origin main`, public GitHub `main`이 모두
   `297233309325e13e90193c3ef1425b5fcf165d6e`이고 public config는 `0.2.3`
 - root/App/config/Docker version equality at `0.2.4`
@@ -169,9 +182,10 @@ research sibling은 존재 여부만 확인하고 내용을 읽지 마.
 - Current checkpoint sentinel exactly:
   `Next event: obtain fresh explicit approval before pushing the signed M4.6 `0.2.4` commit or performing any live validation; do not access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval`
 
-M4.6에는 독립 적대적 감사가 없다는 사실을 그대로 보고해라. 구현자 자체
-검증만 존재하며 이를 독립 감사라고 부르지 마라. `0.2.4`에 대한 독립
-read-only 감사는 미완료 상태다.
+M4.6은 독립 적대적 감사를 6번째 시도에서 받았고, 그 감사가 찾은 P0을
+repair round 1에서 수리했다. `AGENTS.md`는 repair round를 최대 2회로
+제한하므로 남은 라운드는 1회다. 감사가 남긴 P3 두 건과 기존 문구 결함
+한 건은 사용자 결정에 따라 M5로 미뤄져 있다.
 
 검증 결과와 native/static 한계를 보고한 뒤 멈춰. 새 명시적 승인 없이는
 stage/commit/push/live/external action을 하지 마.

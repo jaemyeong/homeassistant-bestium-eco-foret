@@ -1134,7 +1134,7 @@ export function createTxCoordinator(opts: {
     if (state.pendingAppend) reasons.push("capture append pending");
     if (!state.currentGenerationRx) reasons.push("no current-generation valid RX frame");
     if (state.lastValidFrameAtMs <= 0 || state.lastRxByteAtMs <= 0) reasons.push("no current valid RX frame");
-    if (!state.fresh && (inferredAction || unsafeAction)) reasons.push("current RX frame stale");
+    if (!state.fresh) reasons.push("current RX frame stale");
     if (!state.quiet) reasons.push("line busy: quiet interval not met");
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : inferredAction ? lastSpeculativeAttempt : lastNormalAttempt;
     const cooldownMs = unsafeAction ? settings.unsafe_tx_cooldown_ms : inferredAction ? settings.speculative_tx_cooldown_ms : settings.tx_cooldown_ms;
@@ -1375,7 +1375,7 @@ export function createTxCoordinator(opts: {
     if (state.lastValidFrameAtMs <= 0 || state.lastRxByteAtMs <= 0) return txReject("no current valid RX frame", currentGeneration, journal);
     const rawAction = !!(action && typeof action === "object" && (action as AnyRecord).kind === "raw");
     if (unsafeAction && !rawAction && frames.some((frame) => frame[0] === 0x7f) && !hasCurrentSevenFProof(state, currentGeneration, action, frames)) return txReject("current-generation 7F compatibility proof required", currentGeneration, journal);
-    if ((inferredAction || unsafeAction) && opts.nowMs() - state.lastValidFrameAtMs > Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms)) return txReject("current RX frame stale", currentGeneration, journal);
+    if (opts.nowMs() - state.lastValidFrameAtMs > Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms)) return txReject("current RX frame stale", currentGeneration, journal);
     const quietAt = Math.max(state.lastRxByteAtMs, state.lastResumeAtMs);
     if (opts.nowMs() - quietAt < settings.tx_quiet_ms) return txReject("line busy: quiet interval not met", currentGeneration, journal);
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : inferredAction ? lastSpeculativeAttempt : lastNormalAttempt;

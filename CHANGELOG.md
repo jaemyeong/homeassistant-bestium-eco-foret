@@ -30,12 +30,6 @@ All notable changes to this project are documented here.
 
 ### Changed
 
-- Require RX freshness only for inferred and unsafe actions. An observed
-  control action is no longer refused merely because the wallpad bus went
-  quiet. It still requires `connected`, the quiet interval, and a
-  current-generation valid RX frame, and RAW and speculative transmission keep
-  the full freshness gate. See the freshness note under Verification: this
-  removes a time-decay gate from the observed path.
 - `boot` is `auto`, the Ingress panel is titled `BESTIUM 월패드`, and the App
   name and description now describe wallpad monitoring and guarded control
   rather than capture alone. `boot: auto` starts the container only; opening a
@@ -49,50 +43,58 @@ All notable changes to this project are documented here.
   canonical`, `RED: config strictness and exact static contract`,
   `RED: Dockerfile allowlist and pinned production constraints`,
   `RED-exception: actual status JSON drives the emitted UI monitor with 1-based
-  device DTOs`, and `M4.6 RED: quarantine chip matches the gate and observed
-  control survives a quiet bus`. That demonstrates the tests encode the M4.6
+  device DTOs`, and `M4.6 RED: quarantine chip pins the gate and freshness
+  survives an unparsed-byte line`. That demonstrates the tests encode the M4.6
   expectations independently of the implementation; it is not itself evidence of
   authoring order, and the tests-first ordering is inherited from the preceding
   session's record rather than observed here. The full native suite passes
   99/99 on Node `v24.14.1`, `git diff --check` passes, and all four version
   surfaces match `0.2.4`.
-- Two targeted mutants were killed, which is the only partial substitute
-  available for the missing independent audit. Restoring `quarantinedFor` to its
-  old `validFrameGeneration ?? getGeneration()` form fails the assertion that a
-  generation which has not yet observed a frame must not be reported as
-  quarantined. Removing both narrowed freshness gates outright fails the
-  assertion that RAW transmission keeps the freshness requirement. Each mutant
-  produced exactly one failure and the tree was restored to 99/99 afterwards.
-- Freshness note, recorded because narrowing the gate is a real change and not
-  a neutral refactor. Neither term of `currentGenerationRx`
-  (`validFrameGeneration === outboundGeneration && validFrameEpoch > 0`) decays
-  with time, and `quiet` is a minimum-silence requirement that a dead line
-  satisfies trivially, so nothing on the observed path decays by itself. What
-  bounds it is transport idle recovery: `onIdleTimeout` reattaches the
-  transport, which raises the generation and resets `validFrameGeneration` to
-  `0`, after which `currentGenerationRx` is false. Recovery fires at
-  `idle_timeout_ms` of socket inactivity, while the removed freshness threshold
-  was `max(45_000, idle_timeout_ms + tx_write_timeout_ms)`, which is strictly
-  larger for every schema-legal setting (`idle_timeout_ms` is
-  `int(5000,3600000)` with default 30,000 ms). Idle recovery therefore always
-  precedes the threshold that was removed, and in every state where the old
-  gate would have blocked, `currentGenerationRx` already blocks. Idle recovery
-  is skipped only while `pendingAppend`, a non-running phase, or a disconnected
-  transport holds, and each of those independently blocks transmission on its
-  own. One residual gap remains and is not closed here: a socket inactivity
-  timer is reset by outbound writes as well as inbound bytes, so writes
-  repeated faster than `idle_timeout_ms` can defer recovery on a socket that
-  has stopped receiving, and `tx_cooldown_ms` (default 250 ms, minimum 0) does
-  not prevent that rate. `getTxStatus` still reports `fresh`, so the UI can
-  display staleness where the gate no longer enforces it.
-- **No independent adversarial review was obtained for M4.6.** Five freshly
-  spawned read-only reviewer attempts failed across two sessions: one
+- Three targeted mutants are killed by the repaired test. Restoring
+  `quarantinedFor` to its old `validFrameGeneration ?? getGeneration()` form
+  fails the assertion that a generation which has not yet observed a frame must
+  not be reported as quarantined. Making `quarantinedFor` always return `false`,
+  which the audit showed the first candidate's chip-versus-gate assertion could
+  not detect, now fails the assertion that a stopped generation must be reported
+  as quarantined. Removing both freshness gates fails the assertion that an
+  observed action must be refused when the last valid frame is stale. The tree
+  was restored to 99/99 after each.
+- An independent adversarial audit found one P0 in the first candidate, and
+  repair round 1 closed it. That candidate had narrowed the RX freshness gate to
+  inferred and unsafe actions so that an observed action relied on `connected`,
+  the quiet interval, and `currentGenerationRx` alone. The justification, that
+  transport idle recovery always fires before the removed threshold, conflated
+  two different clocks: `onIdleTimeout` is armed on **socket inactivity**, while
+  freshness measures **valid-frame age**. On a line that keeps delivering bytes
+  that never parse into a valid frame, the socket never goes idle, so no
+  reconnect occurs, `validFrameGeneration` and `validFrameEpoch` never change,
+  and the exposure is unbounded rather than bounded by `idle_timeout_ms`.
+  Running the real coordinator with the last valid frame two hours old and the
+  last byte 100 ms old produced `ready: true` with no reasons and wrote
+  `f70b01190240110100b6ee` to the socket; the parent commit refused the same
+  input with `current RX frame stale` and wrote nothing. The narrowing is
+  reverted: `evaluateReadiness` and `send` again require freshness for every
+  action class, byte-identical to the parent, and the same input now yields
+  `ready: false`, `current RX frame stale`, and no write. The quarantine
+  unification and the monitor rendering are unaffected.
+- The audit also rejected the first candidate's M4.6 test. Its chip-versus-gate
+  assertion compared two values that both derive from the same
+  `currentState().quarantined` field, so it held even against an implementation
+  that never reports a quarantine, and no other test pinned the quarantine
+  readiness gate. That assertion now checks concrete values, and a regression
+  test covers the unparsed-byte line for both the preview and the live path,
+  asserting that no byte reaches the socket.
+- An independent adversarial review was obtained only on the sixth attempt. Five
+  freshly spawned read-only reviewers failed first: one
   `403 Unable to verify organization membership`, one `529 Overloaded`, and
-  three runs that executed and then returned no report, including two in this
-  session under two different agent types with an explicit retrieval request
-  each. What exists is implementer-side verification only, performed by the
-  session that prepared and signed this commit. It must not be described as
-  independent.
+  three that executed and returned no report. The sixth succeeded once the
+  reviewer was asked to write its report to a file instead of returning text,
+  which routed around the failing delivery path. It did not write the code, did
+  not inherit the implementer's context, and left the repository unmodified,
+  verified against a recorded baseline afterwards. It returned one P0, three P2,
+  and one P3, and explicitly contradicted the implementer's own conclusion on
+  the P0. The first `0.2.4` product commit was signed before that review existed
+  and is superseded by repair round 1 rather than amended.
 - Graphify is refreshed at 438 nodes/498 edges/42 communities and CodeGraph at
   15 files/527 nodes/2,793 edges. Exact-root Serena 1.7.0 reports TypeScript LSP
   `ready`; `ui.ts` is diagnostic-clean and only the historical missing Node

@@ -6681,7 +6681,7 @@ test("M4.5 RED: pending observation preserves unrelated assertive alerts", async
   assert.deepStrictEqual(problems, []);
 });
 
-test("M4.6 RED: quarantine chip matches the gate and observed control survives a quiet bus", async () => {
+test("M4.6 RED: quarantine chip pins the gate and freshness survives an unparsed-byte line", async () => {
   const m2 = await importM2();
   const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
   assert.equal(typeof createTxCoordinator, "function", "M2 must expose a bounded TX coordinator");
@@ -6697,9 +6697,14 @@ test("M4.6 RED: quarantine chip matches the gate and observed control survives a
     idle_timeout_ms: 30_000,
     tx_write_timeout_ms: 1_000,
   });
+  const written: string[] = [];
   const transport = {
     on() {}, off() {}, once() {}, removeAllListeners() {}, destroy() {},
-    write() { return true; },
+    write(chunk: Uint8Array, done?: () => void) {
+      written.push([...chunk].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+      done?.();
+      return true;
+    },
   };
   const rxState = (overrides: AnyRecord): AnyRecord => ({
     connected: true,
@@ -6739,14 +6744,61 @@ test("M4.6 RED: quarantine chip matches the gate and observed control survives a
   generation = 2;
   const chip = quarantined.getTxStatus({ userId: "operator-7" }) as AnyRecord;
   const quarantinePreview = await quarantined.send(lightOn, request) as AnyRecord;
+  assert.equal(chip.quarantined, true, "a stopped generation must be reported as quarantined");
+  assert.equal(
+    blocked(quarantinePreview, /quarantined/),
+    true,
+    "the readiness gate must refuse a quarantined transport generation",
+  );
   assert.equal(
     chip.quarantined,
     blocked(quarantinePreview, /quarantined/),
     "the quarantine chip must report exactly what the readiness gate enforces",
   );
 
-  // 2. A quiet bus must not block an observed control action, but it must still
-  //    block RAW transmission, whose bytes were never observed.
+  // 2. Every action class keeps the freshness requirement, including observed.
+  //    Transport idle recovery cannot substitute for it: recovery is armed on
+  //    socket inactivity, while freshness measures valid-frame age. A line that
+  //    keeps delivering bytes that never parse into a valid frame therefore never
+  //    reconnects, so nothing else expires and only freshness can refuse the write.
+  const unparsed = createTxCoordinator({
+    settings,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => rxState({
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 2 * 60 * 60 * 1000,
+      lastResumeAtMs: timer.nowMs() - 2 * 60 * 60 * 1000,
+    }),
+  });
+  const unparsedStatus = unparsed.getTxStatus({ userId: "operator-7" }) as AnyRecord;
+  assert.equal(unparsedStatus.fresh, false, "a two-hour-old valid frame is not fresh");
+  assert.equal(unparsedStatus.quiet, true, "a 100 ms byte gap satisfies the minimum quiet interval");
+  assert.equal(
+    unparsedStatus.currentGenerationRx,
+    true,
+    "current-generation RX does not decay, so it cannot bound this line on its own",
+  );
+  const unparsedPreview = await unparsed.send(lightOn, request) as AnyRecord;
+  assert.equal(
+    blocked(unparsedPreview, /stale/),
+    true,
+    "an observed action must be refused when the last valid frame is stale",
+  );
+  written.length = 0;
+  const unparsedLive = await unparsed.send(lightOn, { mode: "live", userId: "operator-7" }) as AnyRecord;
+  assert.notEqual(
+    unparsedLive.outcome,
+    "socket_written_unconfirmed",
+    "a stale line must not reach the socket",
+  );
+  assert.deepStrictEqual(written, [], "no byte may be written while the last valid frame is stale");
+
+  // A fully silent bus is refused for the same reason, and RAW keeps the gate too.
   const quiet = createTxCoordinator({
     settings,
     nowMs: timer.nowMs,
@@ -6764,8 +6816,8 @@ test("M4.6 RED: quarantine chip matches the gate and observed control survives a
   const observedPreview = await quiet.send(lightOn, request) as AnyRecord;
   assert.equal(
     blocked(observedPreview, /stale/),
-    false,
-    "an observed control action must not be blocked only because the bus went quiet",
+    true,
+    "a silent bus must refuse an observed action on freshness, not only on reconnect",
   );
   const rawPreview = await quiet.send({ kind: "raw", hex: "f70b01990240110100b6ee" }, request) as AnyRecord;
   assert.equal(
