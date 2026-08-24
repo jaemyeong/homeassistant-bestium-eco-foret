@@ -293,6 +293,15 @@ All notable changes to this project are documented here.
   prior TX/freshness/quarantine/default-off safety gates. No real browser/AT,
   Home Assistant/Ingress, network/EW11, Capture, actual TX, or device behavior
   was tested or authorized.
+- The user explicitly authorized publication after the signed clean M4.2 task
+  commit was reported. Both pending commits verified Good and a normal
+  fast-forward push advanced public `main` from `ce3f828` to product commit
+  `677be450e6cb7b3a2efd5d90a966ed97b49095f0` without force.
+- Local `HEAD`, `origin/main`, and `git ls-remote` matched the product commit;
+  GitHub's public commit API reported its signature verified and the public App
+  config parsed as `0.2.0`. This publication does not prove or authorize an
+  agent-operated Home Assistant update, Ingress/network/EW11 access, Capture,
+  actual TX, or device behavior; the user will run those live steps separately.
 
 ## [0.1.3] - 2026-08-22
 
