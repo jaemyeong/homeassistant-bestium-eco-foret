@@ -31,6 +31,10 @@ All notable changes to this project are documented here.
 - The final read-only adversarial audit passed with no actionable P0-P3. Its
   independent VM canary blocked a pre-preview in-flight response, and a mutant
   that reverted to applied-status timing was killed by the new regression.
+- Signed product commit `a8ac99829666e81929805b5c8ec4e553cf34279a` was
+  published by ordinary fast-forward. Local `main`, `origin/main`, and
+  `git ls-remote` matched; GitHub reported a verified signature and public App
+  config version `0.2.2`.
 - These native/static results do not prove Home Assistant, Ingress, socket,
   EW11, actual TX, or device behavior. No agent-operated live action occurred.
 
