@@ -15,7 +15,7 @@ export function renderAppHtml(): string {
     .pill { display:inline-flex; padding:.32rem .55rem; border-radius:999px; background:#e2e8f0; font-size:.82rem; } .pill.yes { background:#dcfce7; color:#14532d; } .pill.no { background:#fee2e2; color:#7f1d1d; } .pill.warn { background:#fef3c7; color:#78350f; }
     .controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.55rem; margin-top:.7rem; } button,input { font:inherit; } button { min-height:2.5rem; border:1px solid #1e3a8a; border-radius:.55rem; padding:.5rem .75rem; background:#1d4ed8; color:#fff; font-weight:700; cursor:pointer; } button.secondary { background:#475569; border-color:#1e293b; } button.warning { background:#a16207; border-color:#713f12; } button:disabled { opacity:.48; cursor:not-allowed; }
     button:focus-visible,input:focus-visible { outline:.2rem solid var(--focus); outline-offset:.2rem; box-shadow:0 0 0 .15rem var(--focus-alt); } input { width:100%; min-height:2.5rem; border:3px solid var(--input-border); border-radius:.5rem; padding:.5rem; background:transparent; color:inherit; } input[aria-invalid="true"] { border-color:var(--danger); } .error { color:var(--danger); min-height:1.4rem; }
-    .monitor { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.55rem; margin-top:.7rem; } .monitor-row { border:1px solid #64748b; border-radius:.55rem; padding:.55rem; min-height:4rem; overflow-wrap:anywhere; min-width:0; } .monitor-row strong { display:block; } .kv { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; margin-top:.7rem; } .kv div { padding:.55rem; background:#e2e8f0; border-radius:.5rem; overflow-wrap:anywhere; min-width:0; }
+    .monitor { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.55rem; margin-top:.7rem; } .monitor-row { border:1px solid #64748b; border-radius:.55rem; padding:.55rem; min-height:4rem; overflow-wrap:anywhere; min-width:0; } .monitor-row strong { display:block; } .monitor-row span { display:block; } .kv { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; margin-top:.7rem; } .kv div { padding:.55rem; background:#e2e8f0; border-radius:.5rem; overflow-wrap:anywhere; min-width:0; }
     ol { padding-left:1.5rem; } @media (max-width:52rem) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
     @media (prefers-color-scheme:dark) { :root { --ink:#f1f5f9; --muted:#cbd5e1; --panel:#111827; --input-border:#cbd5e1; --danger:#fca5a5; background:#0f172a; } body { background:#0f172a; } .card { border-color:#475569; } .kv div { background:#1e293b; } .monitor-row { border-color:#94a3b8; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }
@@ -204,12 +204,13 @@ export function renderAppHtml(): string {
         const frames = Array.isArray(debug.frames) ? debug.frames : [];
         const unknown = Array.isArray(debug.unknown) ? debug.unknown : [];
         const ambiguous = Array.isArray(debug.ambiguous) ? debug.ambiguous : [];
-        const row = (id, value, entry, note) => {
+        const row = (id, value, entry, label, unit) => {
           const age = ageFor(entry, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration);
           const freshness = age === null ? "stale" : "age " + age + " ms · fresh";
           const evidence = entry?.evidence ? " · evidence " + entry.evidence : "";
-          const noteText = note ? " · " + note : "";
-          setText(id, String(value ?? "unknown") + " · " + freshness + noteText + evidence + " · generation " + displayGeneration(entry?.generation ?? source.generation));
+          const shown = value === undefined || value === null ? "unknown" : String(value) + (unit ?? "");
+          const labelled = label ? label + " " + shown : shown;
+          setText(id, labelled + " · " + freshness + evidence + " · generation " + displayGeneration(entry?.generation ?? source.generation));
         };
         const detail = (entry) => {
           const raw = String(entry?.rawHex || entry?.frameHex || "unknown");
@@ -243,17 +244,17 @@ export function renderAppHtml(): string {
         for (const zone of [1,2,3,4]) {
           const entry = heat(zone);
           row("heat-state-" + zone, entry?.state, entry);
-          row("heating-current-" + zone, entry?.currentC, entry, "currentC");
-          row("heating-target-" + zone, entry?.targetC, entry, "targetC");
+          row("heating-current-" + zone, entry?.currentC, entry, "현재", "°C");
+          row("heating-target-" + zone, entry?.targetC, entry, "목표", "°C");
         }
         row("elevator-floor", devices.elevator?.floor, devices.elevator);
         row("elevator-direction", devices.elevator?.direction, devices.elevator);
         row("household-entrance", devices.entrances?.household?.state ?? devices.entrances?.household?.call, devices.entrances?.household);
         row("common-entrance", devices.entrances?.communal?.state ?? devices.entrances?.communal?.call, devices.entrances?.communal);
-        row("outlet-query-state", queries.outlet, devices.outlet, "query count");
-        row("ventilation-query-state", queries.ventilation, devices.ventilation, "query count");
+        row("outlet-query-state", queries.outlet, devices.outlet, "조회", "회");
+        row("ventilation-query-state", queries.ventilation, devices.ventilation, "조회", "회");
         const vehicle = devices.vehicle || {};
-        row("vehicle-unidentified", vehicle.evidence || "unidentified", vehicle, "monitor-only");
+        row("vehicle-unidentified", vehicle.evidence || "unidentified", vehicle, "관찰 전용");
         const cctv = devices.cctv || {};
         const cctvAge = ageFor(cctv, serverNow, currentGeneration, runtimePhase, staleAfterMs, source.lastValidFrameAtMs, source.lastValidFrameGeneration);
         const cctvEvidence = cctv.evidence;

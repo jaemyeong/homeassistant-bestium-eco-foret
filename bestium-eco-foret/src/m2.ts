@@ -942,6 +942,14 @@ export function createTxCoordinator(opts: {
     purgeExpiredChallenges();
     return current;
   };
+  // A fresh transport resets validFrameGeneration to 0, which means "no frame
+  // observed yet in this generation", not "generation zero". Using that 0 as a
+  // lookup key reports a quarantine that never happened and hides the real
+  // blocker, so fall back to the generation actually in force.
+  const quarantinedFor = (state?: { validFrameGeneration?: number }): boolean => {
+    const observed = state?.validFrameGeneration;
+    return quarantined.has(typeof observed === "number" && observed > 0 ? observed : opts.getGeneration());
+  };
   const hasCurrentGenerationRx = (state: { rxByteEpoch?: number; validFrameEpoch?: number; validFrameGeneration?: number }): boolean => {
     if (state.validFrameEpoch !== undefined || state.validFrameGeneration !== undefined) {
       return state.validFrameGeneration === outboundGeneration && (state.validFrameEpoch ?? 0) > 0;
@@ -1010,7 +1018,7 @@ export function createTxCoordinator(opts: {
       fresh,
       quiet,
       inFlight,
-      quarantined: quarantined.has(outboundGeneration),
+      quarantined: quarantinedFor(state),
       externalTxByteEpoch: state.txByteEpoch ?? 0,
       externalTailHash: state.tailHash ?? "",
       txByteEpoch: (state.txByteEpoch ?? 0) + outboundEpoch,
@@ -1121,12 +1129,12 @@ export function createTxCoordinator(opts: {
     if (userId.length === 0 || userId !== opts.getCurrentUserId() || userId !== settings.transmit_user_id) reasons.push("authorized user mismatch");
     if (state.phase !== "running") reasons.push("capture is not running");
     if (inFlight) reasons.push("one in-flight write only");
-    if (quarantined.has(state.validFrameGeneration ?? opts.getGeneration())) reasons.push("transport generation quarantined");
+    if (state.quarantined) reasons.push("transport generation quarantined");
     if (!state.connected || !opts.getTransport()?.write) reasons.push("transport not connected");
     if (state.pendingAppend) reasons.push("capture append pending");
     if (!state.currentGenerationRx) reasons.push("no current-generation valid RX frame");
     if (state.lastValidFrameAtMs <= 0 || state.lastRxByteAtMs <= 0) reasons.push("no current valid RX frame");
-    if (!state.fresh) reasons.push("current RX frame stale");
+    if (!state.fresh && (inferredAction || unsafeAction)) reasons.push("current RX frame stale");
     if (!state.quiet) reasons.push("line busy: quiet interval not met");
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : inferredAction ? lastSpeculativeAttempt : lastNormalAttempt;
     const cooldownMs = unsafeAction ? settings.unsafe_tx_cooldown_ms : inferredAction ? settings.speculative_tx_cooldown_ms : settings.tx_cooldown_ms;
@@ -1167,7 +1175,7 @@ export function createTxCoordinator(opts: {
     const readiness = evaluateReadiness(action, encoded, request, state);
     if (!readiness.ready) throw new Error(readiness.reasons[0] ?? "TX readiness gate rejected");
     const transport = opts.getTransport();
-    if (quarantined.has(generation)) throw new Error("transport generation quarantined");
+    if (quarantinedFor(opts.getRxState())) throw new Error("transport generation quarantined");
     if (!state.connected || !transport?.write) throw new Error("transport not connected");
     if (state.pendingAppend) throw new Error("capture append pending");
     if (!state.currentGenerationRx) throw new Error("no current-generation valid RX frame");
@@ -1343,7 +1351,7 @@ export function createTxCoordinator(opts: {
     if (inFlight) return txReject("one in-flight write only", opts.getGeneration(), journal);
     const currentGeneration = syncGeneration();
     transportGeneration = currentGeneration;
-    if (quarantined.has(currentGeneration)) return txReject("transport generation quarantined; speculative challenge unavailable", currentGeneration, journal);
+    if (quarantinedFor(opts.getRxState())) return txReject("transport generation quarantined; speculative challenge unavailable", currentGeneration, journal);
     if (encoded.evidence === "rejected" || encoded.frame === undefined && !encoded.frames) return txReject(encoded.reason ?? "action rejected", currentGeneration, journal);
     const frames = framesFor(encoded);
     if (frames.length === 0) return txReject("empty action frame", currentGeneration, journal);
@@ -1367,7 +1375,7 @@ export function createTxCoordinator(opts: {
     if (state.lastValidFrameAtMs <= 0 || state.lastRxByteAtMs <= 0) return txReject("no current valid RX frame", currentGeneration, journal);
     const rawAction = !!(action && typeof action === "object" && (action as AnyRecord).kind === "raw");
     if (unsafeAction && !rawAction && frames.some((frame) => frame[0] === 0x7f) && !hasCurrentSevenFProof(state, currentGeneration, action, frames)) return txReject("current-generation 7F compatibility proof required", currentGeneration, journal);
-    if (opts.nowMs() - state.lastValidFrameAtMs > Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms)) return txReject("current RX frame stale", currentGeneration, journal);
+    if ((inferredAction || unsafeAction) && opts.nowMs() - state.lastValidFrameAtMs > Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms)) return txReject("current RX frame stale", currentGeneration, journal);
     const quietAt = Math.max(state.lastRxByteAtMs, state.lastResumeAtMs);
     if (opts.nowMs() - quietAt < settings.tx_quiet_ms) return txReject("line busy: quiet interval not met", currentGeneration, journal);
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : inferredAction ? lastSpeculativeAttempt : lastNormalAttempt;

@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.2.3";
+const EXPECTED_VERSION = "0.2.4";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -877,13 +877,13 @@ test("RED: config strictness and exact static contract", () => {
     assert.equal((config[key] as string).trim().length > 0, true);
   }
   assert.equal(config.version, EXPECTED_VERSION);
-  assert.equal(config.boot, "manual_only");
+  assert.equal(config.boot, "auto");
   assert.equal(config.stage, "experimental");
   assert.equal(config.panel_admin, true);
   assert.equal(config.ingress, true);
   assert.equal(config.ingress_port, 8099);
   assert.equal(config.panel_icon, "mdi:radio-tower");
-  assert.equal(config.panel_title, "BESTIUM Capture");
+  assert.equal(config.panel_title, "BESTIUM 월패드");
 
   if (!Array.isArray(config.arch)) throw new TypeError("config.arch must be array");
   assert.equal(config.arch.length, 2);
@@ -4244,8 +4244,12 @@ test("RED-exception: actual status JSON drives the emitted UI monitor with 1-bas
     assert.ok(nodes.has(`heating-target-${zone}`), `zone ${zone} target DTO row is required`);
     assert.match(nodes.get(`heat-state-${zone}`)?.textContent ?? "", /on|off/);
   }
-  assert.match(nodes.get("heating-current-4")?.textContent ?? "", /27/);
-  assert.match(nodes.get("heating-target-4")?.textContent ?? "", /28/);
+  // M4.6: monitor values must read label-first with a unit; the raw DTO key must not trail the value.
+  assert.match(nodes.get("heating-current-4")?.textContent ?? "", /현재 27°C/, "current temperature must read label-first with a unit");
+  assert.match(nodes.get("heating-target-4")?.textContent ?? "", /목표 28°C/, "target temperature must read label-first with a unit");
+  assert.doesNotMatch(nodes.get("heating-current-4")?.textContent ?? "", /currentC/, "the raw DTO key must not trail the rendered value");
+  assert.doesNotMatch(nodes.get("heating-target-4")?.textContent ?? "", /targetC/, "the raw DTO key must not trail the rendered value");
+  assert.match(html, /\.monitor-row span \{[^}]*display:block/, "adjacent monitor spans must not run together");
   assert.match(nodes.get("elevator-floor")?.textContent ?? "", /4/);
   assert.match(nodes.get("elevator-direction")?.textContent ?? "", /arrival/);
   assert.match(nodes.get("household-entrance")?.textContent ?? "", /inactive/);
@@ -6675,4 +6679,128 @@ test("M4.5 RED: pending observation preserves unrelated assertive alerts", async
   if (!/poll\/status failed|폴링 실패/.test(successFixture.nodes.get("alert")?.textContent ?? "")) problems.push("success erased the unrelated poll failure alert");
 
   assert.deepStrictEqual(problems, []);
+});
+
+test("M4.6 RED: quarantine chip matches the gate and observed control survives a quiet bus", async () => {
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function", "M2 must expose a bounded TX coordinator");
+  if (typeof createTxCoordinator !== "function") return;
+
+  const timer = createFakeTimer();
+  const settings = validSettings({
+    transmit_enabled: true,
+    speculative_transmit_enabled: true,
+    unsafe_transmit_enabled: true,
+    transmit_user_id: "operator-7",
+    tx_quiet_ms: 20,
+    idle_timeout_ms: 30_000,
+    tx_write_timeout_ms: 1_000,
+  });
+  const transport = {
+    on() {}, off() {}, once() {}, removeAllListeners() {}, destroy() {},
+    write() { return true; },
+  };
+  const rxState = (overrides: AnyRecord): AnyRecord => ({
+    connected: true,
+    pendingAppend: false,
+    rxByteEpoch: 5,
+    readEpoch: 5,
+    txByteEpoch: 0,
+    tailHash: "tail-0",
+    lastRxByteAtMs: timer.nowMs() - 100,
+    lastValidFrameAtMs: timer.nowMs() - 100,
+    lastResumeAtMs: timer.nowMs() - 100,
+    validFrameEpoch: 3,
+    validFrameGeneration: 1,
+    phase: "running",
+    ...overrides,
+  });
+  const lightOn = { kind: "light", target: 1, state: "on" };
+  const request = { mode: "preview", userId: "operator-7" };
+  const blocked = (result: AnyRecord, pattern: RegExp): boolean =>
+    (result.reasons as string[] ?? []).some((reason) => pattern.test(reason));
+
+  // 1. The status chip must report the same quarantine the readiness gate enforces.
+  //    After a stop the old generation is quarantined; a new transport raises the
+  //    generation, but until a valid frame arrives the gate still consults the old one.
+  let generation = 1;
+  const quarantined = createTxCoordinator({
+    settings,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => rxState({ validFrameGeneration: 1 }),
+  });
+  quarantined.stop();
+  generation = 2;
+  const chip = quarantined.getTxStatus({ userId: "operator-7" }) as AnyRecord;
+  const quarantinePreview = await quarantined.send(lightOn, request) as AnyRecord;
+  assert.equal(
+    chip.quarantined,
+    blocked(quarantinePreview, /quarantined/),
+    "the quarantine chip must report exactly what the readiness gate enforces",
+  );
+
+  // 2. A quiet bus must not block an observed control action, but it must still
+  //    block RAW transmission, whose bytes were never observed.
+  const quiet = createTxCoordinator({
+    settings,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => 1,
+    getRxState: () => rxState({
+      lastRxByteAtMs: timer.nowMs() - 120_000,
+      lastValidFrameAtMs: timer.nowMs() - 120_000,
+      lastResumeAtMs: timer.nowMs() - 120_000,
+    }),
+  });
+  const observedPreview = await quiet.send(lightOn, request) as AnyRecord;
+  assert.equal(
+    blocked(observedPreview, /stale/),
+    false,
+    "an observed control action must not be blocked only because the bus went quiet",
+  );
+  const rawPreview = await quiet.send({ kind: "raw", hex: "f70b01990240110100b6ee" }, request) as AnyRecord;
+  assert.equal(
+    blocked(rawPreview, /stale/),
+    true,
+    "RAW transmission must keep the freshness requirement",
+  );
+
+  // 3. One coordinator lives for the whole process. startCapture calls stop()
+  //    first, which quarantines the generation in force at that moment, and
+  //    attachTransport then raises the generation while leaving
+  //    validFrameGeneration at 0 until the first frame lands. That 0 means "not
+  //    observed yet", not "generation zero", so it must not be a quarantine key.
+  let lifecycleGeneration = 0;
+  const lifecycle = createTxCoordinator({
+    settings,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => lifecycleGeneration,
+    getRxState: () => rxState({ validFrameGeneration: 0, validFrameEpoch: 0 }),
+  });
+  lifecycle.stop();
+  lifecycleGeneration = 1;
+  const beforeFirstFrame = await lifecycle.send(lightOn, request) as AnyRecord;
+  assert.equal(
+    blocked(beforeFirstFrame, /quarantined/),
+    false,
+    "a generation that has not yet observed a frame must not be reported as quarantined",
+  );
+  assert.equal(
+    blocked(beforeFirstFrame, /valid RX frame/),
+    true,
+    "the honest blocker before the first frame is the missing current-generation RX frame",
+  );
 });

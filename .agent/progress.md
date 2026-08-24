@@ -99,7 +99,7 @@ separately gated by fresh explicit approval.
 | M1 | Capture-only PoC contract and test harness | Complete |
 | M2 | Home Assistant App packaging, settings, Ingress, and bounded capture | Complete: static acceptance passed; M3.1 later verified startup/Ingress only |
 | M3 | URL-install publication packaging, then separately gated live runtime and capture canaries | M3.0–M3.2 complete within recorded scopes; M3.3 static/native/adversarial acceptance and public `0.1.3` publication complete, live gates pending |
-| M4 | Packet analysis, clean-room debug/control surfaces, and bounded repairs | M4.2 `0.2.0`, M4.3 `0.2.1`, and M4.4 `0.2.2` publications complete; M4.5 `0.2.3` delayed RX observation is accepted in a signed local-only native/static commit. Push, Home Assistant/Ingress, network/EW11, Capture, actual TX, and device behavior remain separately gated and unverified by M4.5 |
+| M4 | Packet analysis, clean-room debug/control surfaces, and bounded repairs | M4.2 `0.2.0`, M4.3 `0.2.1`, M4.4 `0.2.2`, and M4.5 `0.2.3` publications complete; the `0.2.3` push was performed outside this session lineage and is recorded in Phase C. M4.6 `0.2.4` quarantine unification, observed-path freshness narrowing, and label-first monitor rendering are accepted in a signed local commit without an independent adversarial review. Push, Home Assistant/Ingress, network/EW11, Capture, actual TX, and device behavior remain separately gated and unverified by M4.5 or M4.6 |
 | M5 | Home Assistant wallpad communication and smart-home entities | Pending |
 | M6 | MQTT/HomeKit bridge path and Apple Home control | Pending |
 | M7 | Subphone capture, analysis, implementation, and control | Pending |
@@ -150,7 +150,8 @@ separately gated by fresh explicit approval.
 | M4.2 | Add the clean-room `0.2.0` protocol monitor and guarded debug/control UI, preserve gas CLOSE-only and default-disabled TX, pass tests-first native/index/LSP gates and a final runtime/accessibility adversarial loop, then publish signed `main` without live access | Complete in the authorized fake/native/static/publication scope: m2 71/71, full 86/86, current static/index/LSP gates, fresh runtime/accessibility audits PASS, and public App config `0.2.0`; all live behavior remains unproved | Product `677be450e6cb7b3a2efd5d90a966ed97b49095f0`; this signed publication-record commit |
 | M4.3 | Repair `0.2.0` startup when TX toggles are enabled without a configured user, remain fail-closed, preserve valid-ID behavior, pass RED/GREEN and read-only audit, then publish signed `0.2.1` | Complete in authorized fake/native/static/publication scope: focused 9/9, full 88/88, version/index/LSP gates, corrected-candidate audit PASS, Good product signature, and public config `0.2.1` | Product `9840bb923286177b509f9348c97ad76445aa1093`; this signed publication-record commit |
 | M4.4 | Repair observed-action Commit readiness so only a successful status request initiated after preview completion may recover a temporarily not-ready or changed-revision preview; preserve strict inferred/unsafe gates, pass RED/GREEN and final read-only audit, then publish signed `0.2.2` | Complete in authorized native/static/publication scope: observed 3/3, full 91/91, version/index/LSP gates, final audit PASS, Good product signature, and public config `0.2.2`; live send/device validation remains with the user | Product `a8ac99829666e81929805b5c8ec4e553cf34279a`; this signed publication-record commit |
-| M4.5 | Reconcile one socket-written observed Light 1–3 action with a strictly newer, fresh, same-generation status entry inside a bounded configurable window; preserve socket-only truth, exactly-once send, no retry, and unsupported-device unconfirmed semantics | Complete in authorized native/static scope: M4.5 7/7, observed 3/3, full 98/98, current version/index/LSP gates, and final read-only re-audit PASS; no live validation or push occurred | This containing signed local `0.2.3` task commit; public `main` remains `0.2.2` |
+| M4.5 | Reconcile one socket-written observed Light 1–3 action with a strictly newer, fresh, same-generation status entry inside a bounded configurable window; preserve socket-only truth, exactly-once send, no retry, and unsupported-device unconfirmed semantics | Complete in authorized native/static scope: M4.5 7/7, observed 3/3, full 98/98, current version/index/LSP gates, and final read-only re-audit PASS; no live validation or push occurred | Product `297233309325e13e90193c3ef1425b5fcf165d6e`; public `main` reached `0.2.3` by a later push recorded in Phase C |
+| M4.6 | Unify the three divergent transport-quarantine predicates, stop keying quarantine on a fresh transport's `validFrameGeneration = 0`, require RX freshness only for inferred and unsafe actions, render monitor values label-first with units, and advance four version surfaces to `0.2.4` | Complete in authorized native/static scope: tests-first 5 RED of 99 on the intended items plus a separate RED for the `validFrameGeneration = 0` defect, then full 99/99 on Node `v24.14.1`, current version/index/LSP gates, and `git diff --check`. **No independent adversarial review was obtained**; five freshly spawned read-only reviewer attempts failed across two sessions and only implementer-side verification exists. No push, live validation, or Home Assistant update occurred | This containing signed local task commit; public `main` remains `0.2.3` |
 
 ## Current checkpoint
 
@@ -369,7 +370,119 @@ separately gated by fresh explicit approval.
   protocol ACK, causality, actual TX, or device state. No package, Docker,
   research-content, live/external, stage, commit, push, or release action was
   performed before final documentation.
-Next event: obtain fresh explicit approval before any push or live M4.5 validation; do not access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval
+- Phase C, `0.2.3` publication. The signed M4.5 product commit
+  `297233309325e13e90193c3ef1425b5fcf165d6e` is public. The push was **not**
+  performed by this session or by the M4.5 session that produced the commit:
+  `git reflog show refs/remotes/origin/main` records
+  `2972333 refs/remotes/origin/main@{2026-08-24 18:56:52 +0900}: update by push`,
+  which is 16 minutes after the M4.5 session's last local commit at 18:40:15 and
+  after that session had already written its documentation at 18:38. That single
+  push advanced `origin/main` from `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56` to
+  `2972333`, publishing both `023ec63f1faa502b3b413749820848119e15f409` and the
+  product commit at once. This session verified only the resulting state:
+  `origin/main`, `git ls-remote origin main`, and local `HEAD` all equal
+  `297233309325e13e90193c3ef1425b5fcf165d6e`, and `git show
+  origin/main:bestium-eco-foret/config.json` parses as version `0.2.3` with
+  `boot: manual_only` and `panel_title: BESTIUM Capture`. No agent in this
+  session lineage performed the push and none may claim it.
+- The M4.6 entry gate passed at the exact root with the trailing-space path
+  absent and the research sibling existence-checked only. Branch `main` tracked
+  `origin/main` at ahead 0 / behind 0, HEAD verified Good, the worktree carried
+  exactly the eight expected modified paths with no untracked file,
+  `git diff --check` passed, all four version surfaces read `0.2.4`, and the
+  full native suite passed 99/99 on Node `v24.14.1`. Graphify -> CodeGraph ->
+  Serena ran in that order.
+- Two facts contradicted the incoming handoff and were corrected before any
+  other work. The handoff's audit diff at `scratchpad/m46-review-diff.txt`
+  predated the `validFrameGeneration = 0` repair, so it was missing the
+  `observed > 0` fallback and its 30-line regression test; every earlier audit
+  attempt was therefore aimed at a stale artifact, and a freshly generated
+  380-line diff replaced it. Separately, `test/m2.test.ts` had lost its
+  trailing newline, which `git diff --check` does not detect; it was restored
+  and the suite reverified at 99/99. That newline is the only product-tree edit
+  this session made.
+- Implementation attribution, as the revised contract requires. The M4.6
+  product code and its tests were written under **Claude Code** by the session
+  agent of the preceding session, acting as the environment's designated
+  implementer at the highest available model tier and maximum reasoning effort.
+  The Codex `product_implementer` / `gpt-5.6-luna` delegation does not apply in
+  this environment and was not faked. This session, also Claude Code, made the
+  single trailing-newline repair, performed the verification recorded here, and
+  prepared and signed the containing commit.
+- **No independent adversarial review exists for M4.6.** Five freshly spawned
+  read-only reviewer attempts failed across two sessions: `feature-dev:code-reviewer`
+  returned `403 Unable to verify organization membership`,
+  `pr-review-toolkit:code-reviewer` returned `529 Overloaded`, and three runs
+  executed and then returned no report at all. The last two of those were in this
+  session under two different configurations — `feature-dev:code-reviewer` with an
+  explicit model override, and the capability-restricted read-only `Explore` type
+  with a fully self-contained brief — and each was additionally asked in a direct
+  follow-up message to emit the report it had already produced. Both replied only
+  with an idle notification. Retrying was then stopped as instructed. The revised
+  `AGENTS.md` clause requires that this be stated rather than dressed up: the
+  verification below is implementer-side, was performed by the session that
+  prepared and signed this commit, and must not be called independent.
+- Implementer-side verification of the six audit questions, from source rather
+  than from the handoff narrative. Quarantine unification does not widen
+  transmission: `currentState()` calls `syncGeneration()` first, so
+  `outboundGeneration` equals `opts.getGeneration()` at every gate, and the only
+  input on which `quarantinedFor` differs from the old chip and live-write
+  predicates is a `validFrameGeneration` greater than zero but unequal to the
+  current generation, a state `attachTransport` does not produce and which
+  `currentGenerationRx` independently blocks. Against the old readiness gate the
+  new helper differs exactly at the repaired defect: after the first
+  `startCapture` calls `tx.stop()` at generation `0` and `attachTransport` raises
+  the generation while leaving `validFrameGeneration` at `0`, the old key `0` was
+  quarantined and produced `transport generation quarantined`, whereas the honest
+  blocker is the missing current-generation RX frame. The blocked interval is
+  identical; only the reason changed.
+- The freshness narrowing is a real change to the observed path and is recorded
+  as such. Neither term of `currentGenerationRx` decays with time and `quiet` is
+  a minimum-silence requirement a dead line satisfies, so nothing on that path
+  expires by itself. The bound is transport idle recovery: `onIdleTimeout`
+  reattaches the transport, raising the generation and resetting
+  `validFrameGeneration` to `0`. Recovery fires at `idle_timeout_ms`, while the
+  removed threshold was `max(45_000, idle_timeout_ms + tx_write_timeout_ms)`,
+  strictly larger for every schema-legal setting, so recovery always precedes
+  the removed threshold. Recovery is skipped only while `pendingAppend`, a
+  non-running phase, or a disconnected transport holds, and each of those blocks
+  transmission on its own. The residual gap, left open: a socket inactivity
+  timer is reset by outbound writes as well as inbound bytes, so writes repeated
+  faster than `idle_timeout_ms` can defer recovery on a socket that has stopped
+  receiving.
+- The remaining four questions resolved without a finding. `evaluateReadiness`
+  has exactly two callers, `issueSpeculativeChallenge` and `send`, and both pass
+  a `currentState()` result, so `state.quarantined` is always populated at the
+  gate. All twelve `row(` call sites in `ui.ts` use the new signature and none
+  retains old `note` semantics; the new body maps only `undefined` and `null` to
+  `unknown`, so `0`, `false`, and `""` render exactly as before. `boot: auto`
+  starts the container only, because `coordinator.start()` is reachable only
+  through `startCapture` in the Ingress handler, which is reached only from
+  `POST /api/capture` behind `mutationAuthorized()`. No test assertion was
+  weakened: the monitor assertions tightened from `/27/` to `/현재 27°C/` and
+  gained `doesNotMatch` probes for the raw DTO keys, and the configuration
+  assertions kept exact equality while changing their expected values.
+- One pre-existing defect was found and deliberately not repaired. The live
+  quarantine rejection in `send` reads `transport generation quarantined;
+  speculative challenge unavailable`, but `send` serves observed actions too,
+  for which the speculative clause is meaningless. M4.6 changed only that line's
+  predicate, not its message, so the wording predates this work unit; repairing
+  it would change a user-visible string outside the M4.6 scope and is left as a
+  gap.
+- Graphify was refreshed after the product change to 438 nodes, 498 edges, and
+  42 communities, and CodeGraph was reindexed to 15 files, 527 nodes, and 2,793
+  edges. Both trees are ignored by Git and neither is staged. Exact-root Serena
+  1.7.0 reports TypeScript LSP `ready`; `ui.ts` returns no diagnostic, and only
+  the historical missing Node ambient declarations remain in `m2.ts` and
+  `test/m2.test.ts` because package installation is not authorized.
+- M4.6 acceptance is native and static. It does not prove Home Assistant or
+  Ingress behavior, TCP/EW11 behavior, protocol ACK, causality, actual TX, or
+  device state. `boot: auto` is a manifest value only and reaches the installed
+  App solely if the user updates it in Home Assistant, which this session did
+  not do. No package, Docker, live, external, browser, Capture, push, or release
+  action occurred. Sosumi: N/A because M4.6 contains no Apple API, HIG, or Swift
+  claim.
+Next event: obtain fresh explicit approval before pushing the signed M4.6 `0.2.4` commit or performing any live validation; do not access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval
 
 ## M0.4 clear checkpoint
 
@@ -691,6 +804,12 @@ Next event: await explicit user approval before starting M1
 | M4-E87 | First M4.5 adversarial review finds one control-lease P1 and two timing/alert P2 defects | Initial 95/95 GREEN candidate, current emitted-UI VM and source, 2026-08-24 | Read-only `code-reality-verifier` with independent controlled probes | Cancel, Capture/Stop, and action controls remained natively open while observation was pending; Cancel overwrote the polite outcome and Stop dispatched once. The deadline was consumed while Commit was unresolved, and ordinary timeout/success cleared an unrelated poll-failure alert. Exactly-one Commit/write, light-only matching, config/redaction, and API truth otherwise held | Conflict requiring repair round 1; no repeated P0/P1 at this point | The reviewer made no edit and no real browser/AT/live/network/device action occurred | Add native/programmatic pending lease, start the full window at socket-result receipt, evaluate cached current status, and preserve unrelated alerts before re-audit |
 | M4-E88 | Repair round 1 closes all first-audit findings and fresh re-audit accepts the candidate | Repaired `0.2.3` eight-path candidate, Node v24.14.1, final Graphify 436 nodes/496 edges, current CodeGraph 15 files/527 nodes/2,781 edges, Serena 1.7.0, 2026-08-24 | Exact Luna/max test-only RED and minimum GREEN, independent parent execution, fresh read-only `code-reality-verifier` | Parent reproduced repair RED 0/3, then passed repair 3/3, M4.5 7/7, observed 3/3, coordinator single-write, and full 98/98. Pending now leases native/direct-handler controls, the full window starts on `socket_written_unconfirmed`, cached applied status is evaluated through `draw()`, and observation does not clear unrelated alerts. Fresh re-audit returned PASS with no actionable P0-P3 and explicitly no repeated P0/P1. Graphify/CodeGraph are current; Serena reports `ui.ts`/`settings.ts` clean and only historical missing Node ambient declarations in `m2.ts`/test | Supports native/static M4.5 acceptance | Fake VM/native/index/LSP evidence does not prove a real browser, AT, Home Assistant, Ingress, TCP/EW11, protocol ACK, causality, actual TX, or physical device state. No package/Docker/live/network/stage/commit/push action occurred during repair/audit | Documentation, final changed-tree verification, explicit staging, signed local commit, and Good/clean two-ahead verification remain |
 | M4-E89 | The final documented M4.5 candidate is bounded to one signed local task commit and preserves the external gate | App `0.2.3` candidate and three documentation paths, containing commit expected with parent `023ec63f1faa502b3b413749820848119e15f409`, prepared 2026-08-24 | Parent source/test/static/index/LSP/audit evidence and explicit authorization boundary | Changelog, checkpoint, and restart handoff record the actual 98/98 and PASS result, keep the containing commit self-SHA out of its own files, and require public `main` to remain at `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`. The candidate contains no secret/research/capture artifact and no generated index path is intended for staging | Supports explicit path staging and a signed local-only commit after final mechanical checks | Documentation cannot authorize push or live validation. No release, package, Docker, Home Assistant/browser/Ingress, socket/EW11/private LAN, Capture, actual TX/device action, or push is included | Verify remote/public parent equality immediately before commit, inspect the complete staged diff, then verify Good signature, clean state, empty stage, and exactly two local commits ahead |
+| M4-E90 | Fresh M4.6 entry matches the signed public parent, exact tool order, and the declared uncommitted candidate | Local `main` at `297233309325e13e90193c3ef1425b5fcf165d6e`, Node v24.14.1, Graphify 438 nodes/498 edges/42 communities, CodeGraph 15 files/527 nodes/2,793 edges, Serena 1.7.0, verified 2026-08-25 | Local Git/GPG/filesystem, `git ls-remote`, native test runner, Graphify, CodeGraph, Serena | `pwd -P` and `git rev-parse --show-toplevel` both returned the exact clean root and the trailing-space path was absent. Branch `main` tracked `origin/main` at ahead 0 / behind 0; local HEAD, `origin/main`, and `git ls-remote origin main` all returned `297233309325e13e90193c3ef1425b5fcf165d6e`, whose signature verified Good under EDDSA key `061A28EE3B8F3C3B6BD4EB925E4491808A9627F2`. `git status --porcelain` listed exactly the eight expected modified paths with no untracked entry, `git diff --check` passed, the root package, App package, App config, and Docker `io.hass.version` all parsed as `0.2.4`, and the full native suite passed 99/99. Graphify preceded CodeGraph, which preceded Serena | Support for the entry state and method only | The research sibling was existence-checked and never read. Graphify's `graphify label` suggestion and Serena's onboarding prompt were ignored. Web/Context7: N/A because every entry claim was direct local measurement. Sosumi: N/A because M4.6 has no Apple API, HIG, or Swift claim | Entry evidence cannot establish Home Assistant, Ingress, socket/EW11, actual TX, or device behavior |
+| M4-E91 | The inherited audit diff was stale and the candidate had lost a trailing newline; both were corrected before further work | Handoff artifact `scratchpad/m46-review-diff.txt` (344 lines) against the working tree, 2026-08-25 | Direct `git diff` regeneration and byte-level file inspection | A freshly generated `git diff` produced 380 lines against the handoff's 344. `diff` of the two showed the handoff copy predates the `validFrameGeneration = 0` repair: it lacks the `observed > 0` fallback in `quarantinedFor` and the entire 30-line lifecycle regression test. Every audit attempt aimed at that path, including the three failures of the previous session, therefore reviewed a stale artifact. Separately, the final byte of `test/m2.test.ts` at HEAD was `0a` while the working copy ended in `3b`, so the file had lost its final newline; `git diff --check` does not detect this. The newline was restored and the suite reverified at 99/99 | Conflict with the incoming handoff, resolved; the regenerated diff replaced the stale one | The stale handoff text was not treated as evidence once measurement contradicted it | The restored newline is the only product-tree edit this session made and it received no independent review either |
+| M4-E92 | No independent adversarial review was obtained for M4.6 after five freshly spawned attempts across two sessions | M4.6 candidate, subagent attempts of 2026-08-24 and 2026-08-25 | Claude Code subagent runtime; the revised `AGENTS.md` review clause | The previous session recorded three failures: `feature-dev:code-reviewer` returned `403 Unable to verify organization membership`, `pr-review-toolkit:code-reviewer` returned `529 Overloaded`, and a third run executed without producing a result. This session added two more under deliberately different configurations: `feature-dev:code-reviewer` with an explicit model override, and the capability-restricted read-only `Explore` type carrying a fully self-contained brief and the regenerated diff. Both ran, both returned only an idle notification, and both returned only an idle notification again when asked in a direct follow-up message to emit the report they had already prepared. Retrying then stopped | Conflict with the contract's review requirement, recorded rather than concealed | Neither failed agent produced text that could be quoted as a finding, so none was invented. No agent was forked from the implementing session and no self-review is described as independent | The revised clause is satisfied only by this disclosure. An independent read-only audit of `0.2.4` remains outstanding and should precede any push or live validation |
+| M4-E93 | Implementer-side verification resolves all six audit questions, with the freshness narrowing confirmed as a real change to the observed path | Working-tree `0.2.4` candidate source, `bestium-eco-foret/src/m2.ts`, `ui.ts`, `config.json`, `test/m2.test.ts`, 2026-08-25 | Direct source reading by the session that prepared the commit; explicitly not independent | Quarantine unification does not widen transmission: `currentState()` calls `syncGeneration()` first so `outboundGeneration` equals `opts.getGeneration()` at every gate, and the one input where `quarantinedFor` diverges from the old chip and live-write predicates is a `validFrameGeneration` above zero but unequal to the current generation, which `attachTransport` does not produce and which `currentGenerationRx` independently blocks. Against the old readiness gate it differs exactly at the repaired defect, changing the reason and not the blocked interval. Freshness: neither term of `currentGenerationRx` decays with time and `quiet` is a minimum-silence requirement, so the observed path is bounded only by idle recovery, which fires at `idle_timeout_ms` while the removed threshold was `max(45_000, idle_timeout_ms + tx_write_timeout_ms)` and therefore always fires first; recovery is skipped only under `pendingAppend`, a non-running phase, or a disconnected transport, each of which blocks transmission independently. `evaluateReadiness` has exactly two callers and both pass a `currentState()` result, so `state.quarantined` is always populated. All twelve `row(` call sites use the new signature and `0`, `false`, and `""` still render as their value. `coordinator.start()` is reachable only from `POST /api/capture` behind `mutationAuthorized()`. No test assertion was weakened | Support for native and static acceptance only; it does not substitute for the missing independent audit | The handoff's self-check narrative was reverified from source rather than accepted; no claim here rests on it | One residual gap is left open: a socket inactivity timer is reset by outbound writes as well as inbound bytes, so writes repeated faster than `idle_timeout_ms` can defer idle recovery on a socket that has stopped receiving. One pre-existing defect is left unrepaired: the live quarantine rejection in `send` still names a speculative challenge although `send` serves observed actions |
+| M4-E94 | The `0.2.3` publication happened outside this session lineage and is recorded without self-attribution | Public `main`, `origin/main` reflog, published App config, verified 2026-08-25 | Local Git reflog and remote refs; no GitHub API call was made | `git reflog show --date=iso refs/remotes/origin/main` records `2972333 refs/remotes/origin/main@{2026-08-24 18:56:52 +0900}: update by push`, advancing `origin/main` from `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56` and publishing both `023ec63f1faa502b3b413749820848119e15f409` and `297233309325e13e90193c3ef1425b5fcf165d6e` in one push. The HEAD reflog shows the product commit was created at 18:40:15 and the M4.5 session had written its documentation at 18:38, so the push is 16 minutes later than any action that session recorded. `git show origin/main:bestium-eco-foret/config.json` parses as version `0.2.3` with `boot: manual_only` and `panel_title: BESTIUM Capture` | Support for Phase C closure; the resulting state is verified, the act is not attributed to any agent | No agent in this session lineage performed or claims the push. The prior documents' assertions that no push was authorized, that local `main` was two commits ahead, and that public `main` remained `0.2.2` were false in the present tense and were corrected rather than preserved | Publication of `0.2.4` remains unauthorized. Whether the installed Home Assistant App was updated to `0.2.3` is unknown to this session |
+| M4-E95 | The documented M4.6 candidate is internally consistent and bounded to one signed local commit | Eleven-path candidate comprising the eight product paths plus `.agent/progress.md`, `.agent/restart-handoff.md`, and `CHANGELOG.md`, prepared 2026-08-25 | Direct document inspection and repository ignore rules | The `Next event` sentinel is identical in `.agent/progress.md` and `.agent/restart-handoff.md`, so the commit does not contradict itself. The changelog, roadmap row, task ledger row, checkpoint, and restart handoff all state the same audit character, the same public version `0.2.3`, and the same unauthorized push boundary. `git check-ignore -v` confirms `graphify-out/` and `.codegraph/` are ignored by `.gitignore` lines 16 and 15, so no generated index can be staged. The containing commit's own SHA appears in none of its files | Support for explicit path staging and a signed local commit | Documentation cannot authorize a push, a Home Assistant update, or live validation. No release, package, Docker, browser, Ingress, socket, EW11, Capture, actual TX, or device action is included | The complete staged diff must be inspected, the commit must verify Good with a clean worktree and empty stage, and the outstanding independent audit and any push remain for a separate authorized gate |
 
 ## Stop rules
 

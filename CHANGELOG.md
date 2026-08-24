@@ -4,6 +4,93 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-25
+
+### Fixed
+
+- Unify the three divergent transport-quarantine predicates behind a single
+  `quarantinedFor(state)` helper so the status chip, the readiness gate, the
+  live write, and the speculative challenge all answer the same question. The
+  chip previously keyed on the outbound generation while the gate keyed on
+  `validFrameGeneration ?? getGeneration()`, so the UI and the gate could
+  disagree.
+- Stop treating a fresh transport's `validFrameGeneration` of `0` as
+  "generation zero". `attachTransport` sets it to `0` to mean "no valid frame
+  observed yet in this generation", so using it as a quarantine lookup key
+  reported `transport generation quarantined` for a quarantine that never
+  happened. Because the first `startCapture` calls `tx.stop()` before raising
+  the generation, generation `0` really is quarantined, and every new transport
+  inherited that false reason until its first frame arrived. The blocked
+  interval is unchanged — `currentGenerationRx` was already false — but the
+  reported reason is now the honest one.
+- Render monitor values label-first with their unit: `현재 29°C · stale`
+  instead of `29 · stale · currentC`. The raw DTO key no longer trails the
+  value, and adjacent monitor spans are block-level so they cannot run
+  together.
+
+### Changed
+
+- Require RX freshness only for inferred and unsafe actions. An observed
+  control action is no longer refused merely because the wallpad bus went
+  quiet. It still requires `connected`, the quiet interval, and a
+  current-generation valid RX frame, and RAW and speculative transmission keep
+  the full freshness gate. See the freshness note under Verification: this
+  removes a time-decay gate from the observed path.
+- `boot` is `auto`, the Ingress panel is titled `BESTIUM 월패드`, and the App
+  name and description now describe wallpad monitoring and guarded control
+  rather than capture alone. `boot: auto` starts the container only; opening a
+  socket and starting capture still require an authorized `POST /api/capture`.
+
+### Verification
+
+- Tests were changed to the M4.6 expectations before the product code, producing
+  5 RED of 99 on exactly the intended items — three version surfaces,
+  label-first rendering, and quarantine chip/gate agreement. A separate RED was
+  written for the `validFrameGeneration = 0` defect before it was repaired. The
+  full native suite passes 99/99 on Node `v24.14.1`, `git diff --check` passes,
+  and all four version surfaces match `0.2.4`.
+- Freshness note, recorded because narrowing the gate is a real change and not
+  a neutral refactor. Neither term of `currentGenerationRx`
+  (`validFrameGeneration === outboundGeneration && validFrameEpoch > 0`) decays
+  with time, and `quiet` is a minimum-silence requirement that a dead line
+  satisfies trivially, so nothing on the observed path decays by itself. What
+  bounds it is transport idle recovery: `onIdleTimeout` reattaches the
+  transport, which raises the generation and resets `validFrameGeneration` to
+  `0`, after which `currentGenerationRx` is false. Recovery fires at
+  `idle_timeout_ms` of socket inactivity, while the removed freshness threshold
+  was `max(45_000, idle_timeout_ms + tx_write_timeout_ms)`, which is strictly
+  larger for every schema-legal setting (`idle_timeout_ms` is
+  `int(5000,3600000)` with default 30,000 ms). Idle recovery therefore always
+  precedes the threshold that was removed, and in every state where the old
+  gate would have blocked, `currentGenerationRx` already blocks. Idle recovery
+  is skipped only while `pendingAppend`, a non-running phase, or a disconnected
+  transport holds, and each of those independently blocks transmission on its
+  own. One residual gap remains and is not closed here: a socket inactivity
+  timer is reset by outbound writes as well as inbound bytes, so writes
+  repeated faster than `idle_timeout_ms` can defer recovery on a socket that
+  has stopped receiving, and `tx_cooldown_ms` (default 250 ms, minimum 0) does
+  not prevent that rate. `getTxStatus` still reports `fresh`, so the UI can
+  display staleness where the gate no longer enforces it.
+- **No independent adversarial review was obtained for M4.6.** Five freshly
+  spawned read-only reviewer attempts failed across two sessions: one
+  `403 Unable to verify organization membership`, one `529 Overloaded`, and
+  three runs that executed and then returned no report, including two in this
+  session under two different agent types with an explicit retrieval request
+  each. What exists is implementer-side verification only, performed by the
+  session that prepared and signed this commit. It must not be described as
+  independent.
+- Graphify is refreshed at 438 nodes/498 edges/42 communities and CodeGraph at
+  15 files/527 nodes/2,793 edges. Exact-root Serena 1.7.0 reports TypeScript LSP
+  `ready`; `ui.ts` is diagnostic-clean and only the historical missing Node
+  ambient declarations remain in `m2.ts` and the native test, because package
+  installation is not authorized.
+- These are native and static results. They do not prove Home Assistant or
+  Ingress behavior, TCP/EW11 behavior, protocol ACK, causality, actual TX, or
+  device state. `boot: auto` reaches the installed App only if the user updates
+  it in Home Assistant, which this session did not do. No package, Docker,
+  live, external, push, or release action occurred. Sosumi: N/A because M4.6
+  contains no Apple API, HIG, or Swift claim.
+
 ## [0.2.3] - 2026-08-24
 
 ### Fixed
