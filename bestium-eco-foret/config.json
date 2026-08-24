@@ -2,7 +2,7 @@
   "name": "BESTIUM Eco-Foret Home Assistant App",
   "slug": "bestium-eco-foret",
   "description": "Bestium Eco-Foret debug monitor with bounded RX capture and guarded semantic TX preview.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "arch": [
     "aarch64",
     "amd64"

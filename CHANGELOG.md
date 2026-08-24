@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-24
+
+### Fixed
+
+- Allow an observed action whose preview was temporarily not ready or whose
+  readiness revision changed to become committable only after a successful
+  status request that started after the preview completed and reports every
+  current TX gate green.
+- Keep cached green state and status requests already in flight before preview
+  from enabling Commit. Matching ready observed previews retain their immediate
+  strict path; inferred and unsafe actions retain strict revision and challenge
+  binding.
+
+### Verification
+
+- Exact project-local Luna/max reproduced cached-status and pre-preview
+  in-flight request REDs before applying the minimum poll-request epoch fix.
+  The three observed regressions pass 3/3 and the full native suite passes
+  91/91; all package/config/Docker version surfaces match `0.2.2`, and both diff
+  checks pass.
+- Current Graphify and CodeGraph flow checks pass. Exact-root Serena reports
+  `ui.ts` clean and only the five historical missing Node ambient-module
+  diagnostics in the native test. Current official Node 24 and Context7 test
+  runner evidence was refreshed. Sosumi: N/A because there is no Apple claim.
+- The final read-only adversarial audit passed with no actionable P0-P3. Its
+  independent VM canary blocked a pre-preview in-flight response, and a mutant
+  that reverted to applied-status timing was killed by the new regression.
+- These native/static results do not prove Home Assistant, Ingress, socket,
+  EW11, actual TX, or device behavior. No agent-operated live action occurred.
+
 ## [0.2.1] - 2026-08-24
 
 ### Fixed
