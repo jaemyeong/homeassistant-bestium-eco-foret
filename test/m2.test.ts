@@ -3010,6 +3010,12 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
   lastValidFrameAtMs = lastRxByteAtMs;
   lastResumeAtMs = lastRxByteAtMs;
 
+  // M4.8: inbound bytes are ordinary operation, not a hazard. Binding the challenge to
+  // rxByteEpoch/readEpoch/readinessRevision made every confirmation a race against the
+  // next frame, so on a live bus the commit almost always died as "challenge stale".
+  // The live conditions those counters stood in for — connected, currentGenerationRx,
+  // fresh, quiet, lastValidFrameAtMs — are re-checked independently at commit time.
+  const staleReason = /RX byte epoch|read epoch|readiness revision/i;
   const raceChallenge = coordinator.issueSpeculativeChallenge(candidate, {
     userId: "operator-7",
     confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
@@ -3017,10 +3023,24 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
   });
   rxByteEpoch += 1;
   lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: raceChallenge.id }),
-    /rx|byte|race|stale|challenge/i,
+  // rejectChallenge runs before the transport check, so a disconnected transport lets the
+  // challenge be validated and then stops short of an actual write: whatever comes back
+  // names the first gate the commit really hit.
+  connected = false;
+  const raceResult = await coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: raceChallenge.id });
+  connected = true;
+  assert.doesNotMatch(
+    JSON.stringify(raceResult),
+    staleReason,
+    "an inbound frame arriving after the confirmation must not invalidate the challenge",
   );
+  assert.match(JSON.stringify(raceResult), /transport not connected/i, "the commit must stop at the real gate instead");
+
+  // Accepting a challenge starts the speculative cooldown, so clear it before the next one.
+  timer.advance(settings.speculative_tx_cooldown_ms! + 1);
+  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
+  lastValidFrameAtMs = lastRxByteAtMs;
+  lastResumeAtMs = lastRxByteAtMs;
 
   const readChallenge = coordinator.issueSpeculativeChallenge(candidate, {
     userId: "operator-7",
@@ -3028,10 +3048,20 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
     schedule: "immediate",
   });
   readEpoch += 1;
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: readChallenge.id }),
-    /read|resume|stale|challenge/i,
+  connected = false;
+  const readResult = await coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: readChallenge.id });
+  connected = true;
+  assert.doesNotMatch(
+    JSON.stringify(readResult),
+    staleReason,
+    "a capture read advancing after the confirmation must not invalidate the challenge",
   );
+  assert.match(JSON.stringify(readResult), /transport not connected/i, "the commit must stop at the real gate instead");
+
+  timer.advance(settings.speculative_tx_cooldown_ms! + 1);
+  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
+  lastValidFrameAtMs = lastRxByteAtMs;
+  lastResumeAtMs = lastRxByteAtMs;
 
   const tailChallenge = coordinator.issueSpeculativeChallenge(candidate, {
     userId: "operator-7",

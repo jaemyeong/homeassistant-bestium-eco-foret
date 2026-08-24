@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop binding a speculative challenge to inbound byte counters. `rejectChallenge`
+  required `rxByteEpoch`, `readEpoch`, and `readinessRevision` to be unchanged
+  between issuing a challenge and committing it, and all three advance on every
+  received byte. On a live wallpad bus that made every confirmation a race
+  against the next frame, so the commit usually died as
+  `challenge RX byte epoch stale` — which is why heating zones 2–4, the elevator,
+  the entrances, and the RAW lab only ever worked if the click landed inside the
+  gap between frames. The challenge still binds the user, action, frames,
+  schedule, transport generation, and our own outbound tail, and every live
+  condition the inbound counters stood in for — connected, current-generation RX,
+  freshness, the quiet interval, quarantine — is re-checked independently at
+  commit time.
+
 ### Changed
 
 - Apply the Home Assistant design system across the page, from

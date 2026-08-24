@@ -1220,10 +1220,13 @@ export function createTxCoordinator(opts: {
     if (record.frames !== framesFor(encoded).map(frameHex).join(",")) return "challenge frame mismatch";
     if (record.schedule !== (request.schedule ?? "immediate")) return "challenge schedule mismatch";
     if (record.generation !== opts.getGeneration()) return "challenge generation stale";
-    if (record.rxByteEpoch !== state.rxByteEpoch) return "challenge RX byte epoch stale";
-    if (record.readEpoch !== state.readEpoch) return "challenge read epoch stale";
+    // The challenge deliberately does NOT bind inbound counters. rxByteEpoch, readEpoch
+    // and readinessRevision all advance on every received byte, so binding them made a
+    // confirmation a race against the next frame and the commit almost always died on a
+    // live bus. Every live condition they stood in for — connected, currentGenerationRx,
+    // fresh, quiet, lastValidFrameAtMs, quarantine — is re-checked below at commit time.
+    // The outbound tail stays bound: our own intervening write is a real hazard.
     if (record.txByteEpoch !== state.txByteEpoch || record.tailHash !== state.tailHash) return "challenge TX tail stale";
-    if (record.readinessRevision !== state.readinessRevision) return "challenge readiness revision stale";
     record.consumed = true;
     return null;
   };
