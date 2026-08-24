@@ -26,20 +26,24 @@ commit is not permitted and each correction had to land on its own.
 3. `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`,
    `fix(m4): restore rx freshness gate for observed actions`. Repair round 1
    against the P0 an independent audit found in (1).
-4. The containing commit, which cannot carry its own SHA. It must have subject
-   `docs(m4): record repair re-audit pass`, parent
-   `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`, a Good signature, and a clean
-   worktree. It records the fresh independent re-audit that accepted (3) at PASS
-   and refreshes the index counts, which (3) still reported from before the
-   repair.
+4. `cd4d827189f96d484ed3445f517950e6573cb1fe`,
+   `docs(m4): record repair re-audit pass`. Records the fresh independent
+   re-audit that accepted (3) at PASS and refreshes the index counts, which (3)
+   still reported from before the repair.
+
+All four are published. The containing publication record, which cannot carry
+its own SHA, must have subject `docs(m4): record 0.2.4 publication`, parent
+`cd4d827189f96d484ed3445f517950e6573cb1fe`, a Good signature, and a clean
+worktree.
 
 ## Publication state
 
-Public `main` is at `0.2.3`. Its commit
-`297233309325e13e90193c3ef1425b5fcf165d6e` equals `origin/main` and
-`git ls-remote origin main`, and `git show
-origin/main:bestium-eco-foret/config.json` parses as version `0.2.3` with
-`boot: manual_only` and `panel_title: BESTIUM Capture`.
+Public `main` is at `0.2.4`. Its commit
+`cd4d827189f96d484ed3445f517950e6573cb1fe` equals `origin/main` and
+`git ls-remote origin main`; GitHub reports it `verified: true` / `reason:
+valid`, and the public `bestium-eco-foret/config.json` parses as version `0.2.4`
+with `boot: auto` and `panel_title: BESTIUM 월패드`. The repository is PUBLIC
+with default branch `main`.
 
 That publication was **not** performed by this session lineage. The reflog
 records `2972333 refs/remotes/origin/main@{2026-08-24 18:56:52 +0900}: update by
@@ -51,8 +55,15 @@ documents asserting that no push was authorized, that local `main` was two
 commits ahead, and that public `main` remained `0.2.2` were false in the present
 tense and have been corrected.
 
-Publishing `0.2.4` is **not** authorized. After the containing commit, local
-`main` is exactly four signed commits ahead of public `main`.
+`0.2.4` was published on 2026-08-25 by an ordinary fast-forward push after the
+user explicitly authorized it, advancing `origin/main` from
+`297233309325e13e90193c3ef1425b5fcf165d6e` by exactly the four signed commits
+listed above. That authorization covered the product history and this
+contract-required publication record only.
+
+**The installed Home Assistant App is not updated by that push.** `boot: auto`
+and the new panel title reach the running add-on only when the user updates it
+in Home Assistant. This session did not do that and is not authorized to.
 
 ## Accepted native/static result
 
@@ -178,19 +189,17 @@ research sibling은 존재 여부만 확인하고 내용을 읽지 마.
 다음을 확인해:
 
 - exact root/toplevel과 trailing-space path 부재
-- HEAD subject `docs(m4): record repair re-audit pass`, parent
-  `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`, Good signature
-- parent subject `fix(m4): restore rx freshness gate for observed actions`,
-  Good signature
-- clean worktree, empty staging, local `main`이 정확히 4 commits ahead
-- `origin/main`, `git ls-remote origin main`, public GitHub `main`이 모두
-  `297233309325e13e90193c3ef1425b5fcf165d6e`이고 public config는 `0.2.3`
+- HEAD subject `docs(m4): record 0.2.4 publication`, parent
+  `cd4d827189f96d484ed3445f517950e6573cb1fe`, Good signature
+- clean worktree, empty staging, local `main`이 정확히 1 commit ahead
+- `origin/main`과 `git ls-remote origin main`이
+  `cd4d827189f96d484ed3445f517950e6573cb1fe`이고 public config는 `0.2.4`
 - root/App/config/Docker version equality at `0.2.4`
 - Node `v24.14.1`, full native 99/99, `git diff --check`
 - Graphify 443 nodes/503 edges, CodeGraph 15 files/527 nodes/2,797 edges,
   exact-root Serena TypeScript LSP `ready`
 - Current checkpoint sentinel exactly:
-  `Next event: obtain fresh explicit approval before pushing the signed M4.6 `0.2.4` commit or performing any live validation; do not access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval`
+  `Next event: obtain fresh explicit approval before any live M4.6 validation; the user must update the installed App in Home Assistant themselves for `0.2.4` to take effect, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval`
 
 M4.6은 독립 적대적 감사를 6번째 시도에서 받았고, 그 감사가 찾은 P0을
 repair round 1에서 수리했으며, 별도의 새 독립 재감사가 그 수리를 PASS로
@@ -214,4 +223,4 @@ Assistant update to `0.2.4`, or any live canary requires fresh explicit user
 authorization and a new bounded gate. The outstanding independent audit should
 come before any of them.
 
-Next event: obtain fresh explicit approval before pushing the signed M4.6 `0.2.4` commit or performing any live validation; do not access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval
+Next event: obtain fresh explicit approval before any live M4.6 validation; the user must update the installed App in Home Assistant themselves for `0.2.4` to take effect, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval

@@ -116,9 +116,13 @@ All notable changes to this project are documented here.
 - These are native and static results. They do not prove Home Assistant or
   Ingress behavior, TCP/EW11 behavior, protocol ACK, causality, actual TX, or
   device state. `boot: auto` reaches the installed App only if the user updates
-  it in Home Assistant, which this session did not do. No package, Docker,
-  live, external, push, or release action occurred. Sosumi: N/A because M4.6
-  contains no Apple API, HIG, or Swift claim.
+  it in Home Assistant, which this session did not do. This release was
+  published to public `main` by an ordinary fast-forward push on 2026-08-25
+  after the user explicitly authorized it; GitHub reports the head commit
+  `verified: true` / `reason: valid` and the public config parses as `0.2.4`
+  with `boot: auto`. No package, Docker, live, external, force-push, or release
+  action occurred. Sosumi: N/A because M4.6 contains no Apple API, HIG, or Swift
+  claim.
 
 ## [0.2.3] - 2026-08-24
 
