@@ -43,12 +43,26 @@ All notable changes to this project are documented here.
 
 ### Verification
 
-- Tests were changed to the M4.6 expectations before the product code, producing
-  5 RED of 99 on exactly the intended items — three version surfaces,
-  label-first rendering, and quarantine chip/gate agreement. A separate RED was
-  written for the `validFrameGeneration = 0` defect before it was repaired. The
-  full native suite passes 99/99 on Node `v24.14.1`, `git diff --check` passes,
-  and all four version surfaces match `0.2.4`.
+- Reverting the six product and configuration paths to the parent commit while
+  holding the tests at their M4.6 expectations reproduces exactly 5 failures of
+  99, measured in this session: `RED: URL-installable repository layout is
+  canonical`, `RED: config strictness and exact static contract`,
+  `RED: Dockerfile allowlist and pinned production constraints`,
+  `RED-exception: actual status JSON drives the emitted UI monitor with 1-based
+  device DTOs`, and `M4.6 RED: quarantine chip matches the gate and observed
+  control survives a quiet bus`. That demonstrates the tests encode the M4.6
+  expectations independently of the implementation; it is not itself evidence of
+  authoring order, and the tests-first ordering is inherited from the preceding
+  session's record rather than observed here. The full native suite passes
+  99/99 on Node `v24.14.1`, `git diff --check` passes, and all four version
+  surfaces match `0.2.4`.
+- Two targeted mutants were killed, which is the only partial substitute
+  available for the missing independent audit. Restoring `quarantinedFor` to its
+  old `validFrameGeneration ?? getGeneration()` form fails the assertion that a
+  generation which has not yet observed a frame must not be reported as
+  quarantined. Removing both narrowed freshness gates outright fails the
+  assertion that RAW transmission keeps the freshness requirement. Each mutant
+  produced exactly one failure and the tree was restored to 99/99 afterwards.
 - Freshness note, recorded because narrowing the gate is a real change and not
   a neutral refactor. Neither term of `currentGenerationRx`
   (`validFrameGeneration === outboundGeneration && validFrameEpoch > 0`) decays

@@ -13,10 +13,15 @@ The former trailing-space path must remain absent. The research sibling at
 existence-checked only. Do not read or copy its contents; M4.6 used no legacy
 evidence.
 
-This document cannot contain the SHA of its own commit. The containing local
-task commit must have subject `fix(m4): unify tx quarantine and monitor labels`,
-parent `297233309325e13e90193c3ef1425b5fcf165d6e`, a Good signature, and a clean
-worktree.
+The M4.6 work unit is two signed local commits. The product commit is
+`d4463c5db4a09d440133a99249ac2b4f53680303`, subject
+`fix(m4): unify tx quarantine and monitor labels`, parent
+`297233309325e13e90193c3ef1425b5fcf165d6e`. This document cannot contain the SHA
+of its own commit; the containing documentation correction must have subject
+`docs(m4): record measured m4.6 red and mutants`, parent `d4463c5db4a09d440133a99249ac2b4f53680303`,
+a Good signature, and a clean worktree. It exists because the product commit
+asserted a tests-first RED enumeration inherited from the preceding session
+rather than measured, and amending a signed commit is not permitted.
 
 ## Publication state
 
@@ -37,7 +42,7 @@ commits ahead, and that public `main` remained `0.2.2` were false in the present
 tense and have been corrected.
 
 Publishing `0.2.4` is **not** authorized. After the containing commit, local
-`main` is exactly one signed commit ahead of public `main`.
+`main` is exactly two signed commits ahead of public `main`.
 
 ## Accepted native/static result
 
@@ -71,10 +76,23 @@ Publishing `0.2.4` is **not** authorized. After the containing commit, local
   branch/upstream at ahead 0 / behind 0, Good parent signature, the exact eight
   modified paths with no untracked file, `git diff --check`, and four version
   surfaces at `0.2.4` all passed. Node is `v24.14.1`.
-- Tests were changed to the M4.6 expectations first, producing 5 RED of 99 on
-  the intended items, and a separate RED was written for the
-  `validFrameGeneration = 0` defect before it was repaired. The full native
-  suite now passes 99/99.
+- Reverting the six product and configuration paths to the parent commit while
+  holding the tests at their M4.6 expectations reproduces exactly 5 failures of
+  99, measured in this session: `RED: URL-installable repository layout is
+  canonical`, `RED: config strictness and exact static contract`,
+  `RED: Dockerfile allowlist and pinned production constraints`,
+  `RED-exception: actual status JSON drives the emitted UI monitor with 1-based
+  device DTOs`, and `M4.6 RED: quarantine chip matches the gate and observed
+  control survives a quiet bus`. That demonstrates the tests encode the M4.6
+  expectations independently of the implementation; it is not itself evidence of
+  authoring order, and the tests-first ordering is inherited from the preceding
+  session's record rather than observed here. The full native suite passes 99/99.
+- Two targeted mutants were killed. Restoring `quarantinedFor` to its old
+  `validFrameGeneration ?? getGeneration()` form fails the assertion that a
+  generation which has not yet observed a frame must not be reported as
+  quarantined; removing both narrowed freshness gates fails the assertion that
+  RAW transmission keeps the freshness requirement. This is a partial substitute
+  for the missing independent audit, not a replacement for it.
 - The M4.6 product code and its tests were written under Claude Code by the
   preceding session's agent, acting as this environment's designated implementer
   at the highest available model tier and maximum reasoning effort. The Codex
@@ -137,9 +155,11 @@ research sibling은 존재 여부만 확인하고 내용을 읽지 마.
 다음을 확인해:
 
 - exact root/toplevel과 trailing-space path 부재
-- HEAD subject `fix(m4): unify tx quarantine and monitor labels`, parent
+- HEAD subject `docs(m4): record measured m4.6 red and mutants`, parent
+  `d4463c5db4a09d440133a99249ac2b4f53680303`, Good signature
+- parent subject `fix(m4): unify tx quarantine and monitor labels`, parent
   `297233309325e13e90193c3ef1425b5fcf165d6e`, Good signature
-- clean worktree, empty staging, local `main`이 정확히 1 commit ahead
+- clean worktree, empty staging, local `main`이 정확히 2 commits ahead
 - `origin/main`, `git ls-remote origin main`, public GitHub `main`이 모두
   `297233309325e13e90193c3ef1425b5fcf165d6e`이고 public config는 `0.2.3`
 - root/App/config/Docker version equality at `0.2.4`
