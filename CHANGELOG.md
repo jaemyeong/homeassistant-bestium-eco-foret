@@ -6,6 +6,14 @@ All notable changes to this project are documented here.
 
 ### Changed
 
+- Apply the Home Assistant design system across the page, from
+  `Bestium Wallpad UI.dc.html` and the design system's own token and component
+  files. The stylesheet is rewritten to the HA tokens and `ha-*` component
+  geometry, the page gains the design's header bar and a `제어` / `디버그` tab
+  row, and the content sits in a centred surface. Every existing element id and
+  the two-activation review flow are preserved, so the emitted UI's behaviour is
+  unchanged; the design's one-tap switch is deliberately not adopted because it
+  would collapse preview and commit into a single activation.
 - Replace the twelve transmission-gate chips with one send banner, taken from the
   canonical `SendBanner.dc.html` design. The banner states why control is
   unavailable in terms of consequence rather than gate name, and puts the
