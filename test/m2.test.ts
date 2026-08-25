@@ -6941,3 +6941,42 @@ test("M4.8 RED: the banner ends every send at confirmed or unconfirmed, never si
   assert.doesNotMatch(title(unseen), /실패|failed|failure/i, "the headline must not call an unobserved write a failure");
   assert.match(detail(unseen), /실패로 기록하지 않습니다/, "the page must say plainly that this is not recorded as a failure");
 });
+
+test("M4.8 RED: the confirmation sits under the banner and only appears when it is needed", async () => {
+  const uiModule = await import(pathToFileURL(path(paths.uiSource)).href) as AnyRecord;
+  const html = String(uiModule.renderAppHtml());
+  // The operator could not find the confirmation because it lived below every control
+  // card. It now follows the banner that asks for it.
+  assert.ok(
+    html.indexOf('id="review"') < html.indexOf('id="light-1-on"'),
+    "the confirmation card must precede the controls, not trail them",
+  );
+  assert.match(html, /id="review"[^>]*data-active="false"/, "the confirmation starts hidden");
+
+  const status = uiStatusPayload();
+  const fixture = await createUiVmFixture(status, (url, init) => {
+    if (!String(url).includes("/api/action")) return uiJsonResponse(status);
+    const body = JSON.parse(String((init as AnyRecord)?.body ?? "{}")) as AnyRecord;
+    if (body.mode === "preview") {
+      return uiJsonResponse({
+        preview: true, outcome: "preview", evidence: "inferred_candidate", ready: true, reasons: [],
+        readinessRevision: (status.tx as AnyRecord).readinessRevision, frameHex: "f70b01180240110100b6ee",
+      });
+    }
+    return uiJsonResponse({ outcome: "socket_written_unconfirmed", deviceConfirmed: false });
+  });
+  await fixture.flush();
+  assert.equal(fixture.nodes.get("review")?.attributes?.["data-active"], "false", "nothing to confirm yet");
+  fixture.click("heat-zone-2-on");
+  await fixture.flush();
+  assert.equal(
+    fixture.nodes.get("review")?.attributes?.["data-active"],
+    "true",
+    "a candidate awaiting its typed confirmation must reveal the confirmation card",
+  );
+  assert.match(
+    String(fixture.nodes.get("gate-banner-fix")?.textContent ?? ""),
+    /확인 문구/,
+    "the banner must say what the pending confirmation needs",
+  );
+});

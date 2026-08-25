@@ -6,6 +6,12 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Move the typed confirmation under the banner that asks for it, and hide it
+  until something needs confirming. The operator's report that the light button
+  did nothing was exactly this: the second activation lived in a card below every
+  control and they never found it. A candidate tap now turns the banner to
+  `확인이 필요합니다`, names the action, says the control was never observed, and
+  the confirmation card appears directly beneath it.
 - Rebuild the debug surface to the design. Packet capture reports elapsed time,
   record count, received bytes, and stored file size with the capture's filename;
   the received-frame log is a table of 계열, 16진수, 해석, and 경과 with the series
