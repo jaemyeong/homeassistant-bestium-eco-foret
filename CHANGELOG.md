@@ -4,6 +4,75 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-08-25
+
+A capture taken while the operator worked the wallpad by hand carried real commands and
+their replies, so heating stopped being guesswork. `.agent/spec-device-protocol.md` has
+the full derivation and the evidence tag for every device.
+
+### Fixed
+
+- Send the heating frames the wallpad itself sends. What went out before was shaped like
+  a status reply, used sub-command `0x40` where the bus uses `0x46` for On/Off and `0x45`
+  for the target temperature, carried the zone as an extra byte, and declared a length one
+  short. The wallpad could not parse any of it, which is exactly the "nothing happens" the
+  operator reported. All ten commands observed on the bus — four zones on, four off, and
+  two temperature settings — are now reproduced byte for byte.
+- Correct the length byte in every frame the encoder builds. `makeF7` counted
+  `payload.length + 3` for a frame that is `payload.length + 4` bytes. The lights escaped
+  because their frames are literal hex; heating did not. The test builder and its assertion
+  carried the same off-by-one, which is how an encoder that declared the wrong length passed
+  a suite for four releases.
+- Stop reading a heating command frame as a source of state. A command says what was asked
+  for, not what happened, and the layout the decoder expected only ever fitted the frame we
+  had invented ourselves. Encoder, decoder, test builder and test assertion all agreed with
+  each other and with nothing on the bus.
+- Read the reply that answers a command. The heating reply is 18 bytes and the single-light
+  reply is 11; the decoder required 38 and 9 bytes of payload and discarded both. It only
+  ever consumed the periodic replies, which is why a send had to wait up to a full 2.2 s
+  poll cycle to confirm. Both are now split on the address byte instead of the length.
+- Show the direction the elevator is actually travelling. The decoder accepted `0xA5`,
+  which appears nowhere in 306 s of capture, and refused `0xA6` and `0xB6`, which are what
+  the bus carries while the car moves. A travelling car read as unknown for its whole trip.
+- Stop the household call from latching. `call: true` had no clearing path: measured on the
+  capture it went true at +274 s and was still true at +306 s. The bus carries no "call
+  ended" frame, so the flag now lives exactly as long as the frame that raised it stays fresh.
+- Keep the entrance poll frames. All 181 of them were dropped by a length guard, so the
+  communal entrance never received a single value in 306 s. What they carry is still unknown;
+  they now stamp freshness until a capture with a live call decodes them.
+- Report the frames a multi-frame action will send. `frames.map(hexOf)` handed the array
+  index to `hexOf` as its byte limit, so the entrance macro previewed as `["", "7f", "7fb8"]`
+  while sending the correct bytes.
+- Put a button's tinted surface behind its label. `button` opens a stacking context, so its
+  absolutely positioned `::before` painted over the text. At 16% opacity the label showed
+  through; the six `.warning` buttons run it at full opacity and have rendered as blank
+  orange rectangles since 0.2.5 — the three entrance macros, both elevator calls, and the
+  candidate challenge button. Found by opening the page in a browser, not by the suite.
+
+### Changed
+
+- Every heating zone is an `inferred_candidate`. Zone 1 alone used to claim `observed` on a
+  frame that matched no capture and no command, while zones 2–4 carried the identical
+  construction as candidates. The frames are now capture-verified, but the add-on has never
+  actuated heating with them and `observed` means one tap with no confirmation, so the
+  promotion waits for a live result.
+- Call the elevator with a command instead of replaying a status broadcast. What went out
+  before was the wallpad's own query to the hallway pad, containing a movement code that
+  never appears on this bus. The legacy add-on for this building ships
+  `elevator_packet_call_type: 0` and `elevator_packet_command_call_down_value: 6`, which is
+  `F7 0B 01 34 02 41 10 06 00 XX EE`. Up is `0x05` by the same builder, but the legacy marks
+  call state 5 as 상행호출중(미지원), so the page says so on the button.
+- Turn all-zones-off into the four verified zone frames in sequence. Neither the bus nor the
+  legacy implementation has a batch heating command; the single frame this used to send was
+  invented.
+- Name the entrance buttons after what they do. Each sends the legacy door-open macro —
+  video bypass on, lock release, bypass off, 200 ms apart — and the label named a state, so
+  nothing on the page said that pressing one unlocks the entrance. The card now also records
+  that no `0x7F` frame has ever been seen on this bus, that the legacy treats the subphone as
+  a separate RS485 line, and that the server's compatibility gate is what blocks these sends.
+- Drop the parser's `declared + 1` length candidate. It existed to read the frames we had
+  invented; the whole capture reparses identically without it.
+
 ## [0.2.6] - 2026-08-25
 
 ### Fixed

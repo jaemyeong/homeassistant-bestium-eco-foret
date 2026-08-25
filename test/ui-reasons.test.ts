@@ -64,3 +64,52 @@ test("M4.9 RED: the blocked-send paths word their reason rather than passing Eng
     assert.ok(html.includes(marker), `blocked-send path must word its reason: ${marker}`);
   }
 });
+
+test("0.2.7 RED: a button's tinted surface sits behind its label, never over it", () => {
+  // `button` sets position:relative with z-index:0, so it makes a stacking context and an
+  // absolutely positioned ::before inside it paints above the inline label. At opacity .16
+  // the label showed through; the .warning buttons run the tint at opacity 1, so all six of
+  // them — the three entrance macros, both elevator calls and the candidate challenge —
+  // rendered as blank orange rectangles from 0.2.5 until this was found in a real browser.
+  const html = renderAppHtml();
+  const rule = /button::before \{[^}]*\}/.exec(html);
+  assert.ok(rule, "the button surface rule must exist");
+  assert.match(rule![0], /z-index:\s*-1/, "the tint must sit behind the label");
+  assert.match(rule![0], /position:absolute/, "and still cover the button box");
+});
+
+test("0.2.7 RED: the elevator call buttons are the only children of their group", () => {
+  // The explanatory notice was placed inside the flex row and became a third item, which
+  // squeezed both buttons down to one character per line.
+  const html = renderAppHtml();
+  const group = /<div class="seg" role="group" aria-label="승강기 호출">(.*?)<\/div>/s.exec(html);
+  assert.ok(group, "the elevator control group must exist");
+  assert.equal((group![1].match(/<button/g) ?? []).length, 2, "two buttons");
+  assert.doesNotMatch(group![1], /<p[ >]/, "no paragraph may share the flex row");
+});
+
+test("0.2.7 RED: a sentence-length notice is allowed to wrap", () => {
+  // .pill is a 32px fixed-height badge. Three notices in this release are sentences.
+  const html = renderAppHtml();
+  assert.match(html, /\.pill\.block \{[^}]*height:auto/, "the wrapping variant must exist");
+  for (const marker of ["네 구역 모두 inferred_candidate", "이 버스에서 0x7F 프레임을", "하행은 레거시 베스티움이"]) {
+    const at = html.indexOf(marker);
+    assert.ok(at > 0, marker);
+    assert.match(html.slice(Math.max(0, at - 60), at), /class="pill warn block"/, `${marker} must use the wrapping variant`);
+  }
+});
+
+test("0.2.7 RED: the entrance buttons say that they open a door", () => {
+  // They send the legacy door-open macro. The old labels named a state instead, so a
+  // reader had no way to know that pressing one unlocks the entrance.
+  const html = renderAppHtml();
+  for (const [id, label] of [
+    ["household-inactive", "세대 현관문 열기"],
+    ["household-ringing", "세대 현관문 열기"],
+    ["communal-ringing", "공동 현관문 열기"],
+  ] as const) {
+    const button = new RegExp(`<button id="${id}"[^>]*>([^<]*)`).exec(html);
+    assert.ok(button, id);
+    assert.match(button![1], new RegExp(label), `${id} must name the door it opens`);
+  }
+});

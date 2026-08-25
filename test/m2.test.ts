@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.2.6";
+const EXPECTED_VERSION = "0.2.7";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);

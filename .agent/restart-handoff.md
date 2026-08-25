@@ -1,97 +1,74 @@
-# M4.9 Static Acceptance Handoff
+# M4.10 Static Acceptance Handoff
 
 Prepared: 2026-08-25 (Asia/Seoul)
 
-This is the authoritative handoff after the `0.2.6` transmit repair. It supersedes
-the M4.8 handoff, which was written before `0.2.5` was published and is stale in
-the one way that matters: it says publication is still pending. Start from:
+This is the authoritative handoff after the `0.2.7` protocol repair. It supersedes the
+M4.9 handoff. Start from:
 
 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`
 
 The former trailing-space path must remain absent. The research sibling at
-`/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret-research` may be
-existence-checked only.
+`/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret-research` may be read to
+produce specifications only, per `AGENTS.md` line 7; no legacy source may be copied.
 
-## What `0.2.5` actually did in the operator's hands
+## Read this first
 
-`0.2.5` is public at `521149f`, the user updated the installed App themselves,
-and the page was inspected live. Lights 1, 2 and 3 turn on and off from the page,
-which is what the M4.8 one-tap change was for. Two defects remained, and the user
-reported both:
+`.agent/spec-device-protocol.md` is the frame specification for every device, tagged by
+what the capture proves against what the legacy only asserts. It is the reference for this
+release and for the two capture experiments that follow it.
 
-- Commands were separated by a long delay.
-- Every other control showed the review card, but its confirm button never became
-  usable.
+## What was actually wrong
 
-Both root causes were measured on the running add-on rather than reasoned about.
+The operator worked the wallpad by hand during a capture, so the bus carried real commands
+next to their replies. Heating had three independent defects at once, and none of them was
+in the transport or the gates:
 
-## What was wrong, and what fixed it
+- the sub-command was `0x40` where the bus uses `0x46` for On/Off and `0x45` for the target
+  temperature,
+- the payload was shaped like a status reply, carrying the temperature twice and the zone as
+  an extra byte,
+- and `makeF7` declared a length one byte short of the frame it built.
 
-The confirm button was disabled by a client-side comparison of the preview's
-`readinessRevision` against the next status poll's. That value hashes
-`rxByteEpoch`, `readEpoch`, `validFrameEpoch` and `tailHash`, so on a live bus it
-moves on every received byte. Measured through the Ingress iframe: the revision
-had already changed 2.5 s after the preview, `issueChallenge` and `reviewCommit`
-both read `DISABLED`, and the banner sat at `awaiting`.
-
-The comparison was a duplicate. `send` re-evaluates every gate on the live
-request and re-reads generation, connection, `rxByteEpoch` and `readEpoch`
-immediately before the write. The client copy was the only one that could never
-pass on a live bus, so it was removed rather than repaired.
-
-The delay was a page-wide lease. Any pending observation disabled every send
-control for the full observation window, which was 10 s against frames arriving
-about every 1.6–1.9 s. Only the watched light is leased now, and the window is
-3 s.
+The decoder held the mirror image of the same invention. Its `0x18` `0x02` branch required a
+layout that fitted only frames we produced ourselves, so encoder, decoder, test builder and
+test assertion confirmed each other and never touched the bus. That loop is why four
+releases passed a green suite with a frame the wallpad cannot parse.
 
 ## Accepted native/static result
 
-- Six version surfaces read `0.2.6`: `bestium-eco-foret/config.json`, both
-  `package.json` files, `bestium-eco-foret/Dockerfile`, and `EXPECTED_VERSION`
-  in `test/m2.test.ts`.
-- Full native suite 109/109 on Node `v24.14.1`; `git diff --check` clean. Read that
-  number with M4-E104 in hand: `test/m2.test.ts` segfaults Node about once in
-  thirteen runs, it did so on public `521149f` before any of this work, and the
-  fault is in Node's own TypeScript stripping rather than in any test or in the
-  product. Run the suite more than once before believing it.
-- The new tests are in `test/tx-cooldown.test.ts` and `test/ui-reasons.test.ts`
-  rather than in `m2.test.ts`, because adding roughly 3 KB of anything to that
-  file measurably raises the crash rate.
-- A refused send now names its reason in Korean at the control. All seventeen
-  server readiness reasons follow the banner's existing
-  `한국어 (english)` wording, and an unmapped one passes through unchanged.
-- Both candidate transmit flags read true on the live add-on, so the
-  configuration was not the cause of the reported candidate symptom. M4-E105
-  records the full gate reading.
-- Candidate controls send on one tap. The page supplies the confirmation phrase.
-- A pending observation leases `light-<n>-on` and `light-<n>-off` for the watched
-  light only. The review and capture controls stay page-wide because they are
-  single-instance.
-- The candidate cooldown is asserted for the first time. It is charged at
-  challenge issuance, not at commit, and `send` skips its own check for an
-  accepted challenge precisely because issuance already charged it. Removing
-  either gate alone leaves the other standing; the test dies only when both go.
+- Six version surfaces read `0.2.7`.
+- Full native suite 124/124 on Node `v24.14.1`; `git diff --check` clean. Read that number
+  with M4-E104 in hand: `test/m2.test.ts` segfaults Node about once in thirteen runs, on
+  public source, from Node's own TypeScript stripping. Run the suite more than once.
+- The whole 306.8 s capture replays through the product monitor at 1,957 valid frames, zero
+  invalid journal entries and zero leftover bytes, matching an independent parser exactly.
+- All ten heating commands observed on the bus regenerate byte for byte.
+- Every screen state was checked in a real browser at full width, 768 px and 390 px on both
+  tabs. That check found three layout defects the suite could not see, one of which had been
+  shipping since 0.2.5.
 
-## Deliberate reductions, recorded rather than buried
+## Deliberate limits
 
-- The typed confirmation phrase is gone for catalog candidates, at the user's
-  explicit instruction. What still stands is `speculative_transmit_enabled` and
-  `unsafe_transmit_enabled` (both off by default), the current-generation 7F
-  proof for entrance macros, and the speculative and unsafe cooldowns. The
-  arbitrary-frame lab keeps its full three-step flow, so the typed phrase still
-  guards the one path that can put any bytes on the bus.
-- A 3 s observation window leaves under two frames of margin. Predict this before
-  the user sees it: a command that physically succeeded can still end at
-  `소켓으로 보냈지만 요청한 상태는 관측하지 못했습니다` on timing jitter alone.
-  `tx_observation_timeout_ms` is the knob if it proves too tight.
+- Heating is `inferred_candidate` on all four zones. The frames are the wallpad's own, but
+  the add-on has never actuated heating with them, and `observed` means one tap with no
+  confirmation. Promotion waits for a live result.
+- The elevator call frames come from the legacy add-on's defaults for this building, not
+  from a capture. Down rests on a configuration the operator reports having worked; up is
+  marked 미지원 by the legacy itself, and the page says so.
+- The entrance macros are unchanged in what they send. No `0x7F` frame has ever appeared on
+  this bus, the legacy treats the subphone as a separate RS485 line, and the server's
+  compatibility gate blocks these sends. Only the labels and the explanation changed.
+
+## What the next rounds need
+
+1. A live heating press, to promote heating to `observed`.
+2. A capture while the wallpad's own elevator call button is pressed, up and down.
+3. A capture while a real doorbell call comes in and the wallpad opens the door. This is the
+   one that decides whether the entrance macros can ever reach their line from here.
 
 ## Evidence limits and authority
 
-This is native and static. The live measurements in M4-E102 prove two specific
-defects on `0.2.5`; they do not prove that `0.2.6` fixes them in the operator's
-hands. `0.2.6` is published at `486994a` and GitHub reports it verified; M4-E106 has
-the record. Updating the installed App and any live send still require their own
-explicit approval. The user has already approved one live Light 1 verification,
-which now depends only on the App being updated.
+This is native and static. Publishing `0.2.7`, updating the installed App, and any live send
+each require their own explicit approval.
 
-Next event: the user must update the installed App in Home Assistant themselves for `0.2.6` at `486994a` to take effect; afterwards the already-approved live Light 1 verification may proceed, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
+Next event: obtain fresh explicit approval before publishing `0.2.7`; `0.2.6` is public at `c879d2c` and the user must update the installed App themselves for any release to take effect. The approved live verification now covers heating as well as Light 1, and the elevator call and entrance line each need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without fresh explicit approval

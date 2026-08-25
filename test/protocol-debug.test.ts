@@ -32,7 +32,9 @@ function concat(...chunks: Uint8Array[]): Uint8Array {
 
 /** Build the compact synthetic heating fixture; checksum is XOR over F7 through payload. */
 function frame(payload: number[]): Uint8Array {
-  const out = Uint8Array.from([0xf7, payload.length + 3, ...payload, 0x00, 0xee]);
+  // The length byte counts the whole frame. This builder and assertBuiltFrame below both
+  // used to be one short, which is how an encoder that declared the wrong length passed.
+  const out = Uint8Array.from([0xf7, payload.length + 4, ...payload, 0x00, 0xee]);
   for (let index = 0; index < out.length - 2; index += 1) out[out.length - 2] ^= out[index];
   assertBuiltFrame(out);
   return out;
@@ -40,7 +42,7 @@ function frame(payload: number[]): Uint8Array {
 
 function assertBuiltFrame(value: Uint8Array): void {
   assert.equal(value[0], 0xf7);
-  assert.equal(value[1], value.length - 1);
+  assert.equal(value[1], value.length);
   assert.equal(value[value.length - 1], 0xee);
   let checksum = 0;
   for (let index = 0; index < value.length - 2; index += 1) checksum ^= value[index];
@@ -51,7 +53,8 @@ function heatingGroupFrame(
   slots: Array<{ state: 0x01 | 0x04; currentC: number; targetC: number }>,
 ): Uint8Array {
   assert.equal(slots.length, 4);
-  const payload = [0x01, 0x18, 0x04, 0x40, 0x11, 0x00];
+  // Read off the bus: 0x46 with address 0x10 is the reply covering every zone.
+  const payload = [0x01, 0x18, 0x04, 0x46, 0x10, 0x00];
   for (const slot of slots) {
     // 0x18 group responses carry four fixed eight-byte zone slots.
     payload.push(slot.state, slot.currentC, slot.targetC, 0, 0, 0, 0, 0);
@@ -65,9 +68,10 @@ function heatingSingleFrame(
   zone: number,
   slot: { state: 0x01 | 0x04; currentC: number; targetC: number },
 ): Uint8Array {
-  // A single-zone 0x18 response keeps the same eight-byte slot layout.
+  // The reply that answers one command, as captured: 0x04 0x46, the zone's own address,
+  // the value that was commanded echoed back, then state, current and target.
   const result = frame([
-    0x01, 0x18, 0x02, 0x40, 0x11, zone,
+    0x01, 0x18, 0x04, 0x46, 0x10 + zone, slot.state,
     slot.state, slot.currentC, slot.targetC, 0, 0, 0, 0, 0,
   ]);
   assertBuiltFrame(result);
@@ -147,7 +151,7 @@ test("RED: decoded device state carries freshness metadata and preserves generat
   ]));
   monitor.push(heatingSingleFrame(1, { state: 0x01, currentC: 23, targetC: 25 }));
   monitor.push(heatingSingleFrame(2, { state: 0x04, currentC: 24, targetC: 26 }));
-  monitor.push(bytes("f70d013401411000a5040b35ee"));
+  monitor.push(bytes("f70d013401411000a6040b36ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
   assert.equal(monitor.snapshot().devices.elevator.direction, "up");
   monitor.push(bytes("f70d01340141100006040b96ee"));
@@ -216,12 +220,15 @@ test("RED: 7F events, declared-plus-one splits, gas queries, and generation fres
   assert.equal(eventSnapshot.unknown.some((entry: AnyRecord) => entry.cluster === "0x5f"), true);
 
   const splitMonitor = createProtocolDebugMonitor({ nowMs: () => now });
-  const declaredPlusOne = heatingSingleFrame(2, { state: 0x04, currentC: 24, targetC: 26 });
-  const declaredBytes = declaredPlusOne[1];
-  splitMonitor.push(declaredPlusOne.slice(0, declaredBytes));
+  // A frame split across two reads must wait rather than resync. This used to exercise a
+  // parser branch that accepted `declared + 1`, which only ever existed to read the frames
+  // we invented ourselves; real 0x18 frames declare their true length.
+  const split = heatingSingleFrame(2, { state: 0x04, currentC: 24, targetC: 26 });
+  const cut = split.length - 3;
+  splitMonitor.push(split.slice(0, cut));
   assert.equal(splitMonitor.snapshot().frames.length, 0);
-  assert.equal(splitMonitor.snapshot().parser.pendingHex, hex(declaredPlusOne.slice(0, declaredBytes)));
-  splitMonitor.push(declaredPlusOne.slice(declaredBytes));
+  assert.equal(splitMonitor.snapshot().parser.pendingHex, hex(split.slice(0, cut)));
+  splitMonitor.push(split.slice(cut));
   assert.equal(splitMonitor.snapshot().frames.length, 1);
   assert.equal(splitMonitor.snapshot().devices.heating[2].state, "off");
 
@@ -316,7 +323,7 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
   for (const recognizedHex of [
     "f70b01190240110100b6ee",
     "f70b011b0243110300b5ee",
-    "f70d013401411000a5040b35ee",
+    "f70d013401411000a6040b36ee",
     "f70b011f0140100000b3ee",
   ]) {
     assert.throws(() => action({ kind: "raw", hex: recognizedHex }, unsafeLive));
@@ -347,15 +354,18 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
     assert.throws(() => action({ kind: "raw", hex: doorFrame }, unsafeLive));
   }
 
+  // Zone 1 used to claim observed evidence on a frame that appeared in no capture and
+  // matched no command on the bus. All four zones now carry the frames the wallpad itself
+  // sends, and all four stay candidates until one of them is seen to move real heating.
   for (const zone of [1, 2, 3, 4]) {
     const heatingOn = action({ kind: "heat", zone, state: "on" });
-    assert.equal(heatingOn.evidence, zone === 1 ? "observed" : "inferred_candidate");
-    assert.equal(heatingOn.sendable, zone === 1);
+    assert.equal(heatingOn.evidence, "inferred_candidate");
+    assert.equal(heatingOn.sendable, false);
     assert.equal(heatingOn.confirmed, false);
-    if (zone > 1) assert.equal(heatingOn.requiresSpeculativeConfirmation, true);
+    assert.equal(heatingOn.requiresSpeculativeConfirmation, true);
     assert.match(hex(heatingOn.frame), /^f7/);
   }
-  for (const zone of [2, 3, 4]) {
+  for (const zone of [1, 2, 3, 4]) {
     for (const temperatureC of [5, 40]) {
       const inferredTemperature = action({ kind: "heat", zone, temperatureC });
       assert.equal(inferredTemperature.evidence, "inferred_candidate");
@@ -368,10 +378,8 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
   assert.equal(allOff.evidence, "inferred_candidate");
   assert.equal(allOff.sendable, false);
   assert.equal(allOff.requiresSpeculativeConfirmation, true);
-  const zoneOneTemp = action({ kind: "heat", zone: 1, temperatureC: 20 });
-  assert.equal(zoneOneTemp.sendable, true);
   for (const temperatureC of [4, 41]) {
-    assert.equal(action({ kind: "heat", zone: 1, temperatureC }).sendable, false);
+    assert.equal(action({ kind: "heat", zone: 1, temperatureC }).evidence, "rejected");
   }
 
   const inferred = action({ kind: "heat", zone: 2, state: "off" });
@@ -623,10 +631,12 @@ test("RED-exception: encoder evidence keeps measured controls distinct from infe
     assert.equal(observed({ kind: "light", target, state: "on" }).evidence, "observed");
     assert.equal(observed({ kind: "light", target, state: "off" }).evidence, "observed");
   }
+  // Heating is a candidate on every zone until a live send is confirmed. The frame is
+  // capture-verified; our sending it is not. See `.agent/spec-device-protocol.md`.
   for (const state of ["on", "off"] as const) {
-    assert.equal(observed({ kind: "heat", zone: 1, state }).evidence, "observed");
+    assert.equal(observed({ kind: "heat", zone: 1, state }).evidence, "inferred_candidate");
   }
-  assert.equal(observed({ kind: "heat", zone: 1, temperatureC: 20 }).evidence, "observed");
+  assert.equal(observed({ kind: "heat", zone: 1, temperatureC: 20 }).evidence, "inferred_candidate");
 
   for (const value of [
     { kind: "gas", state: "close" },

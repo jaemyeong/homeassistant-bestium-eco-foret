@@ -40,7 +40,8 @@ function validChecksum(value: Uint8Array): boolean {
 }
 
 function makeF7(payload: number[]): Uint8Array {
-  const value = Uint8Array.from([0xf7, payload.length + 3, ...payload, 0, 0xee]);
+  // The length byte counts the whole frame: F7, itself, the payload, the checksum and EE.
+  const value = Uint8Array.from([0xf7, payload.length + 4, ...payload, 0, 0xee]);
   value[value.length - 2] = xorChecksum(value);
   return value;
 }
@@ -87,16 +88,33 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     devices[key] = { ...existing, ...value, ...freshness(at, generation) } as never;
   };
 
-  if (command === 0x19 && payload[2] === 0x04 && payload.length >= 9) {
+  if (command === 0x19 && payload[2] === 0x04 && payload.length >= 6) {
     const lights = devices.lights as Record<number, DeviceState>;
-    for (let index = 0; index < 3; index += 1) {
-      const state = payload[6 + index];
-      if (state !== 1 && state !== 2) {
+    // The address byte decides the shape. 0x10 is the periodic reply covering all three;
+    // 0x11-0x13 is the reply that answers one command and arrives in the same read as the
+    // write, which is what lets a send confirm in milliseconds instead of a poll cycle.
+    if (payload[4] === 0x10) {
+      if (payload.length < 9) {
         markUnknown("0x19");
-        continue;
+        return;
       }
-      lights[index + 1] = { ...lights[index + 1], state: state === 1 ? "on" : "off", ...freshness(at, generation) };
+      for (let index = 0; index < 3; index += 1) {
+        const state = payload[6 + index];
+        if (state !== 1 && state !== 2) {
+          markUnknown("0x19");
+          continue;
+        }
+        lights[index + 1] = { ...lights[index + 1], state: state === 1 ? "on" : "off", ...freshness(at, generation) };
+      }
+      return;
     }
+    const target = payload[4] - 0x10;
+    const state = payload[5];
+    if (target < 1 || target > 3 || (state !== 1 && state !== 2)) {
+      markUnknown("0x19");
+      return;
+    }
+    lights[target] = { ...lights[target], state: state === 1 ? "on" : "off", ...freshness(at, generation) };
     return;
   }
   if (command === 0x19 && payload[2] === 0x02 && payload.length >= 7) {
@@ -124,58 +142,73 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     mark("gas", { state: payload[6] === 4 ? "open" : "closed", evidence: "observed" });
     return;
   }
-  if (command === 0x18 && payload[2] === 0x04 && payload.length >= 38) {
+  if (command === 0x18 && payload[2] === 0x04 && payload.length >= 9) {
     const heating = devices.heating as Record<number, DeviceState>;
-    for (let zone = 1; zone <= 4; zone += 1) {
-      const offset = 6 + (zone - 1) * 8;
-      if (payload[offset] !== 1 && payload[offset] !== 4) {
-        markUnknown("0x18");
-        continue;
-      }
-      heating[zone] = {
-        ...heating[zone],
-        state: payload[offset] === 1 ? "on" : "off",
-        currentC: payload[offset + 1],
-        targetC: payload[offset + 2],
-        ...freshness(at, generation),
-      };
-    }
-    return;
-  }
-  if (command === 0x18 && payload[2] === 0x02 && payload.length >= 14) {
-    const zone = payload[5];
-    if (zone >= 1 && zone <= 4) {
-      const heating = devices.heating as Record<number, DeviceState>;
-      if (payload[6] !== 1 && payload[6] !== 4) {
+    // Address 0x10 is the periodic reply carrying every zone in eight-byte slots;
+    // 0x11-0x14 is the reply that answers one command, in the same read as the write.
+    const addressed = payload[4] & 0x0f;
+    if (addressed === 0) {
+      if (payload.length < 38) {
         markUnknown("0x18");
         return;
       }
-      heating[zone] = {
-        ...heating[zone],
-        state: payload[6] === 1 ? "on" : "off",
-        currentC: payload[7],
-        targetC: payload[8],
-        ...freshness(at, generation),
-      };
+      for (let zone = 1; zone <= 4; zone += 1) {
+        const offset = 6 + (zone - 1) * 8;
+        if (payload[offset] !== 1 && payload[offset] !== 4) {
+          markUnknown("0x18");
+          continue;
+        }
+        heating[zone] = {
+          ...heating[zone],
+          state: payload[offset] === 1 ? "on" : "off",
+          currentC: payload[offset + 1],
+          targetC: payload[offset + 2],
+          ...freshness(at, generation),
+        };
+      }
+      return;
     }
+    if (addressed > 4 || (payload[6] !== 1 && payload[6] !== 4)) {
+      markUnknown("0x18");
+      return;
+    }
+    heating[addressed] = {
+      ...heating[addressed],
+      state: payload[6] === 1 ? "on" : "off",
+      currentC: payload[7],
+      targetC: payload[8],
+      ...freshness(at, generation),
+    };
     return;
   }
   if (command === 0x34 && payload.length >= 8) {
+    // The high nibble is movement and the low nibble is the standing call. Only 0xA6 and
+    // 0xB6 were ever seen moving on this bus; the 0xA5 the decoder used to require never
+    // appeared at all, so a travelling car read as unknown for its whole journey.
     const code = payload[6];
-    if (code !== 0xa5 && code !== 0x06 && code !== 0x01) {
+    const moving = code >> 4;
+    const call = code & 0x0f;
+    const direction = moving === 0x0a ? "up"
+      : moving === 0x0b ? "down"
+      : moving !== 0 ? undefined
+      : call === 1 ? "arrival"
+      : call === 0 ? "idle"
+      : call === 5 ? "up"
+      : call === 6 ? "down"
+      : undefined;
+    if (direction === undefined) {
       markUnknown("0x34");
       return;
     }
-    mark("elevator", {
-      floor: payload[7],
-      direction: code === 0xa5 ? "up" : code === 0x06 ? "down" : "arrival",
-      evidence: "observed",
-    });
+    mark("elevator", { floor: payload[7], direction, evidence: "observed" });
     return;
   }
-  if (command === 0x1e && payload.length >= 8) {
+  if (command === 0x1e && payload.length >= 5) {
+    // The poll frame is eleven bytes, so a length guard of eight discarded all 181 of them
+    // and the communal entrance never received a single value. What they carry is still
+    // unknown, so they only stamp freshness until a capture with a live call decodes them.
     if (payload[2] === 0x02) mark("entrances", { household: { ...devices.entrances.household, call: true, ...freshness(at, generation) } });
-    else devices.entrances = { ...devices.entrances, communal: { ...devices.entrances.communal, evidence: "candidate", ...freshness(at, generation) } };
+    else mark("entrances", { communal: { ...devices.entrances.communal, evidence: "candidate", ...freshness(at, generation) } });
     return;
   }
   if (command === 0x1f) {
@@ -267,7 +300,6 @@ function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journ
       continue;
     }
     const candidates = [declared];
-    if (data[3] === 0x18 || data[3] === 0x2a || data[3] === 0x7e) candidates.push(declared + 1);
     const complete = candidates.find((candidate) => data.length >= candidate && data[candidate - 1] === 0xee);
     if (complete === undefined) {
       const hasAmbiguousExtendedLength = candidates.length > 1;
@@ -371,6 +403,9 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
     for (const key of [1, 2, 3] as const) clone.lights[key] = staleDevice(clone.lights[key], now, generation, staleAfterMs, stopped);
     for (const key of [1, 2, 3, 4] as const) clone.heating[key] = staleDevice(clone.heating[key], now, generation, staleAfterMs, stopped);
     clone.entrances.household = staleDevice(clone.entrances.household, now, generation, staleAfterMs, stopped);
+    // The bus carries no "call ended" frame, so the ringing flag lives exactly as long as
+    // the frame that raised it stays fresh. Latching it forever was the alternative.
+    if (clone.entrances.household.stale) clone.entrances.household = { ...clone.entrances.household, call: false };
     clone.entrances.communal = staleDevice(clone.entrances.communal, now, generation, staleAfterMs, stopped);
     return {
       generation,
@@ -416,7 +451,7 @@ const knownObserved = new Set([
   "f70b01190240120100b5ee", "f70b01190240120200b6ee",
   "f70b01190240130100b4ee", "f70b01190240130200b7ee",
   "f70b011b0243110300b5ee", "f70b011f0140100000b3ee", "f70b012b014011000086ee",
-  "f70d013401411000a5040b35ee", "f70d01340141100006040b96ee", "f70d01340141100001040b91ee",
+  "f70d01340141100001040b91ee",
 ]);
 
 const knownDoorFrames = new Set([
@@ -464,21 +499,38 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
     return rejectedResult("gas open is not authorized");
   }
   if (kind === "heat" && Number.isInteger(value.zone) && value.zone >= 1 && value.zone <= 4) {
+    // Read off the bus while the operator worked the wallpad by hand: 0x46 carries On/Off
+    // and 0x45 carries the target temperature, both at address 0x10 + zone. The frames
+    // this used to build were shaped like a status reply, declared a length one short, and
+    // the wallpad ignored every one of them. See `.agent/spec-device-protocol.md`.
+    const address = 0x10 + value.zone;
     if (value.temperatureC !== undefined) {
       if (!Number.isInteger(value.temperatureC) || value.temperatureC < 5 || value.temperatureC > 40) return rejectedResult("temperature is unsupported");
-      const frame = makeF7([1, 0x18, 2, 0x40, 0x11, value.zone, 1, value.temperatureC, value.temperatureC]);
-      return value.zone === 1 ? observed(frame, context) : inferred(frame);
+      return inferred(makeF7([1, 0x18, 2, 0x45, address, value.temperatureC, 0]));
     }
-    if (value.state === "on") return value.zone === 1
-      ? observed(makeF7([1, 0x18, 2, 0x40, 0x11, value.zone, 1, 0, 0]), context)
-      : inferred(makeF7([1, 0x18, 2, 0x40, 0x11, value.zone, 1, 0, 0]));
-    if (value.state === "off" && value.zone === 1) return observed(makeF7([1, 0x18, 2, 0x40, 0x11, 1, 4, 0, 0]), context);
-    if (value.state === "off") return inferred(makeF7([1, 0x18, 2, 0x40, 0x11, value.zone, 4, 0, 0]));
+    // Every zone stays a candidate until one of these frames is seen to move real heating.
+    // The frame is capture-verified; our sending it is not, and `observed` means one tap.
+    if (value.state === "on") return inferred(makeF7([1, 0x18, 2, 0x46, address, 1, 0]));
+    if (value.state === "off") return inferred(makeF7([1, 0x18, 2, 0x46, address, 4, 0]));
     return rejectedResult("unsupported heating state");
   }
-  if (kind === "heat" && value.target === "all" && value.state === "off") return inferred(makeF7([1, 0x18, 4, 0x40, 0x11, 0, 4, 0, 0, 4, 0, 0, 4, 0, 0, 4, 0, 0]));
+  if (kind === "heat" && value.target === "all" && value.state === "off") {
+    // Neither the bus nor the legacy implementation has a batch heating command, so this
+    // is the four verified zone frames in sequence rather than one invented frame.
+    const frames = [1, 2, 3, 4].map((zone) => makeF7([1, 0x18, 2, 0x46, 0x10 + zone, 4, 0]));
+    return {
+      frames, frameHex: hexOf(frames[0] as Uint8Array), framesHex: frames.map((entry) => hexOf(entry)),
+      evidence: "inferred_candidate", transportEvidence: "unverified",
+      sendable: false, confirmed: false, requiresSpeculativeConfirmation: true,
+    };
+  }
   if (kind === "elevator" && (value.direction === "up" || value.direction === "down")) {
-    return inferred(bytesFromHex(value.direction === "up" ? "f70d013401411000a5040b35ee" : "f70d01340141100006040b96ee"));
+    // The legacy Bestium add-on for this building ships elevator_packet_call_type 0 and
+    // elevator_packet_command_call_down_value 6, which is this shape with 0x06 for down.
+    // Up is 0x05 by the same builder, but the legacy marks call state 5 as 상행호출중(미지원),
+    // so down rests on a working configuration and up does not. What this used to send was
+    // neither: it was the wallpad's own status broadcast to the hallway pad, replayed.
+    return inferred(makeF7([1, 0x34, 2, 0x41, 0x10, value.direction === "up" ? 5 : 6, 0]));
   }
   if (kind === "outlet" && value.action === "query") return observed(bytesFromHex("f70b011f0140100000b3ee"), context);
   if (kind === "ventilation" && value.action === "query") return observed(bytesFromHex("f70b012b014011000086ee"), context);
@@ -491,7 +543,7 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
     const sequence = table[`${value.target}:${value.state}`];
     if (sequence) {
       const frames = sequence.map((entry) => bytesFromHex(entry));
-      return { frames, frameHex: hexOf(frames[0] as Uint8Array), framesHex: frames.map(hexOf), evidence: "unsafe_candidate", transportEvidence: "unverified", sendable: false, confirmed: false, requiresSpeculativeConfirmation: true };
+      return { frames, frameHex: hexOf(frames[0] as Uint8Array), framesHex: frames.map((entry) => hexOf(entry)), evidence: "unsafe_candidate", transportEvidence: "unverified", sendable: false, confirmed: false, requiresSpeculativeConfirmation: true };
     }
   }
   if (kind === "raw") {
