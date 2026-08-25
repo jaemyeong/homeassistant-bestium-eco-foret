@@ -89,9 +89,9 @@ about every 1.6–1.9 s. Only the watched light is leased now, and the window is
 
 This is native and static. The live measurements in M4-E102 prove two specific
 defects on `0.2.5`; they do not prove that `0.2.6` fixes them in the operator's
-hands. Publishing `0.2.6`, updating the installed App, and any live send each
-require their own explicit approval. The user has already approved one live
-Light 1 verification, but it depends on `0.2.6` being published and the App
-updated first.
+hands. `0.2.6` is published at `486994a` and GitHub reports it verified; M4-E106 has
+the record. Updating the installed App and any live send still require their own
+explicit approval. The user has already approved one live Light 1 verification,
+which now depends only on the App being updated.
 
-Next event: obtain fresh explicit approval before publishing `0.2.6`; `0.2.5` is already public at `521149f` and the user updated the installed App themselves, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without fresh approval. The user has approved one live Light 1 send for the verification round, which depends on `0.2.6` being published and the App updated first
+Next event: the user must update the installed App in Home Assistant themselves for `0.2.6` at `486994a` to take effect; afterwards the already-approved live Light 1 verification may proceed, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
