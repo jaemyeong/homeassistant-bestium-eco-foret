@@ -29,6 +29,17 @@ All notable changes to this project are documented here.
   `소켓으로 보냈지만 요청한 상태는 관측하지 못했습니다` on timing jitter alone.
   The value stays configurable as `tx_observation_timeout_ms`.
 
+- Word the server's readiness reasons in Korean at the blocked control. A refused
+  send printed the server's own string, so the operator read
+  `보내지 못했습니다 · TX cooldown active`. All seventeen reasons
+  `evaluateReadiness`, `send` and `issueSpeculativeChallenge` can produce now
+  follow the wording the gate banner already used —
+  `연속 전송 대기 시간이 남아 있습니다 (TX cooldown active)` — and an unmapped
+  reason passes through unchanged, because a raw English string beats a silent
+  control. This matters more than it did before: one tap routes every candidate
+  through preview and challenge, so these strings are now the operator's primary
+  answer to why nothing happened.
+
 ### Changed
 
 - Candidate controls now send on one tap, and the page supplies the confirmation

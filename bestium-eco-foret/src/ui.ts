@@ -257,6 +257,30 @@ export function renderAppHtml(): string {
         "버스가 비어 있는지 알 수 없어 충돌을 피할 수 없습니다",
         "보낸 뒤 요청한 상태를 확인할 방법이 없습니다",
       ];
+      /* The server's readiness reasons reach the page verbatim. The banner already words the
+      status flags as "한국어 (english)", so these follow it rather than inventing a second style.
+      An unmapped reason passes through unchanged: a raw English string beats a missing one. */
+      const REASON_KO = {
+        "master TX disabled": "전송이 꺼져 있습니다",
+        "speculative TX disabled": "추측 후보 전송이 꺼져 있습니다",
+        "unsafe TX disabled": "위험 후보 전송이 꺼져 있습니다",
+        "authorized user mismatch": "전송 권한이 없습니다",
+        "capture is not running": "수집이 실행 중이 아닙니다",
+        "one in-flight write only": "다른 전송이 진행 중입니다",
+        "transport generation quarantined": "직전 연결 세대가 격리되었습니다",
+        "transport not connected": "통신 경로가 연결되어 있지 않습니다",
+        "capture append pending": "수집 데이터 저장이 진행 중입니다",
+        "no current-generation valid RX frame": "현재 연결에서 받은 유효 프레임이 없습니다",
+        "no current valid RX frame": "아직 유효한 수신 프레임이 없습니다",
+        "current RX frame stale": "마지막 수신 프레임이 오래되었습니다",
+        "line busy: quiet interval not met": "버스가 사용 중입니다",
+        "TX cooldown active": "연속 전송 대기 시간이 남아 있습니다",
+        "empty action frame": "보낼 프레임이 만들어지지 않았습니다",
+        "recognized frame boundary collision": "다른 프레임 경계와 충돌합니다",
+        "current-generation 7F compatibility proof required": "현재 연결에서 0x7F 호환 증적을 아직 관측하지 못했습니다",
+      };
+      const reasonKo = (reason) => { const text = String(reason ?? "").trim(); if (!text) return ""; const known = REASON_KO[text]; return known ? known + " (" + text + ")" : text; };
+      const reasonsKo = (reasons) => Array.isArray(reasons) && reasons.length ? reasons.map(reasonKo).filter(Boolean).join(", ") : "";
       const gateBlockers = (tx) => {
         const out = [];
         if (statusInvalid) out.push("상태를 아직 확인하지 못했습니다 (status unavailable)");
@@ -437,7 +461,7 @@ export function renderAppHtml(): string {
             clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
             if (result.deviceConfirmed !== true && observationBaseline) schedulePendingObservation(observationBaseline);
           } else {
-            const why = Array.isArray(result.reasons) && result.reasons.length ? result.reasons.join(", ") : String(result.reason || result.outcome || "rejected");
+            const why = reasonsKo(result.reasons) || reasonKo(result.reason) || String(result.outcome || "rejected");
             setText("outcome", "보내지 못했습니다 · " + why);
             setText("alert", "전송 거부 · " + why);
             clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
@@ -481,7 +505,7 @@ export function renderAppHtml(): string {
         previewPollEpoch = pollEpoch;
         describePreview(action, preview);
         if (preview.ready === false) {
-          const why = Array.isArray(preview.reasons) && preview.reasons.length ? preview.reasons.join(", ") : "준비되지 않음";
+          const why = reasonsKo(preview.reasons) || "준비되지 않음";
           setText("outcome", "보내지 못했습니다 · " + why);
           clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
           setReviewBusy(false); return;
@@ -500,7 +524,7 @@ export function renderAppHtml(): string {
           return;
         }
         if (!challenge || typeof challenge.id !== "string") {
-          setText("outcome", "보내지 못했습니다 · " + String(challenge?.reason || "후보 확인을 발급하지 못했습니다"));
+          setText("outcome", "보내지 못했습니다 · " + (reasonKo(challenge?.reason) || "후보 확인을 발급하지 못했습니다"));
           clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
           return;
         }
