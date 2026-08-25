@@ -4,6 +4,57 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-25
+
+Three captures taken while the operator worked the page settled what "버스가 사용중입니다"
+actually was. Reads arrive from the EW11 about every 121 ms, so the timing figures below
+are measured, not estimated.
+
+### Fixed
+
+- Stop treating our own disk write as bus traffic. The busy-line test took
+  `max(lastRxByteAtMs, lastResumeAtMs)`, and `lastResumeAtMs` is when the capture store
+  finished appending a record and resumed the socket. A capture is required for TX, and an
+  append follows every read, so every disk write read as a busy line.
+- Wait for the quiet window instead of refusing. At a random instant the 20 ms window is
+  open 89% of the time; a send that checked it several times succeeded about 64% of the
+  time, which is why the operator had to press a button until one landed. The send now
+  waits for the window, bounded by `tx_write_timeout_ms`, and a line that never clears is
+  still refused with nothing written. The gate itself is unchanged: no frame goes onto a
+  line that is talking.
+- Let a multi-frame send survive the bus talking between frames. The inter-frame check
+  required `rxByteEpoch` and `readEpoch` to hold still across a gap of at least 200 ms, on
+  a bus that delivers a read every ~121 ms. Frame two therefore always failed, and the
+  failure quarantined the generation and destroyed the transport — which is the
+  `partial_indeterminate · framesWritten: 1 · quarantined: true` the operator hit on
+  all-zones-off. **That path was reached because 0.2.7 turned all-zones-off into four
+  verified frames**; the frames were right, the path was not. What still aborts a macro is
+  a transport change, a pending append, or evidence that another transmitter wrote.
+- Space F7 sequence frames by the quiet interval rather than 200 ms. The 200 ms figure is
+  what the legacy documents for the `0x7F` door macro; an F7 sequence has no such
+  requirement and now only waits for the line.
+- Give an indeterminate write a way out. `txRetryLocked` was set on
+  `partial_indeterminate` and nothing anywhere cleared it, so one failure disabled every
+  control until the page was reloaded — the typed confirmation, the challenge, the cancel
+  and the capture controls all at once. The lock is right, because the device state really
+  is unknown after a partial write, so the release is an explicit operator acknowledgement
+  and never an automatic clear on reconnect.
+- Let the confirmation field show the whole phrase. It shared a flex row with two buttons
+  and showed about half of the 41 characters, so the operator could not check what they had
+  typed. It now takes its own row and the type shrinks with the viewport.
+
+### Changed
+
+- A busy line no longer greys out a control or appears in the banner as a blocker. The
+  server waits for a window that opens in about 20 ms; announcing that as a refusal is what
+  made the page feel broken.
+- Lower the speculative cooldown default from 5 s to 1 s. Heating became a candidate in
+  0.2.7, so every heating press inherited a five-second wait. The operator working the
+  wallpad by hand sent heating commands 500 ms apart and the bus carried them.
+  `speculative_tx_cooldown_ms` remains configurable.
+- Replace the fixed `wrong-device/collision warning` line on every candidate preview. It
+  was boilerplate, not a detection, and it read like a collision the add-on had observed.
+
 ## [0.2.7] - 2026-08-25
 
 A capture taken while the operator worked the wallpad by hand carried real commands and

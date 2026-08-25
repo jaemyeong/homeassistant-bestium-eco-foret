@@ -997,7 +997,10 @@ export function createTxCoordinator(opts: {
     const lastResumeAtMs = state.lastResumeAtMs ?? 0;
     const currentGenerationRx = hasCurrentGenerationRx(state);
     const fresh = lastValidFrameAtMs > 0 && now - lastValidFrameAtMs <= Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms);
-    const quietAt = Math.max(lastRxByteAtMs, lastResumeAtMs);
+    // The line is busy when the bus last spoke, not when we resumed our own socket after
+    // writing a capture record to disk. Counting the resume made every append look like
+    // traffic, and on this bus an append follows every read.
+    const quietAt = lastRxByteAtMs;
     const quiet = quietAt > 0 && now - quietAt >= settings.tx_quiet_ms;
     const result = {
       generation: outboundGeneration,
@@ -1135,7 +1138,8 @@ export function createTxCoordinator(opts: {
     if (!state.currentGenerationRx) reasons.push("no current-generation valid RX frame");
     if (state.lastValidFrameAtMs <= 0 || state.lastRxByteAtMs <= 0) reasons.push("no current valid RX frame");
     if (!state.fresh) reasons.push("current RX frame stale");
-    if (!state.quiet) reasons.push("line busy: quiet interval not met");
+    // A busy line is not a refusal: the window opens within tx_quiet_ms and `send` waits
+    // for it. Reporting it as a blocker turned a 20 ms wait into a dead button.
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : inferredAction ? lastSpeculativeAttempt : lastNormalAttempt;
     const cooldownMs = unsafeAction ? settings.unsafe_tx_cooldown_ms : inferredAction ? settings.speculative_tx_cooldown_ms : settings.tx_cooldown_ms;
     if (opts.nowMs() - cooldownAt < cooldownMs) reasons.push("TX cooldown active");
@@ -1185,8 +1189,6 @@ export function createTxCoordinator(opts: {
       throw new Error("current-generation 7F compatibility proof required");
     }
     if (opts.nowMs() - state.lastValidFrameAtMs > Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms)) throw new Error("current RX frame stale");
-    const quietAt = Math.max(state.lastRxByteAtMs, state.lastResumeAtMs);
-    if (opts.nowMs() - quietAt < settings.tx_quiet_ms) throw new Error("line busy: quiet interval not met");
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : lastSpeculativeAttempt;
     const cooldownMs = unsafeAction ? settings.unsafe_tx_cooldown_ms : settings.speculative_tx_cooldown_ms;
     if (opts.nowMs() - cooldownAt < cooldownMs) throw new Error("TX cooldown active");
@@ -1379,8 +1381,21 @@ export function createTxCoordinator(opts: {
     const rawAction = !!(action && typeof action === "object" && (action as AnyRecord).kind === "raw");
     if (unsafeAction && !rawAction && frames.some((frame) => frame[0] === 0x7f) && !hasCurrentSevenFProof(state, currentGeneration, action, frames)) return txReject("current-generation 7F compatibility proof required", currentGeneration, journal);
     if (opts.nowMs() - state.lastValidFrameAtMs > Math.max(45_000, settings.idle_timeout_ms + settings.tx_write_timeout_ms)) return txReject("current RX frame stale", currentGeneration, journal);
-    const quietAt = Math.max(state.lastRxByteAtMs, state.lastResumeAtMs);
-    if (opts.nowMs() - quietAt < settings.tx_quiet_ms) return txReject("line busy: quiet interval not met", currentGeneration, journal);
+    // Wait for the quiet window rather than refusing. Measured on the operator's captures,
+    // a read lands about every 121 ms, so at a random instant the window is open 89% of the
+    // time; a send that checked it several times succeeded about 64% of the time and the
+    // operator had to press until one landed. The window opens within tx_quiet_ms.
+    const quietDeadline = opts.nowMs() + Math.max(settings.tx_quiet_ms, settings.tx_write_timeout_ms);
+    for (;;) {
+      const waitState = currentState();
+      const openAt = waitState.lastRxByteAtMs + settings.tx_quiet_ms;
+      if (opts.nowMs() >= openAt) break;
+      if (opts.nowMs() >= quietDeadline) return txReject("line busy: quiet interval not met", currentGeneration, journal);
+      await waitUntil(Math.max(1, Math.min(openAt - opts.nowMs(), quietDeadline - opts.nowMs())));
+    }
+    const state2 = currentState();
+    if (!state2.connected || !opts.getTransport()) return txReject("transport not connected", currentGeneration, journal);
+    if (opts.getGeneration() !== currentGeneration) return txReject("transport generation changed while waiting for the line", currentGeneration, journal);
     const cooldownAt = unsafeAction ? lastUnsafeAttempt : inferredAction ? lastSpeculativeAttempt : lastNormalAttempt;
     const cooldownMs = unsafeAction ? settings.unsafe_tx_cooldown_ms : inferredAction ? settings.speculative_tx_cooldown_ms : settings.tx_cooldown_ms;
     if (!challengeAccepted && opts.nowMs() - cooldownAt < cooldownMs) return txReject("TX cooldown active", currentGeneration, journal);
@@ -1391,7 +1406,7 @@ export function createTxCoordinator(opts: {
     const initialOutboundEpoch = outboundEpoch;
     const beforeWriteGeneration = opts.getGeneration();
     const beforeWriteState = currentState();
-    const quietBeforeWrite = Math.max(beforeWriteState.lastRxByteAtMs, beforeWriteState.lastResumeAtMs);
+    const quietBeforeWrite = beforeWriteState.lastRxByteAtMs;
     if (
       beforeWriteGeneration !== currentGeneration ||
       beforeWriteState.connected !== initialState.connected ||
@@ -1436,11 +1451,15 @@ export function createTxCoordinator(opts: {
             }
             const gapState = currentState();
             const expectedTailHash = `${initialState.externalTailHash}:${hashTail(outboundTail)}`;
+            // rxByteEpoch and readEpoch advance on every received byte and every capture
+            // append. The inter-frame gap is at least 200 ms and this bus delivers a read
+            // about every 121 ms, so requiring them to hold still meant frame two always
+            // failed, quarantined the generation and destroyed the transport. Incoming
+            // traffic during our own macro is normal; another transmitter writing is not,
+            // and externalTxByteEpoch/externalTailHash still catch that.
             const stableOperation =
               gapState.externalTxByteEpoch === initialState.externalTxByteEpoch &&
               gapState.externalTailHash === initialState.externalTailHash &&
-              gapState.rxByteEpoch === initialState.rxByteEpoch &&
-              gapState.readEpoch === initialState.readEpoch &&
               outboundEpoch - initialOutboundEpoch === framesWritten &&
               gapState.txByteEpoch === initialState.externalTxByteEpoch + outboundEpoch &&
               gapState.tailHash === expectedTailHash;
@@ -1450,8 +1469,11 @@ export function createTxCoordinator(opts: {
               try { transport.destroy(); } catch { /* quarantine is authoritative */ }
               break;
             }
-            const quietAt = Math.max(gapState.lastRxByteAtMs, gapState.lastResumeAtMs);
-            const nextAllowed = Math.max(previousSuccessAt + 200, quietAt + settings.tx_quiet_ms);
+            // 200 ms is the spacing the legacy door macro documents for 0x7F. An F7
+            // sequence has no such requirement, so it only waits for the line.
+            const quietAt = gapState.lastRxByteAtMs;
+            const spacingMs = frames.some((entry) => entry[0] === 0x7f) ? 200 : settings.tx_quiet_ms;
+            const nextAllowed = Math.max(previousSuccessAt + spacingMs, quietAt + settings.tx_quiet_ms);
             if (opts.nowMs() >= gapDeadline || opts.nowMs() >= totalDeadline) {
               outcome = { outcome: "partial_indeterminate", reason: "door inter-frame deadline exceeded", confirmed: false, deviceConfirmed: false, framesWritten };
               quarantined.add(currentGeneration);
@@ -1464,13 +1486,15 @@ export function createTxCoordinator(opts: {
           if (outcome.outcome === "partial_indeterminate") break;
         }
         const beforeFrameState = currentState();
-        const beforeFrameQuiet = Math.max(beforeFrameState.lastRxByteAtMs, beforeFrameState.lastResumeAtMs);
+        const beforeFrameQuiet = beforeFrameState.lastRxByteAtMs;
         const expectedTailHash = `${initialState.externalTailHash}:${hashTail(outboundTail)}`;
+        // Same reasoning as the inter-frame gap above: inbound counters move on every byte
+        // and every capture append, so binding them here refused a frame the bus had no
+        // objection to. What must hold still is our own outbound accounting and the
+        // evidence that no other transmitter wrote.
         const stableOperation =
           beforeFrameState.externalTxByteEpoch === initialState.externalTxByteEpoch &&
           beforeFrameState.externalTailHash === initialState.externalTailHash &&
-          beforeFrameState.rxByteEpoch === initialState.rxByteEpoch &&
-          beforeFrameState.readEpoch === initialState.readEpoch &&
           outboundEpoch - initialOutboundEpoch === framesWritten &&
           beforeFrameState.txByteEpoch === initialState.externalTxByteEpoch + outboundEpoch &&
           beforeFrameState.tailHash === expectedTailHash;

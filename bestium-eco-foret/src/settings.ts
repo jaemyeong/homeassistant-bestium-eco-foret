@@ -58,7 +58,7 @@ const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_
   tx_observation_timeout_ms: 3_000,
   tx_cooldown_ms: 250,
   tx_quiet_ms: 20,
-  speculative_tx_cooldown_ms: 5_000,
+  speculative_tx_cooldown_ms: 1_000,
   unsafe_tx_cooldown_ms: 5_000,
 };
 

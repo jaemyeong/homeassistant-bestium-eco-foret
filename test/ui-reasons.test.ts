@@ -113,3 +113,44 @@ test("0.2.7 RED: the entrance buttons say that they open a door", () => {
     assert.match(button![1], new RegExp(label), `${id} must name the door it opens`);
   }
 });
+
+test("0.2.8 RED: a busy line does not disable a control", () => {
+  // The server now waits for the quiet window instead of refusing, so the page has no
+  // reason to grey a button out for a wait that ends in about 20 ms.
+  const html = renderAppHtml();
+  const ready = /const readyForAction = \(preview\) => \{[\s\S]*?return true; \};/.exec(html);
+  assert.ok(ready, "readyForAction must exist");
+  assert.doesNotMatch(ready![0], /tx\.quiet/, "a momentarily busy line must not disable the control");
+  const start = html.indexOf("const gateBlockers");
+  assert.ok(start > 0, "gateBlockers must exist");
+  const blockers = html.slice(start, html.indexOf("return out;", start));
+  assert.doesNotMatch(blockers, /tx\.quiet/, "and it must not be announced as a blocker");
+});
+
+test("0.2.8 RED: an indeterminate write can be acknowledged and released", () => {
+  // The lock is correct — after a partial write the device state is genuinely unknown —
+  // but nothing could ever clear it, so one failure killed the page until a reload.
+  const html = renderAppHtml();
+  assert.match(html, /id="tx-unlock"/, "the release panel must exist");
+  assert.match(html, /id="tx-unlock-ack"/, "with an operator acknowledgement");
+  assert.match(html, /clearIndeterminate\(\)/, "wired to a handler");
+  const clear = /const clearIndeterminate = \(\) => \{[\s\S]*?\};/.exec(html);
+  assert.ok(clear, "the handler must exist");
+  assert.match(clear![0], /txRetryLocked = false/, "and it must actually release the lock");
+  // It must stay an acknowledgement: nothing may clear the lock on its own.
+  assert.equal((html.match(/txRetryLocked = false/g) ?? []).length, 2, "declaration and the acknowledgement only");
+});
+
+test("0.2.8 RED: the confirmation phrase field can show the whole phrase", () => {
+  const html = renderAppHtml();
+  assert.match(html, /\.actions > label \{[^}]*flex:1 1 100%/, "the field takes its own row");
+  assert.match(html, /\.actions > label input \{[^}]*width:100%/, "and fills it");
+});
+
+test("0.2.8 RED: the candidate warning describes the risk instead of naming a detection", () => {
+  // "wrong-device/collision warning" is fixed boilerplate on every candidate, not something
+  // that was detected, and it reads like a collision the add-on observed.
+  const html = renderAppHtml();
+  assert.doesNotMatch(html, /wrong-device\/collision warning/, "no invented detection");
+  assert.match(html, /관측으로 확인하지 않은 제어입니다/, "say what is actually true");
+});

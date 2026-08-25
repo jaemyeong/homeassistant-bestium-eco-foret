@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.2.7";
+const EXPECTED_VERSION = "0.2.8";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -904,7 +904,7 @@ test("RED: config strictness and exact static contract", () => {
     tx_observation_timeout_ms: 3_000,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 20,
-    speculative_tx_cooldown_ms: 5_000,
+    speculative_tx_cooldown_ms: 1_000,
     unsafe_tx_cooldown_ms: 5_000,
   });
   for (const key of CONFIG_OPTION_DEFAULT_KEYS) {
@@ -1081,7 +1081,7 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     tx_observation_timeout_ms: 3_000,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 20,
-    speculative_tx_cooldown_ms: 5_000,
+    speculative_tx_cooldown_ms: 1_000,
     unsafe_tx_cooldown_ms: 5_000,
   });
   const enabled = parse({ ...base, transmit_enabled: true, transmit_user_id: "operator-7" });
@@ -2940,11 +2940,20 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
     /cooldown/i,
   );
   timer.advance(101);
+  // A momentarily busy line is waited out rather than refused. Behind the EW11 a read lands
+  // about every 121 ms, so refusing turned a sub-20 ms wait into a button the operator had
+  // to press repeatedly. The write still never lands on a line that is talking.
   lastRxByteAtMs = timer.nowMs() - 1;
-  await rejected(
-    () => coordinator.send(lightOn, { mode: "live", userId: "operator-7" }),
-    /quiet|line.busy/i,
-  );
+  const busyPending = coordinator.send(lightOn, { mode: "live", userId: "operator-7" });
+  const writesBeforeWindow = transport.writes.length;
+  await Promise.resolve();
+  assert.equal(transport.writes.length, writesBeforeWindow, "nothing may go out while the line is busy");
+  timer.advance(settings.tx_quiet_ms! + 1);
+  await Promise.resolve();
+  assert.equal(transport.writes.length, writesBeforeWindow + 1, "the frame goes out once the window opens");
+  transport.releaseDrain();
+  assert.match(JSON.stringify(await busyPending), /socket_written/i, "and the send resolves");
+  timer.advance(settings.tx_cooldown_ms! + 1);
   lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
   connected = false;
   await rejected(
@@ -2965,7 +2974,8 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
   lastValidFrameAtMs = 0;
   const stale = await coordinator.send(lightOn, { mode: "live", userId: "operator-7" });
   assert.match(JSON.stringify(stale), /generation|stale|ambiguous/i);
-  assert.equal(transport.writes.length, 1);
+  // Two writes so far: the blocked-drain write, and the one that waited out a busy line.
+  assert.equal(transport.writes.length, 2, "a stale generation must not add a third");
 
   lastValidFrameAtMs = timer.nowMs() - 60_000;
   await rejected(
@@ -3102,7 +3112,7 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
     () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: expiredChallenge.id }),
     /expir|challenge/i,
   );
-  assert.equal(transport.writes.length, 1, "rejected speculative challenges must not write");
+  assert.equal(transport.writes.length, 2, "rejected speculative challenges must not write");
   assert.equal(typeof coordinator.stop, "function", "stop must purge speculative challenges");
   await coordinator.stop();
 
@@ -3869,13 +3879,17 @@ test("RED-final: each door macro frame uses the write deadline, not only the fiv
   await pending;
 });
 
-test("RED-exception: every macro frame rechecks RX/read/append/tail state and quarantines partial writes", async () => {
+test("RED-exception: every macro frame rechecks the hazards that matter and quarantines partial writes", async () => {
   const m2 = await importM2();
   const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
   assert.equal(typeof createTxCoordinator, "function");
   if (typeof createTxCoordinator !== "function") return;
 
-  const mutations = ["generation", "rxByteEpoch", "readEpoch", "pendingAppend", "txByteEpoch", "tailHash"] as const;
+  // rxByteEpoch and readEpoch are deliberately absent. They advance on every received
+  // byte and every capture append, and the inter-frame gap is longer than this bus goes
+  // quiet, so binding them aborted every macro at frame two. What still aborts a macro
+  // is a transport change, a pending append, or evidence that something else wrote.
+  const mutations = ["generation", "pendingAppend", "txByteEpoch", "tailHash"] as const;
   for (const mutation of mutations) {
     const timer = createFakeTimer();
     let generation = 1;
@@ -3933,8 +3947,6 @@ test("RED-exception: every macro frame rechecks RX/read/append/tail state and qu
     assert.equal(transport.writes.length, 1, `${mutation}: first macro frame should be written`);
 
     if (mutation === "generation") generation = 2;
-    if (mutation === "rxByteEpoch") rxByteEpoch = 2;
-    if (mutation === "readEpoch") readEpoch = 2;
     if (mutation === "pendingAppend") pendingAppend = true;
     if (mutation === "txByteEpoch") txByteEpoch = 1;
     if (mutation === "tailHash") tailHash = "tail-mutated";

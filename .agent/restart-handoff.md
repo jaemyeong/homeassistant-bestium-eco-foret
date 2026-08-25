@@ -1,9 +1,9 @@
-# M4.10 Static Acceptance Handoff
+# M4.11 Static Acceptance Handoff
 
 Prepared: 2026-08-25 (Asia/Seoul)
 
-This is the authoritative handoff after the `0.2.7` protocol repair. It supersedes the
-M4.9 handoff. Start from:
+This is the authoritative handoff after the `0.2.8` transmission repair. It supersedes
+the M4.10 handoff. Start from:
 
 `/Users/jaemyeong/Projects/homeassistant-bestium-eco-foret`
 
@@ -34,10 +34,24 @@ layout that fitted only frames we produced ourselves, so encoder, decoder, test 
 test assertion confirmed each other and never touched the bus. That loop is why four
 releases passed a green suite with a frame the wallpad cannot parse.
 
+## What 0.2.8 repaired
+
+The operator reported that control worked only after pressing a button repeatedly, that
+all-zones-off errored, and that one failure left the review card unusable. All three were
+measured rather than guessed.
+
+- The busy-line gate was reading TCP arrival times, not RS485 idle, and was counting the
+  capture store's own pause and resume as bus traffic. The send now waits for the window
+  instead of refusing it. See M4-E111.
+- A multi-frame send could never finish on this bus, because the inter-frame check bound
+  counters that advance on every received byte. 0.2.7 routed all-zones-off into that path,
+  so this is a regression from this session's own previous release. See M4-E112.
+- `txRetryLocked` had no clearing path at all. See M4-E113.
+
 ## Accepted native/static result
 
-- Six version surfaces read `0.2.7`.
-- Full native suite 124/124 on Node `v24.14.1`; `git diff --check` clean. Read that number
+- Six version surfaces read `0.2.8`.
+- Full native suite 132/132 on Node `v24.14.1`; `git diff --check` clean. Read that number
   with M4-E104 in hand: `test/m2.test.ts` segfaults Node about once in thirteen runs, on
   public source, from Node's own TypeScript stripping. Run the suite more than once.
 - The whole 306.8 s capture replays through the product monitor at 1,957 valid frames, zero
@@ -72,4 +86,4 @@ This is native and static. `0.2.7` is published at `7cf1379` and GitHub reports 
 verified; M4-E110 has the record. Updating the installed App and any live send still
 require their own explicit approval.
 
-Next event: the user must update the installed App in Home Assistant themselves for `0.2.7` at `7cf1379` to take effect; afterwards the approved live verification may proceed for Light 1 and for heating, and the elevator call and entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
+Next event: obtain fresh explicit approval before publishing `0.2.8`; `0.2.7` is public at `7cf1379` and the user must update the installed App themselves for any release to take effect. The approved live verification covers Light 1 and heating; the elevator call and the entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without fresh explicit approval
