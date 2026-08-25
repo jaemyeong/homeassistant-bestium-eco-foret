@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-08-25
+
 ### Added
 
 - Move the typed confirmation under the banner that asks for it, and hide it

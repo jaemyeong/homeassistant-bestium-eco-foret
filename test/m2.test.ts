@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.2.4";
+const EXPECTED_VERSION = "0.2.5";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -6978,5 +6978,63 @@ test("M4.8 RED: the confirmation sits under the banner and only appears when it 
     String(fixture.nodes.get("gate-banner-fix")?.textContent ?? ""),
     /확인 문구/,
     "the banner must say what the pending confirmation needs",
+  );
+});
+
+test("M4.8 RED: an observed entrance call takes over the banner and offers no open frame", async () => {
+  const base = uiStatusPayload();
+  const debug = base.debug as AnyRecord;
+  const devices = debug.devices as AnyRecord;
+  const ringing = {
+    ...base,
+    debug: {
+      ...debug,
+      devices: {
+        ...devices,
+        entrances: {
+          household: (devices.entrances as AnyRecord).household,
+          communal: { lastSeenAtMs: 1_700_020_000 - 25, generation: 9, stale: false, state: "ringing", evidence: "unsafe_candidate" },
+        },
+      },
+    },
+  };
+  // The call has to be a transition: a page that opens onto a standing ringing state has
+  // no event to announce, so the first status only establishes the baseline.
+  const quiet = {
+    ...base,
+    debug: { ...debug, devices: { ...devices, entrances: { household: (devices.entrances as AnyRecord).household,
+      communal: { lastSeenAtMs: 1_700_020_000 - 900, generation: 9, stale: false, state: "inactive", evidence: "unsafe_candidate" } } } },
+  };
+  let polls = 0;
+  const fixture = await createUiVmFixture(quiet, () => { polls += 1; return uiJsonResponse(polls === 1 ? quiet : ringing); });
+  await fixture.flush();
+  assert.notEqual(fixture.nodes.get("gate-banner")?.attributes?.["data-state"], "doorbell", "a standing state is not an event");
+  fixture.fireTimer();
+  await fixture.flush();
+  assert.equal(
+    fixture.nodes.get("gate-banner")?.attributes?.["data-state"],
+    "doorbell",
+    "an observed call must take over the banner, ahead of the ready state",
+  );
+  assert.match(String(fixture.nodes.get("gate-banner-title")?.textContent ?? ""), /현관 호출/);
+  assert.match(
+    String(fixture.nodes.get("gate-banner-lede")?.textContent ?? ""),
+    /공동 현관/,
+    "the banner must name which entrance called",
+  );
+  // There is no observed open frame, so the banner must not offer one. Saying so is the
+  // same contract gas open already carries.
+  assert.match(
+    String(fixture.nodes.get("gate-banner-fix")?.textContent ?? ""),
+    /열기는 제공하지 않습니다/,
+    "no open control may be offered for a frame that was never observed",
+  );
+
+  fixture.click("doorbell-dismiss");
+  await fixture.flush();
+  assert.notEqual(
+    fixture.nodes.get("gate-banner")?.attributes?.["data-state"],
+    "doorbell",
+    "dismissing the alarm must return the banner to the transport state",
   );
 });

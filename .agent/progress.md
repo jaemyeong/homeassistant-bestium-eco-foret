@@ -99,7 +99,7 @@ separately gated by fresh explicit approval.
 | M1 | Capture-only PoC contract and test harness | Complete |
 | M2 | Home Assistant App packaging, settings, Ingress, and bounded capture | Complete: static acceptance passed; M3.1 later verified startup/Ingress only |
 | M3 | URL-install publication packaging, then separately gated live runtime and capture canaries | M3.0–M3.2 complete within recorded scopes; M3.3 static/native/adversarial acceptance and public `0.1.3` publication complete, live gates pending |
-| M4 | Packet analysis, clean-room debug/control surfaces, and bounded repairs | M4.2 `0.2.0`, M4.3 `0.2.1`, M4.4 `0.2.2`, and M4.5 `0.2.3` publications complete; the `0.2.3` push was performed outside this session lineage and is recorded in Phase C. M4.6 `0.2.4` quarantine unification, observed-path freshness narrowing, and label-first monitor rendering are accepted in a signed local commit without an independent adversarial review. Push, Home Assistant/Ingress, network/EW11, Capture, actual TX, and device behavior remain separately gated and unverified by M4.5 or M4.6 |
+| M4 | Packet analysis, clean-room debug/control surfaces, and bounded repairs | M4.2 `0.2.0`, M4.3 `0.2.1`, M4.4 `0.2.2`, and M4.5 `0.2.3` publications complete; the `0.2.3` push was performed outside this session lineage and is recorded in Phase C. M4.6 `0.2.4` quarantine unification, observed-path freshness narrowing, and label-first monitor rendering are accepted in a signed local commit without an independent adversarial review. Push, Home Assistant/Ingress, network/EW11, Capture, actual TX, and device behavior remain separately gated and unverified by M4.5 or M4.6  M4.7–M4.8 rebuild the emitted UI to the canonical prototype and make an observed control one activation; `0.2.5` is a signed local commit awaiting publication |
 | M5 | Home Assistant wallpad communication and smart-home entities | Pending |
 | M6 | MQTT/HomeKit bridge path and Apple Home control | Pending |
 | M7 | Subphone capture, analysis, implementation, and control | Pending |
@@ -152,6 +152,7 @@ separately gated by fresh explicit approval.
 | M4.4 | Repair observed-action Commit readiness so only a successful status request initiated after preview completion may recover a temporarily not-ready or changed-revision preview; preserve strict inferred/unsafe gates, pass RED/GREEN and final read-only audit, then publish signed `0.2.2` | Complete in authorized native/static/publication scope: observed 3/3, full 91/91, version/index/LSP gates, final audit PASS, Good product signature, and public config `0.2.2`; live send/device validation remains with the user | Product `a8ac99829666e81929805b5c8ec4e553cf34279a`; this signed publication-record commit |
 | M4.5 | Reconcile one socket-written observed Light 1–3 action with a strictly newer, fresh, same-generation status entry inside a bounded configurable window; preserve socket-only truth, exactly-once send, no retry, and unsupported-device unconfirmed semantics | Complete in authorized native/static scope: M4.5 7/7, observed 3/3, full 98/98, current version/index/LSP gates, and final read-only re-audit PASS; no live validation or push occurred | Product `297233309325e13e90193c3ef1425b5fcf165d6e`; public `main` reached `0.2.3` by a later push recorded in Phase C |
 | M4.6 | Unify the three divergent transport-quarantine predicates, stop keying quarantine on a fresh transport's `validFrameGeneration = 0`, require RX freshness only for inferred and unsafe actions, render monitor values label-first with units, and advance four version surfaces to `0.2.4` | Complete in authorized native/static scope after one repair round accepted by a fresh independent re-audit at PASS. The first candidate also narrowed RX freshness to inferred and unsafe actions; an independent adversarial audit returned that as a P0 and repair round 1 reverted it, so freshness again gates every action class byte-identically to the parent. Reverting the six product and configuration paths to the parent while holding the tests at their repaired expectations reproduces exactly 5 failures of 99, three targeted mutants are each killed by their intended assertion, and the tree passes full 99/99 on Node `v24.14.1` with current version/index/LSP gates and `git diff --check`. The independent review was obtained only on the sixth attempt, after five reviewer failures across two sessions. No push, live validation, or Home Assistant update occurred | Product `d4463c5db4a09d440133a99249ac2b4f53680303`, corrections `92027c1a5f9130b4dab7eb9cc206f21d2c1380d5` and `8c0e121ae516b09a7bd4e29309a6458fc22d65d2`, re-audit record `cd4d827189f96d484ed3445f517950e6573cb1fe`, all four published; this containing publication record |
+| M4.8 | Rebuild the emitted UI to `Bestium Wallpad UI.dc.html` and `SendBanner.dc.html`, send an observed control on one activation, and stop a speculative challenge expiring on every received byte | Complete in authorized native/static scope: full 102/102 on Node `v24.14.1`, four version surfaces at `0.2.5`, `git diff --check` clean, and every screen state verified in a real Chrome browser rather than only against the fake DOM | Ten signed local commits from `316c152` to this containing record; public `main` remains `0.2.4` |
 
 ## Current checkpoint
 
@@ -529,7 +530,50 @@ separately gated by fresh explicit approval.
   the real page was never opened. Full suite 100/100. `confirmed`,
   `unconfirmed`, and `doorbell` from the canonical design are not implemented,
   and `Bestium Wallpad UI.dc.html` is untouched.
-Next event: obtain fresh explicit approval before any live M4.6 validation; the user must update the installed App in Home Assistant themselves for `0.2.4` to take effect, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval
+- M4.7 and M4.8 rebuild the emitted UI against the canonical prototype the user
+  supplied, and fix the transmit path the user actually reported. The diagnosis is
+  recorded plainly because two earlier attempts guessed wrong. The transport was
+  never broken: the user had already made a light turn on by sending a raw frame
+  from the debug lab. The light buttons did nothing because an observed control
+  only opened a preview whose write lived behind a second button in a card below
+  every other card, and the user confirmed they did not know that card existed.
+  One activation now classifies the action and, when the server calls it observed,
+  writes it immediately.
+- A second, independent defect was found in the same pass and repaired.
+  `rejectChallenge` required `rxByteEpoch`, `readEpoch`, and `readinessRevision`
+  to be unchanged between issuing a challenge and committing it, and all three
+  advance on every received byte, so on a live bus a confirmation was a race
+  against the next frame. That is why the heating candidates, the elevator, the
+  entrances, and the RAW lab only ever worked when a click landed inside the gap
+  between frames. The challenge still binds user, action, frames, schedule,
+  generation, and our own outbound tail; every live condition the inbound
+  counters stood in for is re-checked independently at commit time.
+- The client's own `readinessRevision` comparison was removed from the observed
+  path for the same reason. The server re-evaluates every gate on the live
+  request and names its refusal, and the page shows that. Failing closed is kept
+  and made stronger: an untrustworthy status now stops the tap before any
+  request, rather than only greying a button.
+- The UI is the canonical design: a header and a `제어` / `디버그` tab row, the
+  send banner in place of twelve gate chips, tiles for lights, gas, the elevator
+  and the entrances, heating split into an observed Zone 1 and candidate Zones
+  2–4 with a 44px current temperature, and a debug surface carrying capture
+  metrics, a 계열/16진수/해석/경과 frame table, query-only tiles, and the raw lab's
+  explicit three steps. Home Assistant design tokens are mirrored locally because
+  an Ingress iframe inherits neither the theme variables nor the `ha-*`
+  components, and the page takes on no external asset dependency.
+- Two places deliberately depart from the prototype and the reasons are recorded.
+  The capture controls stay on the control surface beside the banner that points
+  at them, because that adjacency is what fixes the reported problem. The
+  entrance call banner announces the call but offers no open control, because the
+  encoder has no observed open frame — the same contract gas open already
+  carries. The typed confirmation for candidates is kept rather than auto-filled,
+  and moved directly under the banner that asks for it.
+- Every screen state was checked in a real Chrome browser at 1568px and at 390px,
+  not only against the fake DOM. That check is what the M4.6 incident lacked, and
+  it caught two layout defects the test suite could not see: bilingual button
+  labels collapsing a tile's text to one character per line, and a zone card's
+  set button overflowing its card.
+Next event: obtain fresh explicit approval before publishing `0.2.5` or performing any live validation; the user must update the installed App in Home Assistant themselves for `0.2.4` to take effect, and no agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without that approval
 
 ## M0.4 clear checkpoint
 
