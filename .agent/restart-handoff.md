@@ -82,8 +82,12 @@ measured rather than guessed.
 
 ## Evidence limits and authority
 
-This is native and static. `0.2.7` is published at `7cf1379` and GitHub reports it
-verified; M4-E110 has the record. Updating the installed App and any live send still
+This is native and static. `0.2.8` is published at `18bf6d2` and GitHub reports it
+verified; M4-E114 has the record. Updating the installed App and any live send still
 require their own explicit approval.
 
-Next event: obtain fresh explicit approval before publishing `0.2.8`; `0.2.7` is public at `7cf1379` and the user must update the installed App themselves for any release to take effect. The approved live verification covers Light 1 and heating; the elevator call and the entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without fresh explicit approval
+The quiet wait reduces lost sends but does not eliminate them: a frame damaged by a
+collision is still not retried. Retry-until-confirmed is specified in
+`.agent/spec-device-protocol.md` §4.3 and is the next round.
+
+Next event: the user must update the installed App in Home Assistant themselves for `0.2.8` at `18bf6d2` to take effect; afterwards the approved live verification may proceed for Light 1 and heating, and the elevator call and the entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
