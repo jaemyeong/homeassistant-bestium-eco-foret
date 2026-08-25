@@ -68,7 +68,8 @@ releases passed a green suite with a frame the wallpad cannot parse.
 
 ## Evidence limits and authority
 
-This is native and static. Publishing `0.2.7`, updating the installed App, and any live send
-each require their own explicit approval.
+This is native and static. `0.2.7` is published at `7cf1379` and GitHub reports it
+verified; M4-E110 has the record. Updating the installed App and any live send still
+require their own explicit approval.
 
-Next event: obtain fresh explicit approval before publishing `0.2.7`; `0.2.6` is public at `c879d2c` and the user must update the installed App themselves for any release to take effect. The approved live verification now covers heating as well as Light 1, and the elevator call and entrance line each need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any device action without fresh explicit approval
+Next event: the user must update the installed App in Home Assistant themselves for `0.2.7` at `7cf1379` to take effect; afterwards the approved live verification may proceed for Light 1 and for heating, and the elevator call and entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
