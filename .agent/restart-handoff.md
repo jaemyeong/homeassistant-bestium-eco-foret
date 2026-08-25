@@ -49,14 +49,20 @@ about every 1.6–1.9 s. Only the watched light is leased now, and the window is
 - Six version surfaces read `0.2.6`: `bestium-eco-foret/config.json`, both
   `package.json` files, `bestium-eco-foret/Dockerfile`, and `EXPECTED_VERSION`
   in `test/m2.test.ts`.
-- Full native suite 106/106 on Node `v24.14.1`; `git diff --check` clean. Read that
+- Full native suite 109/109 on Node `v24.14.1`; `git diff --check` clean. Read that
   number with M4-E104 in hand: `test/m2.test.ts` segfaults Node about once in
   thirteen runs, it did so on public `521149f` before any of this work, and the
   fault is in Node's own TypeScript stripping rather than in any test or in the
   product. Run the suite more than once before believing it.
-- The new cooldown test is in `test/tx-cooldown.test.ts` rather than in
-  `m2.test.ts`, because adding roughly 3 KB of anything to that file measurably
-  raises the crash rate.
+- The new tests are in `test/tx-cooldown.test.ts` and `test/ui-reasons.test.ts`
+  rather than in `m2.test.ts`, because adding roughly 3 KB of anything to that
+  file measurably raises the crash rate.
+- A refused send now names its reason in Korean at the control. All seventeen
+  server readiness reasons follow the banner's existing
+  `한국어 (english)` wording, and an unmapped one passes through unchanged.
+- Both candidate transmit flags read true on the live add-on, so the
+  configuration was not the cause of the reported candidate symptom. M4-E105
+  records the full gate reading.
 - Candidate controls send on one tap. The page supplies the confirmation phrase.
 - A pending observation leases `light-<n>-on` and `light-<n>-off` for the watched
   light only. The review and capture controls stay page-wide because they are
