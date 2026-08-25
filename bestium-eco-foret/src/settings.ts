@@ -55,7 +55,7 @@ const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_
   speculative_transmit_enabled: false,
   unsafe_transmit_enabled: false,
   tx_write_timeout_ms: 1_000,
-  tx_observation_timeout_ms: 10_000,
+  tx_observation_timeout_ms: 3_000,
   tx_cooldown_ms: 250,
   tx_quiet_ms: 20,
   speculative_tx_cooldown_ms: 5_000,

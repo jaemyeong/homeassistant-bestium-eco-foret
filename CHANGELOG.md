@@ -4,6 +4,61 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-25
+
+### Fixed
+
+- Stop the readiness revision from disabling every candidate control. The client
+  compared the preview's `readinessRevision` against the one in the next status
+  poll, but that value hashes `rxByteEpoch`, `readEpoch`, `validFrameEpoch` and
+  `tailHash`, so it moves on every received byte. Measured on the running add-on:
+  the revision had already changed 2.5 s after the preview, and the confirm button
+  was `DISABLED` while the banner read `awaiting`. The comparison was a duplicate
+  of a server check — `send` re-evaluates every gate on the live request and
+  re-reads generation, connection, `rxByteEpoch` and `readEpoch` immediately
+  before the write — and it was the one copy that could never pass on a live bus.
+- Lease the watched light, not the whole page. A pending observation disabled
+  every send control, so one light command made every other device wait out the
+  observation window. Only `light-<n>-on` and `light-<n>-off` for the watched
+  light are now leased; the review and capture controls stay page-wide because
+  they are single-instance.
+- Shorten the observation window from 10 s to 3 s. State frames on this bus
+  arrive about every 1.6–1.9 s, so 10 s was more than five frames of waiting for
+  an answer that arrives in one. Note that 3 s leaves under two frames of margin:
+  a command that physically succeeded can still end at
+  `소켓으로 보냈지만 요청한 상태는 관측하지 못했습니다` on timing jitter alone.
+  The value stays configurable as `tx_observation_timeout_ms`.
+
+### Changed
+
+- Candidate controls now send on one tap, and the page supplies the confirmation
+  phrase on the operator's behalf. **This is a deliberate reduction in a safety
+  gate, made at the operator's explicit instruction.** Typing
+  `I UNDERSTAND THIS IS AN INFERRED CANDIDATE` was a human-attention gate on
+  actions whose control codes were never observed; it is gone. What still stands
+  for `inferred_candidate` and `unsafe_candidate` actions is the configuration
+  flags (`speculative_transmit_enabled`, `unsafe_transmit_enabled`, both off by
+  default), the current-generation 7F compatibility proof for entrance macros,
+  and the speculative and unsafe cooldowns. The arbitrary-frame lab keeps its
+  full three-step flow, so the typed phrase still guards the one path that can
+  put any bytes on the bus.
+
+### Added
+
+- Assert the candidate cooldown, which nothing covered before. It is now the only
+  rate limit on repeated candidate taps, and it is charged at challenge issuance
+  rather than at commit — `send` skips its own cooldown check for an accepted
+  challenge precisely because issuance already charged it. Removing either gate
+  alone leaves the other standing; removing both lets a second tap inside the
+  window put a frame on the bus, and the new test fails on exactly that. It lives
+  in `test/tx-cooldown.test.ts` rather than in `test/m2.test.ts`: that file is
+  past the size where Node's TypeScript stripping segfaults intermittently, and
+  adding roughly 3 KB of anything to it raises the rate. The crash predates this
+  release — public `0.2.5` reproduces it about once in thirteen runs — and running
+  the same file under a different converter does not reproduce it at all, so it is
+  not a defect in the tests or in the add-on. Run the suite more than once before
+  reading a single green result as a green suite.
+
 ## [0.2.5] - 2026-08-25
 
 ### Added

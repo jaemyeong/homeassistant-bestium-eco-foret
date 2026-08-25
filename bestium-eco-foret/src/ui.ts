@@ -340,11 +340,13 @@ export function renderAppHtml(): string {
         const known = SERIES[code]; return { code, name: known ? known[0] + " 0x" + code : "미확인" + (code ? " 0x" + code : ""), decoded: known ? known[1] : "어느 계열인지 정하지 못했습니다" }; };
       const nf = (value) => Number.isFinite(value) ? Number(value).toLocaleString("ko-KR") : "—";
       const setText = (id, value) => { const node = $(id); if (node) node.textContent = String(value); }; const setGate = (id, yes, good, bad) => { const node = $(id); if (!node) return; node.textContent = yes ? good : bad; node.classList.toggle("yes", yes); node.classList.toggle("no", !yes); };
-      const txState = () => window.__bestiumTx || {}; const validRevision = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256) || Number.isSafeInteger(value); const previewRevision = (preview) => preview?.readinessRevision ?? preview?.readiness?.readinessRevision; const readyForAction = (preview) => { const tx = txState(); const revision = previewRevision(preview); const observedPreview = preview?.evidence === "observed"; const revisionMatches = validRevision(tx.readinessRevision) && validRevision(revision) && String(tx.readinessRevision) === String(revision); const previewReady = preview?.ready !== false && !(preview?.readiness && preview.readiness.ready === false); const strictReady = revisionMatches && previewReady; const observedRevalidated = observedPreview && Number.isSafeInteger(previewPollEpoch) && appliedPollEpoch > previewPollEpoch; if (!preview || !validRevision(tx.readinessRevision) || !validRevision(revision) || statusInvalid || (!observedPreview && !strictReady) || (observedPreview && !strictReady && !observedRevalidated) || tx.enabled !== true || tx.authorized !== true || tx.connected !== true || tx.inFlight === true || tx.quarantined === true || tx.pendingAppend === true || tx.quiet !== true || tx.currentGenerationRx !== true || tx.fresh !== true) return false; if (!observedPreview && pendingChallenge && (!validRevision(pendingChallenge.readinessRevision) || String(pendingChallenge.readinessRevision) !== String(revision))) return false; if (preview.evidence === "inferred_candidate" && tx.speculativeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && tx.unsafeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && preview.action?.kind === "entrance" && tx.sevenFProof !== true) return false; return true; };
-      const setPendingControlLease = (locked) => { for (const id of Object.keys(actionCatalog)) { const node = $(id); if (node) node.disabled = locked; } for (const zone of [1,2,3,4]) { const node = $("heat-temp-" + zone + "-send"); if (node) node.disabled = locked; } const rawPreview = $("raw-preview"); if (rawPreview) rawPreview.disabled = locked; };
+      const txState = () => window.__bestiumTx || {}; const validRevision = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256) || Number.isSafeInteger(value); const previewRevision = (preview) => preview?.readinessRevision ?? preview?.readiness?.readinessRevision; const readyForAction = (preview) => { const tx = txState(); const observedPreview = preview?.evidence === "observed"; const previewReady = preview?.ready !== false && !(preview?.readiness && preview.readiness.ready === false); /* The readiness revision hashes rxByteEpoch, readEpoch, validFrameEpoch and tailHash, so on a live bus it moves between the preview and the next poll. Comparing it here left every candidate control permanently disabled. The server re-evaluates each gate on the live request and names its own refusal; what stays client-side is the fail-closed status check and the gates the banner shows. */ if (!preview || statusInvalid || !previewReady || tx.enabled !== true || tx.authorized !== true || tx.connected !== true || tx.inFlight === true || tx.quarantined === true || tx.pendingAppend === true || tx.quiet !== true || tx.currentGenerationRx !== true || tx.fresh !== true) return false; if (preview.evidence === "inferred_candidate" && tx.speculativeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && tx.unsafeEnabled !== true) return false; if (preview.evidence === "unsafe_candidate" && preview.action?.kind === "entrance" && tx.sevenFProof !== true) return false; return true; };
+      /* A pending observation watches one light. Locking every send control made the whole page wait out the observation window, and on a live bus that wait is the delay the operator feels. Only the watched light is leased; the review and capture controls stay page-wide because they are single-instance. */
+      const sendControlIds = () => Object.keys(actionCatalog).concat([1,2,3,4].map((zone) => "heat-temp-" + zone + "-send"), ["raw-preview"]);
+      const setPendingControlLease = () => { const target = pendingObservation?.target; const leased = target ? ["light-" + target + "-on", "light-" + target + "-off"] : []; for (const id of sendControlIds()) { const node = $(id); if (node) node.disabled = leased.includes(id); } };
       const setDownloadControl = () => { const download = $("capture-download"); if (download) download.disabled = !downloadReady || pendingObservation !== null; };
       const showReview = () => $("review")?.setAttribute("data-active", reviewedAction && reviewPreview && reviewPreview.evidence !== "observed" ? "true" : "false");
-      const setReviewBusy = (value) => { reviewBusy = value; showReview(); review?.setAttribute("aria-busy", value || pendingObservation !== null ? "true" : "false"); const issue = $("issue-challenge"); const commit = $("review-commit"); const cancel = $("review-cancel"); const reviewLocked = value || captureBusy || mutationLocked || txRetryLocked || pendingObservation !== null; if (cancel) cancel.disabled = captureBusy || mutationLocked || txRetryLocked || pendingObservation !== null || cancelInFlight || commitInFlight || phase === "committing"; if (issue) issue.disabled = reviewLocked || cancelInFlight || !reviewedAction || !reviewPreview || reviewPreview.evidence === "observed" || !readyForAction(reviewPreview); if (commit) commit.disabled = reviewLocked || cancelInFlight || !reviewedAction || (reviewPreview && reviewPreview.evidence !== "observed" && !pendingChallenge) || !readyForAction(reviewPreview); setPendingControlLease(pendingObservation !== null); setCaptureControls(); };
+      const setReviewBusy = (value) => { reviewBusy = value; showReview(); review?.setAttribute("aria-busy", value || pendingObservation !== null ? "true" : "false"); const issue = $("issue-challenge"); const commit = $("review-commit"); const cancel = $("review-cancel"); const reviewLocked = value || captureBusy || mutationLocked || txRetryLocked || pendingObservation !== null; if (cancel) cancel.disabled = captureBusy || mutationLocked || txRetryLocked || pendingObservation !== null || cancelInFlight || commitInFlight || phase === "committing"; if (issue) issue.disabled = reviewLocked || cancelInFlight || !reviewedAction || !reviewPreview || reviewPreview.evidence === "observed" || !readyForAction(reviewPreview); if (commit) commit.disabled = reviewLocked || cancelInFlight || !reviewedAction || (reviewPreview && reviewPreview.evidence !== "observed" && !pendingChallenge) || !readyForAction(reviewPreview); setPendingControlLease(); setCaptureControls(); };
       const validCapturePhase = (value) => value === "starting" || value === "running" || value === "finalizing" || value === "stopped";
       const setCaptureControls = () => { const unknown = !validCapturePhase(capturePhase); const locked = unknown || captureBusy || mutationLocked || txRetryLocked || pendingObservation !== null; if (startButton) startButton.disabled = locked || capturePhase !== "stopped"; if (stopButton) stopButton.disabled = locked || capturePhase !== "running"; setDownloadControl(); }; setCaptureControls();
       const setCaptureBusy = (value) => { captureBusy = value; startButton?.setAttribute("aria-busy", value || pendingObservation !== null ? "true" : "false"); stopButton?.setAttribute("aria-busy", value || pendingObservation !== null ? "true" : "false"); setCaptureControls(); setReviewBusy(reviewBusy); };
@@ -416,12 +418,13 @@ export function renderAppHtml(): string {
           lockIndeterminate(epoch === requestEpoch ? "challenge issuance failed; state unknown" : "challenge request aborted before issuance");
         }
       };
-      const commitObserved = async (action) => {
+      const CANDIDATE_PHRASE = "I UNDERSTAND THIS IS AN INFERRED CANDIDATE";
+      const commitObserved = async (action, challengeId) => {
         const observationBaseline = captureLightObservationBaseline(action);
         phase = "committing"; setText("review-phase", phaseLabels[phase]);
         commitInFlight = true; setReviewBusy(true);
         try {
-          const result = await postAction(action, "commit", { schedule: "immediate" });
+          const result = await postAction(action, "commit", challengeId ? { challengeId, confirmationPhrase: CANDIDATE_PHRASE, schedule: "immediate" } : { schedule: "immediate" });
           if (result.outcome === "partial_indeterminate") {
             txRetryLocked = true;
             const quarantine = result.quarantined === true ? "true" : result.quarantined === false ? "false" : "unknown/unavailable";
@@ -450,7 +453,10 @@ export function renderAppHtml(): string {
         }
       };
       const oneTapSend = async (action, trigger) => {
-        if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || commitInFlight || txRetryLocked || pendingObservation) return;
+        if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || commitInFlight || txRetryLocked) return;
+        // Only the light whose state is still pending refuses a second command; every other
+        // device stays usable, which is what setPendingControlLease renders into the DOM.
+        if (pendingObservation && action?.kind === "light" && action.target === pendingObservation.target) return;
         // Fail closed: if the last status could not be trusted, do not put a frame on the bus.
         if (statusInvalid) { setText("outcome", "보내지 못했습니다 · 상태를 아직 확인하지 못했습니다"); setText("alert", "상태 확인 실패 · 재확인 필요"); return; }
         sendResult = null;
@@ -474,13 +480,6 @@ export function renderAppHtml(): string {
         reviewPreview = { ...preview, action };
         previewPollEpoch = pollEpoch;
         describePreview(action, preview);
-        if (preview.evidence !== "observed") {
-          phase = "reviewed"; setText("review-phase", phaseLabels[phase]);
-          setText("outcome", "확인이 필요합니다 · 확인 문구를 입력한 뒤 확인을 누르세요");
-          setReviewBusy(false);
-          if (latestStatusPayload) draw(latestStatusPayload);
-          return;
-        }
         if (preview.ready === false) {
           const why = Array.isArray(preview.reasons) && preview.reasons.length ? preview.reasons.join(", ") : "준비되지 않음";
           setText("outcome", "보내지 못했습니다 · " + why);
@@ -488,7 +487,24 @@ export function renderAppHtml(): string {
           setReviewBusy(false); return;
         }
         setReviewBusy(false);
-        await commitObserved(action);
+        if (preview.evidence === "observed") { await commitObserved(action); return; }
+        // A candidate still needs the server's confirmation phrase. One activation supplies
+        // it, so the operator taps once and the page narrates the rest.
+        let challenge;
+        try {
+          challenge = await postAction(action, "challenge", { confirmationPhrase: CANDIDATE_PHRASE, schedule: "immediate" });
+        } catch {
+          setText("outcome", "보내지 못했습니다 · 후보 확인을 발급하지 못했습니다");
+          setText("alert", "전송 거부 · 후보 확인 실패");
+          clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
+          return;
+        }
+        if (!challenge || typeof challenge.id !== "string") {
+          setText("outcome", "보내지 못했습니다 · " + String(challenge?.reason || "후보 확인을 발급하지 못했습니다"));
+          clearReviewState(); phase = "idle"; setText("review-phase", phaseLabels[phase]);
+          return;
+        }
+        await commitObserved(action, challenge.id);
       };
       const commitReviewed = async () => {
         if (reviewBusy || captureBusy || mutationLocked || cancelInFlight || txRetryLocked || pendingObservation || !reviewedAction || !reviewPreview || !readyForAction(reviewPreview) || (reviewPreview.evidence !== "observed" && !pendingChallenge)) return;

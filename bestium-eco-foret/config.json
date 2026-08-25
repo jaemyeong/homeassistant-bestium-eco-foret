@@ -2,7 +2,7 @@
   "name": "BESTIUM Eco-Foret Wallpad",
   "slug": "bestium-eco-foret",
   "description": "Bestium Eco-Foret wallpad monitor and guarded control over the EW11 RS485 gateway, with bounded packet capture.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "arch": [
     "aarch64",
     "amd64"
@@ -24,7 +24,7 @@
     "speculative_transmit_enabled": false,
     "unsafe_transmit_enabled": false,
     "tx_write_timeout_ms": 1000,
-    "tx_observation_timeout_ms": 10000,
+    "tx_observation_timeout_ms": 3000,
     "tx_cooldown_ms": 250,
     "tx_quiet_ms": 20,
     "speculative_tx_cooldown_ms": 5000,
