@@ -6,6 +6,14 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Rebuild the debug surface to the design. Packet capture reports elapsed time,
+  record count, received bytes, and stored file size with the capture's filename;
+  the received-frame log is a table of 계열, 16진수, 해석, and 경과 with the series
+  read off the frame's fourth byte and named in Korean; the query-only devices
+  are tiles; and the raw lab carries the design's warning banner and its explicit
+  1 · 2 · 3 step rail. The capture controls stay on the control surface beside
+  the banner that points at them, which is the one place the design's layout is
+  not followed and the reason is recorded here.
 - Rebuild the heating card as the design's zone cards. The current temperature is
   a 44px numeral with its unit and `현재` label beside it rather than a sentence,
   freshness moves to the zone's state line, and the zones are split into the
