@@ -50,6 +50,21 @@ function cloneBytes(value: Uint8Array): Uint8Array {
   return new Uint8Array(value);
 }
 
+/**
+ * The floor byte was rendered raw, so a car in the basement read as 177 on the page.
+ * `0xB1` is read as B1 by inference: it is the only basement sample this bus has produced,
+ * and the byte carries no second example to confirm the nibble means what it looks like.
+ * The bus reports `0x00` once the car settles, which is an absence rather than a floor.
+ */
+function floorLabel(value: unknown): string | null {
+  if (!Number.isInteger(value)) return null;
+  const byte = value as number;
+  if (byte === 0) return null;
+  if (byte >= 1 && byte <= 0x63) return String(byte);
+  if ((byte & 0xf0) === 0xb0 && (byte & 0x0f) >= 1) return `B${byte & 0x0f}`;
+  return `0x${byte.toString(16).padStart(2, "0")}`;
+}
+
 function freshness(nowMs: number, generation: number): DeviceFreshness {
   return { lastSeenAtMs: nowMs, generation, stale: false };
 }
@@ -182,33 +197,44 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     return;
   }
   if (command === 0x34 && payload.length >= 8) {
-    // The high nibble is movement and the low nibble is the standing call. Only 0xA6 and
-    // 0xB6 were ever seen moving on this bus; the 0xA5 the decoder used to require never
-    // appeared at all, so a travelling car read as unknown for its whole journey.
+    // The high nibble is movement and the low nibble is the standing call. Collapsing both
+    // into one `direction` hid the call whenever the car was moving: 0xA5 is "ascending
+    // with an up call waiting" and read as plain "up". The two are reported separately now,
+    // which is also the only signal that can tell us whether a call frame of ours worked.
     const code = payload[6];
     const moving = code >> 4;
-    const call = code & 0x0f;
+    const callCode = code & 0x0f;
     const direction = moving === 0x0a ? "up"
       : moving === 0x0b ? "down"
       : moving !== 0 ? undefined
-      : call === 1 ? "arrival"
-      : call === 0 ? "idle"
-      : call === 5 ? "up"
-      : call === 6 ? "down"
+      : callCode === 1 ? "arrival"
+      : callCode === 0 ? "idle"
+      : callCode === 5 ? "up"
+      : callCode === 6 ? "down"
       : undefined;
     if (direction === undefined) {
       markUnknown("0x34");
       return;
     }
-    mark("elevator", { floor: payload[7], direction, evidence: "observed" });
+    const motion = moving === 0x0a ? "up" : moving === 0x0b ? "down" : "idle";
+    const call = callCode === 0 ? "none"
+      : callCode === 1 ? "arrival"
+      : callCode === 5 ? "up"
+      : callCode === 6 ? "down"
+      : undefined;
+    mark("elevator", { floor: payload[7], floorLabel: floorLabel(payload[7]), motion, call, direction, evidence: "observed" });
     return;
   }
   if (command === 0x1e && payload.length >= 5) {
-    // The poll frame is eleven bytes, so a length guard of eight discarded all 181 of them
-    // and the communal entrance never received a single value. What they carry is still
-    // unknown, so they only stamp freshness until a capture with a live call decodes them.
-    if (payload[2] === 0x02) mark("entrances", { household: { ...devices.entrances.household, call: true, ...freshness(at, generation) } });
-    else mark("entrances", { communal: { ...devices.entrances.communal, evidence: "candidate", ...freshness(at, generation) } });
+    // The `02` frame is not a call. It appears three times in a row at the instant the
+    // operator presses the wallpad's door-open button, and nothing on this line moves when
+    // the bell is actually rung. Whether it is the door-open command itself or the notice
+    // that the call ended because the door opened is still undecided, so it is reported as
+    // the observation it is and never as a call in progress.
+    if (payload[2] === 0x02) mark("entrances", { household: { ...devices.entrances.household, doorOpenObserved: true, ...freshness(at, generation) } });
+    // Every one of the poll frames is byte-identical, on this capture and the last, and none
+    // changed while a call was ringing. There is nothing in them to read yet.
+    else mark("entrances", { communal: { ...devices.entrances.communal, evidence: "not_decoded", ...freshness(at, generation) } });
     return;
   }
   if (command === 0x1f) {
@@ -248,7 +274,7 @@ function createDevices(): AnyDevices {
     gas: { ...base },
     heating: { 1: { ...base }, 2: { ...base }, 3: { ...base }, 4: { ...base } },
     elevator: { ...base },
-    entrances: { household: { ...base }, communal: { ...base, evidence: "candidate" } },
+    entrances: { household: { ...base }, communal: { ...base, evidence: "not_decoded" } },
     outlet: { ...base },
     ventilation: { ...base },
     vehicle: { ...base, evidence: "unidentified" },
@@ -403,9 +429,8 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
     for (const key of [1, 2, 3] as const) clone.lights[key] = staleDevice(clone.lights[key], now, generation, staleAfterMs, stopped);
     for (const key of [1, 2, 3, 4] as const) clone.heating[key] = staleDevice(clone.heating[key], now, generation, staleAfterMs, stopped);
     clone.entrances.household = staleDevice(clone.entrances.household, now, generation, staleAfterMs, stopped);
-    // The bus carries no "call ended" frame, so the ringing flag lives exactly as long as
-    // the frame that raised it stays fresh. Latching it forever was the alternative.
-    if (clone.entrances.household.stale) clone.entrances.household = { ...clone.entrances.household, call: false };
+    // The observation lives exactly as long as the frame that raised it stays fresh.
+    if (clone.entrances.household.stale) clone.entrances.household = { ...clone.entrances.household, doorOpenObserved: false };
     clone.entrances.communal = staleDevice(clone.entrances.communal, now, generation, staleAfterMs, stopped);
     return {
       generation,
@@ -425,6 +450,11 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
   return {
     push,
     snapshot,
+    // The live decoded state, without the snapshot's clone and staleness pass. The send
+    // path polls this while waiting for a command to be confirmed, so it must be cheap and
+    // must carry `lastSeenAtMs` and `generation` unmodified. Read only.
+    deviceState(): AnyDevices { return devices; },
+    currentGeneration(): number { return generation; },
     resetGeneration(): void { generation += 1; validFrameCount = 0; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
     stop(): void { stopped = true; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
     start(): void { stopped = false; },
@@ -495,7 +525,9 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
     return observed(bytesFromHex(frame), context);
   }
   if (kind === "gas") {
-    if (value.state === "close") return inferred(bytesFromHex("f70b011b0243110300b5ee"));
+    // Confirmed by the operator on the live bus after the quiet window was widened. Closing
+    // is the safe direction and opening stays refused, so one tap is the right cost.
+    if (value.state === "close") return observed(bytesFromHex("f70b011b0243110300b5ee"), context);
     return rejectedResult("gas open is not authorized");
   }
   if (kind === "heat" && Number.isInteger(value.zone) && value.zone >= 1 && value.zone <= 4) {
@@ -504,32 +536,36 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
     // this used to build were shaped like a status reply, declared a length one short, and
     // the wallpad ignored every one of them. See `.agent/spec-device-protocol.md`.
     const address = 0x10 + value.zone;
+    // Promoted after the operator drove all four zones from the page on the live bus. The
+    // frames were already byte-identical to the wallpad's own; what was missing until now
+    // was our sending one and watching real heating move.
     if (value.temperatureC !== undefined) {
       if (!Number.isInteger(value.temperatureC) || value.temperatureC < 5 || value.temperatureC > 40) return rejectedResult("temperature is unsupported");
-      return inferred(makeF7([1, 0x18, 2, 0x45, address, value.temperatureC, 0]));
+      return observed(makeF7([1, 0x18, 2, 0x45, address, value.temperatureC, 0]), context);
     }
-    // Every zone stays a candidate until one of these frames is seen to move real heating.
-    // The frame is capture-verified; our sending it is not, and `observed` means one tap.
-    if (value.state === "on") return inferred(makeF7([1, 0x18, 2, 0x46, address, 1, 0]));
-    if (value.state === "off") return inferred(makeF7([1, 0x18, 2, 0x46, address, 4, 0]));
+    if (value.state === "on") return observed(makeF7([1, 0x18, 2, 0x46, address, 1, 0]), context);
+    if (value.state === "off") return observed(makeF7([1, 0x18, 2, 0x46, address, 4, 0]), context);
     return rejectedResult("unsupported heating state");
   }
   if (kind === "heat" && value.target === "all" && value.state === "off") {
-    // Neither the bus nor the legacy implementation has a batch heating command, so this
-    // is the four verified zone frames in sequence rather than one invented frame.
+    // Neither the bus nor the legacy implementation has a batch heating command. The send
+    // path expands this into four independent per-zone intents, each queued, retried and
+    // confirmed on its own; these frames are what the preview shows.
     const frames = [1, 2, 3, 4].map((zone) => makeF7([1, 0x18, 2, 0x46, 0x10 + zone, 4, 0]));
     return {
       frames, frameHex: hexOf(frames[0] as Uint8Array), framesHex: frames.map((entry) => hexOf(entry)),
-      evidence: "inferred_candidate", transportEvidence: "unverified",
-      sendable: false, confirmed: false, requiresSpeculativeConfirmation: true,
+      evidence: "observed", sendable: context.transmitEnabled === true && context.authorizedUser === true,
+      confirmed: false,
     };
   }
   if (kind === "elevator" && (value.direction === "up" || value.direction === "down")) {
-    // The legacy Bestium add-on for this building ships elevator_packet_call_type 0 and
-    // elevator_packet_command_call_down_value 6, which is this shape with 0x06 for down.
-    // Up is 0x05 by the same builder, but the legacy marks call state 5 as 상행호출중(미지원),
-    // so down rests on a working configuration and up does not. What this used to send was
-    // neither: it was the wallpad's own status broadcast to the hallway pad, replayed.
+    // Pressing the wallpad's own call button put no 0x34 set frame on this line, and a
+    // byte-level diff of every device across that moment found nothing else moving either,
+    // so this shape is the legacy add-on's claim with a negative observation against it.
+    // The verdict comes from the call nibble, which now has its own field: a call that
+    // registers turns `call` from "none" into the direction that was asked for. The legacy's
+    // second shape (`01 34 04 41 10 00 <05|06>`) is not sent, because a frame nothing in the
+    // send path can reach is dead weight; it stays documented in the protocol spec.
     return inferred(makeF7([1, 0x34, 2, 0x41, 0x10, value.direction === "up" ? 5 : 6, 0]));
   }
   if (kind === "outlet" && value.action === "query") return observed(bytesFromHex("f70b011f0140100000b3ee"), context);

@@ -56,14 +56,20 @@ test("0.2.7 RED: heating commands are the frames the wallpad itself sends", () =
   }
 });
 
-test("0.2.7 RED: no heating zone claims observed evidence yet", () => {
-  // The frames are capture-verified but the add-on has never actuated heating with them.
-  // `observed` means one tap with no confirmation, so it waits for a live result.
+test("0.3.0 RED: every heating zone is observed once the operator drove it live", () => {
+  // 0.2.7 held all four zones as candidates because the frames were capture-verified but we
+  // had never sent one and watched heating move. The operator has now driven every zone from
+  // the page on the live bus, which is exactly the condition that release named.
   for (const zone of [1, 2, 3, 4]) {
     for (const action of [{ kind: "heat", zone, state: "on" }, { kind: "heat", zone, state: "off" }, { kind: "heat", zone, temperatureC: 23 }]) {
-      assert.equal(encode(action).evidence, "inferred_candidate", JSON.stringify(action));
+      assert.equal(encode(action).evidence, "observed", JSON.stringify(action));
     }
   }
+  // Promotion is about the evidence class, never about the bytes.
+  assert.deepEqual(framesOf(encode({ kind: "heat", zone: 1, state: "on" })), ["f70b01180246110100b1ee"]);
+  assert.deepEqual(framesOf(encode({ kind: "heat", zone: 1, temperatureC: 24 })), ["f70b01180245111800abee"]);
+  assert.equal(encode({ kind: "gas", state: "close" }).evidence, "observed");
+  assert.equal(encode({ kind: "gas", state: "open" }).evidence, "rejected");
 });
 
 test("0.2.7 RED: heat-all-off is four verified frames, not one invented one", () => {
@@ -149,17 +155,21 @@ test("0.2.7 RED: the elevator reports the directions the bus actually carries", 
   }
 });
 
-test("0.2.7 RED: an entrance call does not latch forever", () => {
-  // Measured on the capture: call went true at +274 s and was still true at +306 s, with
-  // nothing on the bus that could ever have cleared it.
+test("0.3.0 RED: the 0x1E 02 frame is a door-open observation, never a call", () => {
+  // This frame appears three times in a row at the instant the operator presses the
+  // wallpad's door-open button, and nothing on this line moves when the bell is rung. It
+  // was reported as `call: true`, which told the operator the opposite of what happened.
+  // Whether it is the command or the notice that the call ended is still undecided.
   let now = 1_000;
   const m = fresh(() => now);
   push(m, "f70e011e024311040004ffffb6ee", now);
-  assert.equal(((devices(m).entrances as AnyRecord).household as AnyRecord).call, true, "the call frame must raise the flag");
+  const household = (): AnyRecord => (devices(m).entrances as AnyRecord).household as AnyRecord;
+  assert.equal(household().call, undefined, "nothing may claim a call is in progress");
+  assert.equal(household().doorOpenObserved, true, "the door-open operation is what was observed");
   now += 5_000;
-  assert.equal(((devices(m).entrances as AnyRecord).household as AnyRecord).call, true, "and it must survive while the frame is fresh");
+  assert.equal(household().doorOpenObserved, true, "and it survives while the frame is fresh");
   now += 30_000;
-  assert.notEqual(((devices(m).entrances as AnyRecord).household as AnyRecord).call, true, "once the frame goes stale the ringing must stop");
+  assert.notEqual(household().doorOpenObserved, true, "once the frame goes stale the observation stops");
 });
 
 test("0.2.7 RED: the entrance poll frame is kept rather than dropped", () => {

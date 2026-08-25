@@ -92,10 +92,10 @@ test("0.2.7 RED: a sentence-length notice is allowed to wrap", () => {
   // .pill is a 32px fixed-height badge. Three notices in this release are sentences.
   const html = renderAppHtml();
   assert.match(html, /\.pill\.block \{[^}]*height:auto/, "the wrapping variant must exist");
-  for (const marker of ["네 구역 모두 inferred_candidate", "이 버스에서 0x7F 프레임을", "하행은 레거시 베스티움이"]) {
+  for (const marker of ["네 구역 모두 observed", "서버의 0x7F 증적 게이트는", "월패드의 호출 버튼을 누른 캡처에서"]) {
     const at = html.indexOf(marker);
     assert.ok(at > 0, marker);
-    assert.match(html.slice(Math.max(0, at - 60), at), /class="pill warn block"/, `${marker} must use the wrapping variant`);
+    assert.match(html.slice(Math.max(0, at - 60), at), /class="pill(?: warn)? block"/, `${marker} must use the wrapping variant`);
   }
 });
 
@@ -153,4 +153,12 @@ test("0.2.8 RED: the candidate warning describes the risk instead of naming a de
   const html = renderAppHtml();
   assert.doesNotMatch(html, /wrong-device\/collision warning/, "no invented detection");
   assert.match(html, /관측으로 확인하지 않은 제어입니다/, "say what is actually true");
+});
+
+test("0.3.0 RED: the page shows what is waiting to be sent", () => {
+  // One frame can be on the line at a time. Before the queue a second press was refused
+  // outright, and the operator had no way to see that anything was pending.
+  const html = renderAppHtml();
+  assert.match(html, /id="tx-queue"/, "a queue line must exist");
+  assert.match(html, /전송 대기 없음/, "and it must read as empty rather than blank");
 });

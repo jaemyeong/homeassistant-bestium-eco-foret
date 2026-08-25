@@ -153,13 +153,27 @@ test("RED: decoded device state carries freshness metadata and preserves generat
   monitor.push(heatingSingleFrame(2, { state: 0x04, currentC: 24, targetC: 26 }));
   monitor.push(bytes("f70d013401411000a6040b36ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
+  assert.equal(monitor.snapshot().devices.elevator.floorLabel, "4");
   assert.equal(monitor.snapshot().devices.elevator.direction, "up");
+  // 0xA6 is a car ascending with a down call standing. Folding both nibbles into one
+  // `direction` reported "up" and lost the call for the whole journey.
+  assert.equal(monitor.snapshot().devices.elevator.motion, "up");
+  assert.equal(monitor.snapshot().devices.elevator.call, "down");
   monitor.push(bytes("f70d01340141100006040b96ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
   assert.equal(monitor.snapshot().devices.elevator.direction, "down");
+  assert.equal(monitor.snapshot().devices.elevator.motion, "idle");
+  assert.equal(monitor.snapshot().devices.elevator.call, "down");
   monitor.push(bytes("f70d01340141100001040b91ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
   assert.equal(monitor.snapshot().devices.elevator.direction, "arrival");
+  assert.equal(monitor.snapshot().devices.elevator.call, "arrival");
+  // A car in the basement reports 0xB1, which used to render as 177.
+  monitor.push(bytes("f70d013401411000a5b10b80ee"));
+  assert.equal(monitor.snapshot().devices.elevator.floorLabel, "B1");
+  assert.equal(monitor.snapshot().devices.elevator.motion, "up");
+  assert.equal(monitor.snapshot().devices.elevator.call, "up");
+  monitor.push(bytes("f70d01340141100001040b91ee"));
   monitor.push(bytes("f70e011e024311040004ffffb6ee"));
   monitor.push(bytes("f70b011f0140100000b3ee"));
   monitor.push(bytes("f70b012b014011000086ee"));
@@ -187,8 +201,9 @@ test("RED: decoded device state carries freshness metadata and preserves generat
   assertDeviceFresh(snapshot.devices.heating[1], now, 0);
   assert.equal(snapshot.devices.elevator.floor, 4);
   assert.equal(snapshot.devices.elevator.direction, "arrival");
-  assert.equal(snapshot.devices.entrances.household.call, true);
-  assert.equal(snapshot.devices.entrances.communal.evidence, "candidate");
+  assert.equal(snapshot.devices.entrances.household.doorOpenObserved, true);
+  assert.equal(snapshot.devices.entrances.household.call, undefined, "the 0x1E 02 frame is not a call");
+  assert.equal(snapshot.devices.entrances.communal.evidence, "not_decoded");
   assert.equal(snapshot.devices.outlet.queryOnly, true);
   assert.equal(snapshot.devices.ventilation.queryOnly, true);
   assert.equal(snapshot.queries.outlet, 1);
@@ -271,9 +286,9 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
     assertObserved({ kind: "light", target, state: "off" }, off);
   }
   const gasClose = action({ kind: "gas", state: "close" });
-  assert.equal(gasClose.evidence, "inferred_candidate");
-  assert.equal(gasClose.sendable, false);
-  assert.equal(gasClose.requiresSpeculativeConfirmation, true);
+  assert.equal(gasClose.evidence, "observed");
+  assert.equal(gasClose.sendable, true, "one tap is the point of the promotion");
+  assert.equal(gasClose.requiresSpeculativeConfirmation, undefined);
 
   const gasOpen = action({ kind: "gas", state: "open" });
   assert.equal(gasOpen.sendable, false);
@@ -354,45 +369,47 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
     assert.throws(() => action({ kind: "raw", hex: doorFrame }, unsafeLive));
   }
 
-  // Zone 1 used to claim observed evidence on a frame that appeared in no capture and
-  // matched no command on the bus. All four zones now carry the frames the wallpad itself
-  // sends, and all four stay candidates until one of them is seen to move real heating.
+  // Zone 1 once claimed observed evidence on a frame that appeared in no capture. 0.2.7
+  // replaced all four with the wallpad's own frames and held them as candidates until one
+  // was seen to move real heating; the operator has now done that on the live bus.
   for (const zone of [1, 2, 3, 4]) {
     const heatingOn = action({ kind: "heat", zone, state: "on" });
-    assert.equal(heatingOn.evidence, "inferred_candidate");
-    assert.equal(heatingOn.sendable, false);
+    assert.equal(heatingOn.evidence, "observed");
+    assert.equal(heatingOn.sendable, true, "one tap is the point of the promotion");
     assert.equal(heatingOn.confirmed, false);
-    assert.equal(heatingOn.requiresSpeculativeConfirmation, true);
+    assert.equal(heatingOn.requiresSpeculativeConfirmation, undefined);
     assert.match(hex(heatingOn.frame), /^f7/);
   }
   for (const zone of [1, 2, 3, 4]) {
     for (const temperatureC of [5, 40]) {
-      const inferredTemperature = action({ kind: "heat", zone, temperatureC });
-      assert.equal(inferredTemperature.evidence, "inferred_candidate");
-      assert.equal(inferredTemperature.sendable, false);
-      assert.equal(inferredTemperature.requiresSpeculativeConfirmation, true);
-      assert.match(hex(inferredTemperature.frame), /^f7/);
+      const temperature = action({ kind: "heat", zone, temperatureC });
+      assert.equal(temperature.evidence, "observed");
+      assert.equal(temperature.sendable, true);
+      assert.equal(temperature.requiresSpeculativeConfirmation, undefined);
+      assert.match(hex(temperature.frame), /^f7/);
     }
   }
   const allOff = action({ kind: "heat", target: "all", state: "off" });
-  assert.equal(allOff.evidence, "inferred_candidate");
-  assert.equal(allOff.sendable, false);
-  assert.equal(allOff.requiresSpeculativeConfirmation, true);
+  assert.equal(allOff.evidence, "observed");
+  assert.equal(allOff.sendable, true);
+  assert.equal(allOff.requiresSpeculativeConfirmation, undefined);
   for (const temperatureC of [4, 41]) {
     assert.equal(action({ kind: "heat", zone: 1, temperatureC }).evidence, "rejected");
   }
 
-  const inferred = action({ kind: "heat", zone: 2, state: "off" });
-  assert.equal(inferred.evidence, "inferred_candidate");
-  assert.equal(inferred.sendable, false);
-  assert.equal(inferred.requiresSpeculativeConfirmation, true);
-  const phraseOnly = action({ kind: "heat", zone: 2, state: "off", confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }, {
+  // The elevator call is the remaining candidate: pressing the wallpad's own call button
+  // put no set frame on this line, so neither legacy shape has support here.
+  const candidate = action({ kind: "elevator", direction: "down" });
+  assert.equal(candidate.evidence, "inferred_candidate");
+  assert.equal(candidate.sendable, false);
+  assert.equal(candidate.requiresSpeculativeConfirmation, true);
+  const phraseOnly = action({ kind: "elevator", direction: "down", confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }, {
     transmitEnabled: true,
     speculativeTransmitEnabled: false,
     authorizedUser: true,
   });
   assert.equal(phraseOnly.sendable, false);
-  const phraseOnlyCandidate = action({ kind: "heat", zone: 2, state: "off", confirmation: "BESTIUM-SPECULATIVE-CONFIRM" });
+  const phraseOnlyCandidate = action({ kind: "elevator", direction: "up", confirmation: "BESTIUM-SPECULATIVE-CONFIRM" });
   assert.equal(phraseOnlyCandidate.evidence, "inferred_candidate");
   assert.equal(phraseOnlyCandidate.sendable, false);
   assert.equal(phraseOnlyCandidate.requiresSpeculativeConfirmation, true);
@@ -408,8 +425,11 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
     { kind: "heat", zone: 3, temperatureC: 20 },
     { kind: "heat", zone: 4, temperatureC: 20 },
   ]) {
-    assert.equal(action(value).sendable, false);
-    assert.equal(action({ ...value, confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }).sendable, false);
+    // Promoted, so one tap sends. A stray confirmation field is still accepted and still
+    // changes nothing, because the phrase was never what made a control safe.
+    assert.equal(action(value).sendable, true);
+    assert.equal(action({ ...value, confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }).sendable, true);
+    assert.equal(action(value, { transmitEnabled: false, authorizedUser: true }).sendable, false);
   }
 
   const outlet = action({ kind: "outlet", action: "query" });
@@ -631,20 +651,24 @@ test("RED-exception: encoder evidence keeps measured controls distinct from infe
     assert.equal(observed({ kind: "light", target, state: "on" }).evidence, "observed");
     assert.equal(observed({ kind: "light", target, state: "off" }).evidence, "observed");
   }
-  // Heating is a candidate on every zone until a live send is confirmed. The frame is
-  // capture-verified; our sending it is not. See `.agent/spec-device-protocol.md`.
+  // Heating and gas were promoted after the operator drove them on the live bus.
   for (const state of ["on", "off"] as const) {
-    assert.equal(observed({ kind: "heat", zone: 1, state }).evidence, "inferred_candidate");
+    assert.equal(observed({ kind: "heat", zone: 1, state }).evidence, "observed");
   }
-  assert.equal(observed({ kind: "heat", zone: 1, temperatureC: 20 }).evidence, "inferred_candidate");
-
+  assert.equal(observed({ kind: "heat", zone: 1, temperatureC: 20 }).evidence, "observed");
   for (const value of [
     { kind: "gas", state: "close" },
     { kind: "heat", zone: 2, state: "on" },
-    { kind: "heat", zone: 2, state: "off" },
     { kind: "heat", zone: 3, temperatureC: 20 },
-    { kind: "heat", zone: 4, temperatureC: 20 },
     { kind: "heat", target: "all", state: "off" },
+  ]) {
+    assert.equal(observed(value).evidence, "observed", JSON.stringify(value));
+  }
+
+  // The elevator call is the one control still without support on this line.
+  for (const value of [
+    { kind: "elevator", direction: "up" },
+    { kind: "elevator", direction: "down" },
   ]) {
     const result = observed(value);
     assert.equal(result.evidence, "inferred_candidate", JSON.stringify(value));

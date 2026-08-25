@@ -25,12 +25,9 @@ If a required index or tool is absent, record `N/A` with the reason and continue
 ## Implementation, review, and commits
 
 - Write the smallest failing test before non-trivial product code.
-- Product code and its tests are written by the designated implementer role for the current environment. Never substitute an undeclared model, effort, or role.
-  - **Codex**: delegate to project-local `product_implementer` (`.codex/agents/product_implementer.toml`) using exact `gpt-5.6-luna` with reasoning effort `max`, after its runtime canary passes.
-  - **Claude Code**: the session agent implements directly at the highest available model tier and maximum reasoning effort. `gpt-5.6-luna` is not reachable from this environment, so the Codex delegation cannot apply here and must not be faked.
-  - If the designated role for the current environment is unavailable, stop before editing. Record in the ledger which environment and role implemented each work unit.
-- Assign narrow file ownership. Agents share the worktree and must not revert or overwrite unrelated changes.
-- After implementation, obtain a read-only adversarial review from a reviewer that did not write the code and does not inherit the implementer's context. Under Codex this is the separate auditor role; under Claude Code it is a freshly spawned read-only agent, never a fork of the implementing session. If the review shares the implementer's context, say so in the ledger instead of calling it independent. Allow at most two repair rounds; stop if a P0/P1 repeats.
+- **All work runs in the session agent. Do not create, spawn, or delegate to a subagent for any part of a task.** This holds until the user says otherwise; it overrides any other instruction in this file that would split work across roles.
+- Product code and its tests are written by the session agent at the highest available model tier and maximum reasoning effort. Never substitute an undeclared model or effort, and never claim a role that did not do the work. Record in the ledger which environment implemented each work unit.
+- After implementation, perform an adversarial review as a separate, explicitly adversarial reading of the finished diff: state what would have to be true for each change to be wrong, then check it. Because that review shares the implementer's context, **say so in the ledger and never call it independent.** Allow at most two repair rounds; stop if a P0/P1 repeats.
 - Update `CHANGELOG.md` and `.agent/progress.md` for every work unit.
 - Stage only explicit task paths, inspect the staged diff, and create a signed local task commit. Never use broad staging, amend, bypass signing, or push unless the user explicitly authorizes it.
 

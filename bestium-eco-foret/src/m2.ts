@@ -14,6 +14,7 @@ import {
 import { renderAppHtml } from "./ui.ts";
 import { DEFAULT_OPTIONS_PATH, parseM2Settings, type ParsedSettings } from "./settings.ts";
 import { createProtocolDebugMonitor, encodeSemanticAction } from "./protocol-debug.ts";
+import { createIntentQueue, expandAction, intentKey, isConfirmed, isQueueable, isRetryableRefusal } from "./tx-queue.ts";
 
 export { DEFAULT_OPTIONS_PATH, parseM2Settings };
 export type { ParsedSettings };
@@ -808,6 +809,9 @@ export function createBoundedCaptureCoordinator(opts: {
         lastResult: lastResult ?? undefined,
       };
     },
+    getDevices(): { devices: Record<string, any>; generation: number } {
+      return { devices: protocol.deviceState() as Record<string, any>, generation: protocol.currentGeneration() };
+    },
     getTransport(): Transport | null {
       return transport;
     },
@@ -865,6 +869,12 @@ export function createTxCoordinator(opts: {
   getCurrentUserId(): string | undefined;
   getTransport(): Transport | null;
   getGeneration(): number;
+  /**
+   * The decoded device state and the generation it belongs to. Supplying it turns on the
+   * send queue, retry and state-match confirmation; without it the coordinator writes once
+   * and reports `socket_written_unconfirmed`, because it has nothing to confirm against.
+   */
+  getDevices?(): { devices: Record<string, any>; generation: number } | null;
   getRxState(): {
     connected?: boolean;
     pendingAppend?: boolean;
@@ -1327,17 +1337,21 @@ export function createTxCoordinator(opts: {
       }
     });
   };
-  const send = async (action: unknown, request: AnyRecord): Promise<any> => {
+  // Both the queue and the write path have to read the same evidence class off the same
+  // context, or the queue could route as observed something the write path treats otherwise.
+  const actionContext = (request: AnyRecord): AnyRecord => ({
+    transmitEnabled: settings.transmit_enabled,
+    speculativeTransmitEnabled: settings.speculative_transmit_enabled,
+    unsafeTransmitEnabled: settings.unsafe_transmit_enabled,
+    authorizedUser: request.userId === settings.transmit_user_id && request.userId === opts.getCurrentUserId(),
+  });
+
+  const sendOnce = async (action: unknown, request: AnyRecord): Promise<any> => {
     const mode = request.mode ?? "preview";
     if (request.schedule !== undefined && request.schedule !== "immediate") {
       return txReject("schedule must be immediate", syncGeneration(), journal);
     }
-    const encoded = encodeSemanticAction(action, {
-      transmitEnabled: settings.transmit_enabled,
-      speculativeTransmitEnabled: settings.speculative_transmit_enabled,
-      unsafeTransmitEnabled: settings.unsafe_transmit_enabled,
-      authorizedUser: request.userId === settings.transmit_user_id && request.userId === opts.getCurrentUserId(),
-    });
+    const encoded = encodeSemanticAction(action, actionContext(request));
     if (mode === "preview") {
       const readiness = evaluateReadiness(action, encoded, request, currentState());
       return {
@@ -1385,6 +1399,10 @@ export function createTxCoordinator(opts: {
     // a read lands about every 121 ms, so at a random instant the window is open 89% of the
     // time; a send that checked it several times succeeded about 64% of the time and the
     // operator had to press until one landed. The window opens within tx_quiet_ms.
+    // Taken before the wait on purpose. Comparing two snapshots from the same synchronous
+    // block would make every field below equal to itself, which is what an earlier cut of
+    // this repair did: it left a check that could only ever fire on `pendingAppend`.
+    const beforeWaitState = currentState();
     const quietDeadline = opts.nowMs() + Math.max(settings.tx_quiet_ms, settings.tx_write_timeout_ms);
     for (;;) {
       const waitState = currentState();
@@ -1402,19 +1420,20 @@ export function createTxCoordinator(opts: {
     const transport = opts.getTransport();
     if (!transport?.write) return txReject("transport write unavailable", currentGeneration, journal);
     if (frames.some((frame) => wouldCrossRecognized(frame, !rawAction))) return txReject("recognized frame boundary collision", currentGeneration, journal);
-    const initialState = { ...state };
+    // The inbound counters were the wrong comparands: they advance on every received byte
+    // and on every capture append, so waiting for the line could by itself refuse the write.
+    // `externalTxByteEpoch` and `externalTailHash` are what detect another transmitter
+    // speaking while we waited, and they are compared against the pre-wait snapshot so that
+    // there is a window in which they can actually differ.
+    const initialState = { ...beforeWaitState };
     const initialOutboundEpoch = outboundEpoch;
     const beforeWriteGeneration = opts.getGeneration();
     const beforeWriteState = currentState();
     const quietBeforeWrite = beforeWriteState.lastRxByteAtMs;
     if (
       beforeWriteGeneration !== currentGeneration ||
-      beforeWriteState.connected !== initialState.connected ||
-      beforeWriteState.pendingAppend !== initialState.pendingAppend ||
-      beforeWriteState.rxByteEpoch !== initialState.rxByteEpoch ||
-      beforeWriteState.readEpoch !== initialState.readEpoch ||
-      beforeWriteState.txByteEpoch !== initialState.txByteEpoch ||
-      beforeWriteState.tailHash !== initialState.tailHash ||
+      !beforeWriteState.connected ||
+      beforeWriteState.pendingAppend ||
       beforeWriteState.externalTxByteEpoch !== initialState.externalTxByteEpoch ||
       beforeWriteState.externalTailHash !== initialState.externalTailHash ||
       opts.nowMs() - quietBeforeWrite < settings.tx_quiet_ms
@@ -1513,7 +1532,11 @@ export function createTxCoordinator(opts: {
           break;
         }
         const frameDeadline = Math.min(totalDeadline, opts.nowMs() + settings.tx_write_timeout_ms);
+        // The quiet wait above can take up to a second, and every frame that arrives during it
+        // would otherwise count as an observation made after "the write".
+        const frameWrittenAtMs = opts.nowMs();
         const frameResult = await writeOne(frame, currentGeneration, transport, frameDeadline);
+        if (frameResult.outcome === "socket_written_unconfirmed") frameResult.writtenAtMs = frameWrittenAtMs;
         framesWritten += frameResult.outcome === "socket_written_unconfirmed" ? 1 : 0;
         previousSuccessAt = opts.nowMs();
         if (frameResult.outcome !== "socket_written_unconfirmed") {
@@ -1532,6 +1555,173 @@ export function createTxCoordinator(opts: {
       outcome.quarantined = quarantined.has(currentGeneration);
     }
     return { ...outcome, journal: journal.slice(-journalLimit) };
+  };
+
+  // --- the send queue --------------------------------------------------------------
+  // One frame can be on the line at a time, which used to mean a second press was refused
+  // outright and a lost frame was never sent again. Commands now queue by the settable they
+  // address, the last request for a settable wins, and each one is written until the device
+  // is observed holding the value that was asked for.
+  const queue = createIntentQueue();
+  const queueWaiters = new Map<number, (value: AnyRecord) => void>();
+  let draining = false;
+  let lastBusWriteAtMs = -Infinity;
+
+
+  /** Every intent this action becomes, or null when it must keep the single-shot path. */
+  const queueableIntents = (action: unknown): { key: string; action: AnyRecord }[] | null => {
+    if (!opts.getDevices) return null;
+    const parts = expandAction(action);
+    if (parts.length === 0) return null;
+    const keyed = parts.map((part) => ({ key: intentKey(part), action: part }));
+    if (keyed.some((entry) => entry.key === null)) return null;
+    return keyed as { key: string; action: AnyRecord }[];
+  };
+
+  // Only the elevator needs a before-value, and only its standing call: everything else is
+  // confirmed by a match because a no-op command is a legitimate success.
+  const callBaseline = (): AnyRecord => ({ elevator: { call: opts.getDevices?.()?.devices?.elevator?.call } });
+
+  const confirmedNow = (action: AnyRecord, writeAtMs: number, before?: AnyRecord): boolean => {
+    const view = opts.getDevices?.();
+    return view ? isConfirmed(action, view.devices, writeAtMs, view.generation, before) : false;
+  };
+
+  const awaitConfirmation = async (action: AnyRecord, writeAtMs: number, before?: AnyRecord): Promise<boolean> => {
+    // The direct reply lands in the same read as the write, so this almost always returns on
+    // its first look. The window only matters for a device that answers on the poll.
+    const deadline = opts.nowMs() + settings.tx_observation_timeout_ms;
+    for (;;) {
+      if (confirmedNow(action, writeAtMs, before)) return true;
+      const remaining = deadline - opts.nowMs();
+      if (remaining <= 0) return false;
+      await waitUntil(Math.max(1, Math.min(25, remaining)));
+    }
+  };
+
+  const runIntent = async (entry: { key: string; value: AnyRecord }): Promise<AnyRecord> => {
+    const action = entry.value.action as AnyRecord;
+    const request = entry.value.request as AnyRecord;
+    // A candidate's challenge is single use, so it gets exactly one attempt. Retrying is for
+    // controls that need no confirmation to send in the first place.
+    const maxAttempts = entry.value.evidence === "observed" ? settings.tx_max_attempts : 1;
+    let last: AnyRecord = { outcome: "rejected", reason: "no attempt made", confirmed: false, deviceConfirmed: false };
+    let framesWritten = 0;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (queue.has(entry.key)) return { outcome: "superseded", key: entry.key, reason: "replaced by a newer request for the same control", confirmed: false, deviceConfirmed: false, attempts: attempt - 1, framesWritten };
+      const spacingMs = lastBusWriteAtMs + settings.tx_cooldown_ms - opts.nowMs();
+      if (spacingMs > 0) await waitUntil(spacingMs);
+      const before = callBaseline();
+      const result = await sendOnce(action, request) as AnyRecord;
+      last = result;
+      if (result.outcome === "socket_written_unconfirmed") {
+        framesWritten += 1;
+        lastBusWriteAtMs = opts.nowMs();
+        const writeAtMs = Number.isSafeInteger(result.writtenAtMs) ? result.writtenAtMs as number : opts.nowMs();
+        const alreadyHeld = confirmedNow(action, 0, before);
+        if (await awaitConfirmation(action, writeAtMs, before)) {
+          return { ...result, outcome: "confirmed", confirmed: true, deviceConfirmed: true, key: entry.key, attempts: attempt, framesWritten, alreadyHeld };
+        }
+        continue;
+      }
+      if (!isRetryableRefusal(result.reason)) return { ...result, key: entry.key, attempts: attempt, framesWritten };
+    }
+    // A frame that reached the bus must never be reported as "not sent". Once one attempt
+    // wrote, the answer is unconfirmed even if every later attempt was refused, because the
+    // device may well have acted on the frame that did go out.
+    return {
+      ...last,
+      outcome: framesWritten > 0 || last.outcome === "socket_written_unconfirmed" ? "unconfirmed" : last.outcome,
+      reason: framesWritten > 0 && last.outcome !== "socket_written_unconfirmed" ? `${String(last.reason ?? "refused")} after ${framesWritten} frame(s) reached the bus` : last.reason,
+      confirmed: false,
+      deviceConfirmed: false,
+      key: entry.key,
+      attempts: maxAttempts,
+      framesWritten,
+    };
+  };
+
+  const drain = async (): Promise<void> => {
+    if (draining) return;
+    draining = true;
+    try {
+      for (;;) {
+        const entry = queue.take();
+        if (!entry) break;
+        const resolve = queueWaiters.get(entry.seq);
+        queueWaiters.delete(entry.seq);
+        let result: AnyRecord;
+        try {
+          result = await runIntent(entry);
+        } catch (error) {
+          result = { outcome: "indeterminate", reason: String((error as Error)?.message ?? error), confirmed: false, deviceConfirmed: false, key: entry.key };
+        }
+        resolve?.(result);
+      }
+    } finally {
+      draining = false;
+    }
+  };
+
+  const enqueueIntent = (key: string, action: AnyRecord, request: AnyRecord, evidence: unknown): Promise<AnyRecord> =>
+    new Promise((resolve) => {
+      const { entry, superseded } = queue.enqueue(key, { action, request, evidence });
+      if (superseded) {
+        const stale = queueWaiters.get(superseded.seq);
+        queueWaiters.delete(superseded.seq);
+        stale?.({ outcome: "superseded", key, reason: "replaced by a newer request for the same control", confirmed: false, deviceConfirmed: false });
+      }
+      queueWaiters.set(entry.seq, resolve);
+      void drain();
+    });
+
+  const queueSummary = (): AnyRecord[] => queue.list().map((entry) => ({
+    key: entry.key,
+    action: entry.value.action,
+  }));
+
+  /** Drops everything queued. A reconnect makes every pending intent unsafe to resume. */
+  const clearQueue = (reason: string): void => {
+    for (const entry of queue.clear()) {
+      const resolve = queueWaiters.get(entry.seq);
+      queueWaiters.delete(entry.seq);
+      resolve?.({ outcome: "rejected", reason, key: entry.key, confirmed: false, deviceConfirmed: false });
+    }
+  };
+
+  const send = async (action: unknown, request: AnyRecord): Promise<any> => {
+    if ((request.mode ?? "preview") !== "live") return sendOnce(action, request);
+    // Authorisation before enqueue. A request that was always going to be refused must not
+    // take a queue slot, because taking one evicts the legitimate intent already waiting on
+    // that control. `sendOnce` names the refusal exactly as it always did.
+    const currentUser = opts.getCurrentUserId();
+    if (!currentUser || request.userId !== currentUser || request.userId !== settings.transmit_user_id) {
+      return sendOnce(action, request);
+    }
+    if (settings.transmit_enabled !== true) return sendOnce(action, request);
+    const intents = queueableIntents(action);
+    if (!intents) return sendOnce(action, request);
+    const encoded = encodeSemanticAction(action, actionContext(request));
+    if (encoded.evidence === "rejected") return sendOnce(action, request);
+    const results = await Promise.all(intents.map((intent) => enqueueIntent(intent.key, intent.action, request, encoded.evidence)));
+    if (results.length === 1) return { ...results[0], journal: journal.slice(-journalLimit) };
+    // Every part must be confirmed for the whole to be, and the whole must never stand in for
+    // its parts: collapsing four zones to the first non-confirmed outcome told the operator
+    // nothing was sent while three zones had already acted on a frame.
+    const confirmedParts = results.filter((entry) => entry.outcome === "confirmed").length;
+    const framesWritten = results.reduce((total, entry) => total + (Number(entry.framesWritten) || 0), 0);
+    const summary = results.map((entry) => `${String(entry.key)}=${String(entry.outcome)}`).join(", ");
+    return {
+      outcome: confirmedParts === results.length ? "confirmed" : "partial",
+      reason: confirmedParts === results.length ? undefined : `${confirmedParts}/${results.length} 확인 · ${summary}`,
+      confirmed: confirmedParts === results.length,
+      deviceConfirmed: confirmedParts === results.length,
+      confirmedParts,
+      partCount: results.length,
+      framesWritten,
+      results,
+      journal: journal.slice(-journalLimit),
+    };
   };
   const getTxStatus = (request?: AnyRecord): Record<string, unknown> => {
     const state = currentState();
@@ -1559,6 +1749,8 @@ export function createTxCoordinator(opts: {
       fresh: state.fresh,
       sevenFProof,
       observationTimeoutMs: settings.tx_observation_timeout_ms,
+      maxAttempts: settings.tx_max_attempts,
+      queue: queueSummary(),
       readinessRevision: state.readinessRevision,
     };
   };
@@ -1575,6 +1767,9 @@ export function createTxCoordinator(opts: {
     stop(): void {
       operationEpoch += 1;
       challenges.clear();
+      // The bus may be in a different state by the time we come back, so nothing that was
+      // still waiting to be written may survive a stop or a reconnect.
+      clearQueue("transport stopped before this command reached the bus");
       cancelWaiters();
       quarantined.add(opts.getGeneration());
       abortInFlight?.();
@@ -1912,7 +2107,14 @@ export function createIngressHandler(deps: {
       const liveCommit = parsed.mode === "commit" || parsed.mode === "live";
       if (liveCommit) pendingLiveCommits += 1;
       try {
-        const result = liveCommit
+        // A queued control is serialised by the send queue itself, which is what lets a
+        // second press of the same control replace the first instead of being refused.
+        // Putting it through the mutation chain as well made that unreachable: the second
+        // request waited for the first to finish, so nothing was ever in the queue to
+        // replace. Capture start and stop still refuse while `pendingLiveCommits > 0`, so
+        // the invariant that chain was protecting holds without it.
+        const queuedCommit = liveCommit && isQueueable(action);
+        const result = liveCommit && !queuedCommit
           ? await enqueueMutation(() => deps.executeSemanticAction!(action, trustedRequest))
           : await deps.executeSemanticAction(action, trustedRequest);
         if (liveCommit && typeof deps.hasOutstandingSpeculativeChallenge !== "function"
@@ -2116,6 +2318,7 @@ export async function startM2Runtime(opts: {
     getCurrentUserId: () => settings.transmit_user_id,
     getTransport: () => coordinator.getTransport(),
     getGeneration: () => coordinator.getState().generation ?? 0,
+    getDevices: () => coordinator.getDevices(),
     getRxState: () => coordinator.getTxState(),
   });
   const secureIngress = settings.transmit_user_id !== undefined;

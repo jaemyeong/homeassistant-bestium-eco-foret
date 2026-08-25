@@ -156,9 +156,10 @@ test("0.2.8 RED: a multi-frame send survives the bus talking between frames", as
       lastRxByteAtMs: now - 200, lastValidFrameAtMs: now - 100, lastResumeAtMs: now - 200,
     }),
   } as AnyRecord);
+  // All-zones off is observed since the operator drove every zone live, so it commits in
+  // one tap. The macro path it still takes here is what this test guards.
   const allOff = { kind: "heat", target: "all", state: "off" };
-  const challenge = coordinator.issueSpeculativeChallenge(allOff, request) as AnyRecord;
-  const pending = coordinator.send(allOff, { ...request, mode: "live", challengeId: challenge.id }) as Promise<AnyRecord>;
+  const pending = coordinator.send(allOff, { ...request, mode: "live" }) as Promise<AnyRecord>;
   // Drive the clock the way the bus does: a read about every 121 ms.
   for (let step = 0; step < 40; step += 1) {
     const target = now + 30;

@@ -58,7 +58,9 @@ const request = {
   confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
   schedule: "immediate",
 };
-const action = { kind: "heat", zone: 2, state: "on" };
+// Heating was promoted to `observed` once the operator drove it on the live bus, so the
+// elevator call is now the candidate this gate is asserted against.
+const action = { kind: "elevator", direction: "down" };
 
 test("M4.9 RED: candidate one-tap is still rate limited by the speculative cooldown", async () => {
   // One tap now issues the challenge and commits in a single gesture, so the operator no
@@ -68,7 +70,7 @@ test("M4.9 RED: candidate one-tap is still rate limited by the speculative coold
   // taps, so that one gate is asserted here.
   const { coordinator, writes, advance } = createFixture(5_000);
   const preview = await coordinator.send(action, { ...request, mode: "preview" }) as AnyRecord;
-  assert.equal(preview.evidence, "inferred_candidate", "zone 2 heat is a candidate, not an observed control");
+  assert.equal(preview.evidence, "inferred_candidate", "the elevator call is a candidate, not an observed control");
   assert.equal(preview.ready, true, JSON.stringify(preview.reasons ?? []));
 
   const tap = async (): Promise<string> => {

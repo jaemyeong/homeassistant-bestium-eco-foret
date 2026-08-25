@@ -4,6 +4,141 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Documentation
+
+- Record the field analysis of the two `0.2.8` captures in
+  `.agent/analysis-0.2.8-field-report.md`, with evidence rows `M4-E115` and `M4-E116`.
+  The heating encoder reproduces the wallpad's own frames byte for byte, so the reported
+  heating failure is above the wire; the wallpad's own elevator call puts no set frame on
+  this line; the `0x1E` `0x02` triple is coincident with the operator's door-open press but
+  is not yet distinguishable from a call-cleared notice; and the unparsed runs carry the
+  shape of a half-duplex receiver blanked during our own transmission, which points at
+  `tx_quiet_ms` being 20 ms against a frame that occupies about 12 ms. No product code,
+  test, or configuration changed in this unit.
+- Record the `0.3.0` design in `.agent/plan-0.3.0.md`, with evidence row `M4-E117`. Raising
+  `tx_quiet_ms` removed the intermittent losses, which closes the collision attribution by
+  intervention and withdraws the journal correlation `M4-E116` had listed. The design covers
+  a server-side send queue keyed by target with last-write-wins coalescing, bounded retry,
+  and success defined as the addressed device's own field matching the intent in an
+  observation stamped after the write rather than as any observed change. No product code,
+  test, or configuration changed in this unit.
+
+## [0.3.0] - 2026-08-25
+
+The operator raised `tx_quiet_ms` to 60 ms on the live bus and every control confirmed —
+lights, gas and all four heating zones. That closed the collision attribution by
+intervention and met the condition 0.2.7 set for promoting heating. What remained was that
+one frame can be on the line at a time, so a second press was refused outright and a frame
+lost to a collision was never sent again.
+
+### Added
+
+- A send queue keyed by the settable an action addresses: `light:2`, `heat:3:power`,
+  `heat:3:target`, `gas`, `elevator`. Re-pressing a control replaces its queued value and
+  keeps its place, so repeats collapse to one execution carrying the last state asked for
+  while a different device queues behind rather than being refused. The key space bounds the
+  queue at fourteen entries, so no length limit is needed. Pressing one light on, off, on,
+  off now puts two frames on the bus — the one already in flight, which cannot be recalled,
+  and the last state asked for — instead of one frame and three refusals.
+- Retry until the device is observed holding the value that was asked for, bounded by the
+  new `tx_max_attempts` (default 3, range 1–10). Only a refusal a later attempt could clear
+  is retried; a disabled flag or a mismatched user is returned at once.
+- Outcomes the operator can act on: `confirmed`, `unconfirmed`, `superseded`. A tap that is
+  refused now always says which gate refused it.
+- The page shows what is waiting to be sent.
+- `motion` and `call` are decoded separately for the elevator, and a `floorLabel` renders
+  the floor byte.
+
+### Changed
+
+- A queued control no longer opens the review card. That card is single-instance for the
+  whole document, so holding it refused the second press of a control before it could reach
+  the queue that exists to coalesce it. The card is now what the elevator call and the raw
+  lab use, which is what it was for. The client-side observation lease that went with it is
+  removed: the server confirms, so the page had a second, weaker copy of the same job that
+  nothing could reach.
+- The ingress no longer runs a queued command through the mutation chain. The send queue is
+  the serialiser for what it owns, and putting the chain in front of it made coalescing
+  unreachable. Capture start and stop still refuse while a live command is outstanding, so
+  the invariant the chain protected holds without it.
+- Success is the addressed field matching the intent in an observation stamped after the
+  write — a match, never a change. Both heating commands of ours that reached the bus in
+  capture A were no-ops against the state the zone already held, and the wallpad answered
+  both; requiring a change would have retried them until the budget ran out. Each intent
+  reads only the field it owns, because the wallpad answers `0x45` and `0x46` alike with the
+  whole zone.
+- All-zones off is four independent per-zone intents rather than one macro, each queued,
+  retried and confirmed on its own. The wallpad sends it that way too.
+- Heating on/off and target temperature on all four zones, and gas close, are `observed`.
+  One tap sends them.
+- `tx_quiet_ms` defaults to 60 ms. Twenty was shorter than the roughly 12 ms an eleven-byte
+  frame occupies at 9600 baud, so a send could start into the wallpad's next frame.
+- `speculative_tx_cooldown_ms` no longer applies to a queued control, because coalescing
+  does that work. It is kept in the schema and still gates issuing a candidate challenge,
+  so an existing installation's saved options stay valid.
+
+### Fixed
+
+- The pre-write race check compared against a snapshot taken *before* the quiet wait, so
+  waiting for the line — the whole point of the 0.2.8 change — could by itself refuse the
+  write. Inbound counters advance on every received byte and on every capture append, and
+  every one of the operator's tests ran with a capture active. The baseline is now taken
+  Only `externalTxByteEpoch` and `externalTailHash` are compared now, and they are still
+  compared against the pre-wait snapshot: an independent review caught a first cut of this
+  repair that moved the baseline after the wait as well, which left every field being
+  compared with itself and a check that could only ever fire on a pending capture append.
+- Confirmation was anchored to the moment an attempt began rather than to the write, so every
+  frame arriving during a quiet wait of up to a second counted as an observation made after
+  it. It is anchored to the write now.
+- A frame that reached the bus could be reported as never sent: only the last attempt's
+  outcome survived, so a first attempt that wrote followed by two refusals read as "not sent"
+  and invited the operator to press again. Any attempt that wrote now forces an unconfirmed
+  result, and the frame count is reported.
+- An all-zones batch collapsed to its first non-confirmed part, so one refused zone reported
+  the whole batch as not sent while three zones had already acted. It reports per zone now.
+- The elevator's confirmation matched the standing call, which is a shared building state: a
+  call already waiting in that direction, or a neighbour's, satisfied it. For that one
+  control the predicate is a change, since obtaining a verdict is the entire purpose.
+- A request that was going to be refused could take a queue slot and evict the legitimate
+  intent waiting on that control. Authorisation is checked before enqueue.
+- The elevator's second legacy frame shape was built and returned but no code path could ever
+  send it. It is removed; the shape stays documented in the protocol spec.
+- `oneTapSend` returned with no message when the page was locked or busy, so every tap
+  after one indeterminate write left no trace. That is what the operator read as an
+  unresponsive button.
+- The elevator's standing call was folded into `direction` and disappeared whenever the car
+  was moving: `0xA5` is "ascending with an up call waiting" and read as plain "up".
+- The floor byte was rendered raw, so a car in the basement read as **177**.
+- The `0x1E` `0x02` frame was reported as a call in progress. It appears three times in a
+  row at the instant the wallpad's door-open button is pressed, and nothing on this line
+  moves when the bell is rung, so the page said the opposite of what happened. It is now
+  reported as the door-open operation it was observed alongside. Whether it is the command
+  itself or the notice that the call ended is still undecided and it is not wired to any
+  send control.
+- The communal entrance no longer shows an initial value as though it were an observation.
+  Every one of its poll frames is byte-identical across all three captures.
+
+### Notes
+
+- **Eight tests were removed, not adjusted.** They covered the client-side observation
+  lease, which the server-side confirmation replaces: the page used to watch a light's own
+  state after a write and time the window itself. Nothing reaches that code any more, so the
+  tests were deleted along with it rather than re-pointed at something they no longer
+  describe. What they guaranteed — that a send ends at confirmed or unconfirmed and never
+  silently, that a device is not reported changed on a stale or wrong-generation
+  observation — is now guaranteed server-side and covered by `test/tx-confirm.test.ts`.
+- The elevator call frame remains a candidate with negative evidence behind it: pressing the
+  wallpad's own call button put no `0x34` set frame on this line, and a byte-level diff of
+  every device across that moment found nothing else moving. One press now gives a verdict,
+  because a registered call shows up in the new `call` field.
+- The three `0x7F` entrance macros are kept for the subphone work. They cannot fire from
+  here: the compatibility gate requires having seen that exact three-frame sequence on this
+  line, in this transport generation, within 45 seconds. The card now says so. One gap is
+  recorded for that work: `household:ringing` has no entry in the proof table, so it could
+  not pass even with the subphone line attached.
+- Confirmation requires a device-state source. Without one the coordinator writes once and
+  reports `socket_written_unconfirmed`, which is the path every pre-0.3.0 fixture exercises.
+
 ## [0.2.8] - 2026-08-25
 
 Three captures taken while the operator worked the page settled what "버스가 사용중입니다"

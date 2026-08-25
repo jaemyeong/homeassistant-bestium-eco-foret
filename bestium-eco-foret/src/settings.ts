@@ -16,6 +16,7 @@ export type ParsedSettings = {
   tx_observation_timeout_ms: number;
   tx_cooldown_ms: number;
   tx_quiet_ms: number;
+  tx_max_attempts: number;
   speculative_tx_cooldown_ms: number;
   unsafe_tx_cooldown_ms: number;
 };
@@ -40,6 +41,7 @@ type ParseNumericResult = {
     | "tx_observation_timeout_ms"
     | "tx_cooldown_ms"
     | "tx_quiet_ms"
+    | "tx_max_attempts"
     | "speculative_tx_cooldown_ms"
     | "unsafe_tx_cooldown_ms"
   >;
@@ -57,7 +59,11 @@ const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_
   tx_write_timeout_ms: 1_000,
   tx_observation_timeout_ms: 3_000,
   tx_cooldown_ms: 250,
-  tx_quiet_ms: 20,
+  // 20 ms was shorter than the ~12 ms an eleven-byte frame occupies at 9600 baud plus any
+  // margin, so a send could start into the wallpad's next frame. 60 ms was measured on the
+  // live bus by the operator and removed the bulk of the losses.
+  tx_quiet_ms: 60,
+  tx_max_attempts: 3,
   speculative_tx_cooldown_ms: 1_000,
   unsafe_tx_cooldown_ms: 5_000,
 };
@@ -142,6 +148,9 @@ function parseNumeric(key: ParseNumericResult["key"], raw: unknown): number {
     case "tx_cooldown_ms":
       if (raw < 0 || raw > 10_000) throw new TypeError("tx_cooldown_ms must be in [0,10000]");
       return raw;
+    case "tx_max_attempts":
+      if (raw < 1 || raw > 10) throw new TypeError("tx_max_attempts must be in [1,10]");
+      return raw;
     case "tx_quiet_ms":
       if (raw < 5 || raw > 1_000) throw new TypeError("tx_quiet_ms must be in [5,1000]");
       return raw;
@@ -201,6 +210,7 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
   const tx_observation_timeout_ms = readNumeric("tx_observation_timeout_ms");
   const tx_cooldown_ms = readNumeric("tx_cooldown_ms");
   const tx_quiet_ms = readNumeric("tx_quiet_ms");
+  const tx_max_attempts = readNumeric("tx_max_attempts");
   const speculative_tx_cooldown_ms = readNumeric("speculative_tx_cooldown_ms");
   const unsafe_tx_cooldown_ms = readNumeric("unsafe_tx_cooldown_ms");
 
@@ -220,6 +230,7 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     tx_observation_timeout_ms,
     tx_cooldown_ms,
     tx_quiet_ms,
+    tx_max_attempts,
     speculative_tx_cooldown_ms,
     unsafe_tx_cooldown_ms,
   };
