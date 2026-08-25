@@ -4275,11 +4275,14 @@ test("RED-exception: actual status JSON drives the emitted UI monitor with 1-bas
     assert.match(nodes.get(`heat-state-${zone}`)?.textContent ?? "", /on|off/);
   }
   // M4.6: monitor values must read label-first with a unit; the raw DTO key must not trail the value.
-  assert.match(nodes.get("heating-current-4")?.textContent ?? "", /현재 27°C/, "current temperature must read label-first with a unit");
-  assert.match(nodes.get("heating-target-4")?.textContent ?? "", /목표 28°C/, "target temperature must read label-first with a unit");
-  assert.doesNotMatch(nodes.get("heating-current-4")?.textContent ?? "", /currentC/, "the raw DTO key must not trail the rendered value");
-  assert.doesNotMatch(nodes.get("heating-target-4")?.textContent ?? "", /targetC/, "the raw DTO key must not trail the rendered value");
-  assert.match(html, /\.monitor-row span \{[^}]*display:block/, "adjacent monitor spans must not run together");
+  // M4.8: the zone card reads as a measurement, so the current temperature is the numeral
+  // alone and its unit and label are markup beside it. Freshness lives on the state line.
+  assert.equal(nodes.get("heating-current-4")?.textContent, "27", "the current temperature is the numeral alone");
+  assert.equal(nodes.get("heating-target-4")?.textContent, "28", "the target temperature is the numeral alone");
+  assert.doesNotMatch(nodes.get("heating-current-4")?.textContent ?? "", /currentC|age|generation/, "no DTO key or freshness may trail the numeral");
+  assert.doesNotMatch(nodes.get("heating-target-4")?.textContent ?? "", /targetC|age|generation/, "no DTO key or freshness may trail the numeral");
+  assert.match(nodes.get("heat-state-4")?.textContent ?? "", /age|stale/, "the zone state line still carries freshness");
+  assert.match(html, /id="heating-current-4"[\s\S]{0,200}°C[\s\S]{0,200}현재/, "the unit and the 현재 label sit beside the numeral");
   assert.match(nodes.get("elevator-floor")?.textContent ?? "", /4/);
   assert.match(nodes.get("elevator-direction")?.textContent ?? "", /arrival/);
   assert.match(nodes.get("household-entrance")?.textContent ?? "", /inactive/);

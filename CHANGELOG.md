@@ -6,6 +6,12 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Rebuild the heating card as the design's zone cards. The current temperature is
+  a 44px numeral with its unit and `현재` label beside it rather than a sentence,
+  freshness moves to the zone's state line, and the zones are split into the
+  `관측 확인` group that carries Zone 1 and the `추측 후보` group that carries
+  Zones 2–4 under an explicit warning that their control codes were never
+  observed and may not work.
 - Rebuild the control cards as the design's tiles. Lights, gas, the elevator, and
   the entrances now read as an icon, a name, the observed state, and the control
   itself, with the MDI glyphs and the evidence badges the design specifies —
