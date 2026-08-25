@@ -6,6 +6,11 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Rebuild the control cards as the design's tiles. Lights, gas, the elevator, and
+  the entrances now read as an icon, a name, the observed state, and the control
+  itself, with the MDI glyphs and the evidence badges the design specifies —
+  `추측 후보` on the elevator, `0x7F 매크로` on the entrances. Every element id and
+  the bilingual contract text are unchanged, so the emitted UI behaves as before.
 - End every send in the banner. A write now narrates itself as
   `보낸 뒤 응답을 관측하고 있습니다`, then resolves to
   `요청한 상태를 확인했습니다` when a later state frame carries the requested
