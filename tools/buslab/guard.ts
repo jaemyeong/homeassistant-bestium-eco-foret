@@ -128,6 +128,24 @@ export const PHASE6_ALLOWED: readonly string[] = [
   "f70c012a02401102190098ee",
 ];
 
+/**
+ * Phase seven carries one frame: gas, closing.
+ *
+ * It is the first entry on any of these lists that cannot be undone from the bus. Closing is
+ * available and opening is not — the legacy source says as much in its own comment — so once the
+ * valve is shut a person has to open it by hand. The operator has confirmed it feeds the kitchen
+ * only, not the boiler.
+ *
+ * The frame was watched once on this bus, sent by the wallpad itself, and is identical to the one
+ * the legacy builds. Widening the list here does not touch the refusal that keeps the opening
+ * direction shut: that refusal is written on the value byte, so `04` and every other undocumented
+ * value stay refused at every phase and under `allowAll`.
+ */
+export const PHASE7_ALLOWED: readonly string[] = [
+  ...PHASE6_ALLOWED,
+  "f70b011b0243110300b5ee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
@@ -135,6 +153,7 @@ const PHASES: Record<number, readonly string[]> = {
   4: PHASE4_ALLOWED,
   5: PHASE5_ALLOWED,
   6: PHASE6_ALLOWED,
+  7: PHASE7_ALLOWED,
 };
 
 export type Verdict =

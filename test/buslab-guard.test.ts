@@ -461,3 +461,69 @@ test("E8 RED: phase six is still a list, and the refusals are still shut", () =>
     assert.equal(checkOutgoing({ hex, armed: true, phase: 6 }).ok, false, `${hex} at phase six`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase seven: gas, closing only.
+//
+// This is the first frame on any of these lists that cannot be undone from the bus. Closing is
+// available and opening is not — the legacy source says so in its own comment, `04 = ON
+// (지원되지 않음)` — so once it is shut a person has to open the valve by hand. The operator has
+// confirmed the valve feeds the kitchen only, not the boiler.
+//
+// The list gains exactly one frame. The refusal that keeps the opening direction shut is not part
+// of any phase and these tests assert that no phase and no flag reaches it.
+
+const GAS_CLOSE = "f70b011b0243110300b5ee";
+const GAS_OPEN = "f70b011b0243110400b2ee";
+
+test("E9 RED: phase seven adds the gas close frame and nothing else", async () => {
+  const { PHASE6_ALLOWED, PHASE7_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE7_ALLOWED.filter((hex) => !PHASE6_ALLOWED.includes(hex));
+  assert.deepEqual(added, [GAS_CLOSE]);
+  assert.equal(PHASE7_ALLOWED.length, 31, "thirty from phase six plus one");
+});
+
+test("E9 RED: the close frame is the one the wallpad itself sent", () => {
+  // Observed once in `capture-1788009200284`, and identical to what the legacy builds. Assert the
+  // bytes that carry the meaning rather than only the checksum.
+  const b = bytes(GAS_CLOSE);
+  assert.equal(b[3], 0x1b, "device");
+  assert.equal(b[4], 0x02, "a set frame");
+  assert.equal(b[5], 0x43, "sub-command");
+  assert.equal(b[7], 0x03, "03 is the closing value; 04 would be an opening");
+  let x = 0;
+  for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+  assert.equal(x, b[b.length - 2]);
+  assert.equal(b[b.length - 1], 0xee);
+});
+
+test("E9 RED: phase six still refuses it, phase seven permits it", () => {
+  assert.equal(checkOutgoing({ hex: GAS_CLOSE, armed: true, phase: 6 }).ok, false);
+  assert.equal(checkOutgoing({ hex: GAS_CLOSE, armed: true, phase: 7 }).ok, true);
+});
+
+test("E9 RED: opening gas is refused at every phase and by every flag", () => {
+  // The point of the refusal list. Widening gas to a phase must not make the unsafe direction
+  // reachable, and `--allow-all` must not either.
+  for (const phase of [1, 2, 3, 4, 5, 6, 7] as const) {
+    const verdict = checkOutgoing({ hex: GAS_OPEN, armed: true, phase });
+    assert.equal(verdict.ok, false, `open must be refused at phase ${phase}`);
+    assert.match(String(verdict.reason), /gas may be closed and never opened/, `phase ${phase}`);
+  }
+  const bypass = checkOutgoing({ hex: GAS_OPEN, armed: true, allowAll: true });
+  assert.equal(bypass.ok, false, "allow-all must not reach it either");
+  assert.match(String(bypass.reason), /gas may be closed and never opened/);
+});
+
+test("E9 RED: any gas set value other than 03 is refused, not merely the one we know", () => {
+  // The refusal is written on the value, so an undocumented value is refused as well as `04`.
+  for (const value of [0x00, 0x01, 0x02, 0x04, 0x05, 0xff]) {
+    const body = `f70b011b024311${value.toString(16).padStart(2, "0")}00`;
+    let x = 0;
+    for (const byte of Buffer.from(body, "hex")) x ^= byte;
+    const hex = `${body}${x.toString(16).padStart(2, "0")}ee`;
+    const verdict = checkOutgoing({ hex, armed: true, phase: 7, allowAll: true });
+    assert.equal(verdict.ok, false, `gas value ${value} must be refused`);
+    assert.match(String(verdict.reason), /gas may be closed and never opened/, hex);
+  }
+});
