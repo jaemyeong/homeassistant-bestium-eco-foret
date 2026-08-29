@@ -68,6 +68,29 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Measure the elevator by listening, with evidence rows `M4-E148` and `M4-E149`. **On this bus the
+  elevator is read-only.** The operator pressed the hallway call button and nothing changed
+  anywhere on the line — 89 elevator frames all idle, twelve distinct frames in the whole window,
+  every one routine. Pressing the wallpad's own down button changed the state within two seconds,
+  and a byte-level sweep of the three seconds around it shows only routine polling: **no command
+  left the wallpad on this line at all.** Across 44,986 frames `0x34` is `kind=01` 4,224 times and
+  `kind=02` and `kind=04` zero times.
+
+  So the wallpad calls the elevator by some other path and relays only the result, which is what
+  the legacy's own annotation says — this frame runs wallpad to hallway mini-pad. The two call
+  variants therefore have no observational footing here. The heating group-on frame worked from a
+  much better prior: there the same device was already watched receiving commands at the same
+  address, and here the device is never seen receiving one.
+
+  The down call and the descending state are observed for the first time; the capture on disk held
+  only an up call. State `06` is stopped with a down call pending, `b6` is descending with one, and
+  both resolve to arrived and then to idle within two seconds. The floor field is the car's
+  position, `04` while active and `00` when idle.
+
+  **The car field cannot mean what the legacy says.** It reads `0b` every time and the building has
+  one elevator, so an nth-car index cannot be right; it is not a meaningless constant either, since
+  it drops to `00` when idle. What it means is unknown.
+
 - Close gas over the bus and watch the transition both ways, with evidence rows `M4-E146` and
   `M4-E147`. Stage B ran with the operator opening the valve by hand before and after. The valve
   read `04` in sixteen polls, the close answered in 118 ms, and the first poll carrying `03` came
