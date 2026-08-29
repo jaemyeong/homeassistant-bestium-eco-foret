@@ -77,10 +77,18 @@ All notable changes to this project are documented here.
   `kind=02` and `kind=04` zero times.
 
   So the wallpad calls the elevator by some other path and relays only the result, which is what
-  the legacy's own annotation says — this frame runs wallpad to hallway mini-pad. The two call
-  variants therefore have no observational footing here. The heating group-on frame worked from a
-  much better prior: there the same device was already watched receiving commands at the same
-  address, and here the device is never seen receiving one.
+  the legacy's own annotation says — this frame runs wallpad to hallway mini-pad.
+
+  That hallway call **worked**: the operator says it brought the car to this floor, which is why
+  the wallpad call two minutes later finished in two seconds. The elevator was moving while this
+  line stayed silent, so the reading is stronger than a bare negative — the line does not report
+  calls raised from the hallway, and an add-on can only see the ones the wallpad itself makes.
+
+  It does not follow that the line cannot carry a call. The operator reports that the legacy
+  add-on's elevator call did work here, which is direct evidence that it can; the absence is the
+  wallpad's choice of path, not the frame's viability. The legacy's `packet_call_type` defaults to
+  0 and so does the add-on's setting, so the frame that worked is variant 0 — the same skeleton the
+  current add-on builds.
 
   The down call and the descending state are observed for the first time; the capture on disk held
   only an up call. State `06` is stopped with a down call pending, `b6` is descending with one, and
