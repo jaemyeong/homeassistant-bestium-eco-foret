@@ -73,7 +73,7 @@ All notable changes to this project are documented here.
   *before* the light command, by 84, 186, 192 and 200 ms.
 
   Those figures are not the interval between the state changing and the command. `0x2A` is polled
-  uniformly — 453 replies in 67 minutes, median interval 1,860 ms, and not one of the 452 intervals
+  uniformly — 453 replies in 12.5 minutes, median interval 1,860 ms, and not one of the 452 intervals
   under 250 ms — so the change itself can precede its own report by up to about 1.9 s. Only the
   ordering is established. What the narrow 84–200 ms band does suggest is the mechanism: against a
   1.86 s polling period, a command landing within 0.2 s of the reporting reply four times out of

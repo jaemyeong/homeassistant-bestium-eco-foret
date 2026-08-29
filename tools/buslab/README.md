@@ -151,9 +151,16 @@ never been observed anywhere.
 Refusals are not a phase and no flag opens them, `--allow-all` included. The `0x7F` subphone
 macros open a door. The `0x1E 02` frame's meaning is undecided and may be a door-open command.
 Gas may be closed and never opened. And a heating target above 23 °C is refused by name rather
-than merely left off a list: that is the warmest any zone already holds, so the tool cannot
-leave a room warmer than the household chose, and unlike a light the unsafe direction here burns
-gas for as long as nobody notices. The elevator is outside every phase but is not on that list,
+than merely left off a list: that is the target every zone already holds, so no frame from here
+can set a zone warmer than the household chose, and unlike a light the unsafe direction here
+burns gas for as long as nobody notices.
+
+That refusal is not the whole safety story, and the README said otherwise until this was
+corrected. A zone turned **on** at the existing 23 °C target will heat a room that has since
+fallen below it, and no rule inside the guard can see the room. Read the current temperatures
+from a full poll before arming, and stop if any zone sits at or under its target. The allowlist
+was written against rooms at 24 °C and warmer; that is a fact about a day, not about the
+protocol. The elevator is outside every phase but is not on that list,
 because it waits for its own approval rather than being forbidden for ever.
 
 Home Assistant must stay switched off while a run is measuring. It reaches the same RS485 bus

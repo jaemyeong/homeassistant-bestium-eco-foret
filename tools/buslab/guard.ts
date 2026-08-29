@@ -101,10 +101,16 @@ function refusalReason(b: Uint8Array): string | null {
     // The allowlist blocks these already; this refusal is here for `allowAll`, which exists so a
     // later phase can be tried and would otherwise let through a frame that makes a room hotter
     // and burns gas for as long as nobody notices. Same shape as the gas rule: name the unsafe
-    // direction rather than rely on a list. The ceiling is what every zone already holds, so this
-    // tool cannot leave a room warmer than the household chose. It is a deliberate limit and not
-    // a fact about the protocol; raising it is a decision, and it needs the same approval that
-    // widening a phase does.
+    // direction rather than rely on a list. The ceiling is the target every zone already holds,
+    // so no frame from here can set a zone warmer than the household chose.
+    //
+    // It does not follow that nothing here can call for heat. A zone turned on at the existing
+    // 23 C target will heat a room that has since fallen below it, and this rule cannot see the
+    // room. That is the caller's job: read the current temperatures before arming and stop if
+    // any zone is at or under the target.
+    //
+    // The constant is a deliberate limit and not a fact about the protocol; raising it is a
+    // decision, and it needs the same approval that widening a phase does.
     return `this tool never raises a heating target above ${HEATING_TARGET_CEILING_C} C`;
   }
   return null;
