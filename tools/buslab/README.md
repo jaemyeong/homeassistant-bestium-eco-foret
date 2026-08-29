@@ -93,11 +93,60 @@ traffic and is not committed; point at it to run the check:
 
 Without the variable those three tests skip rather than quietly pass.
 
+## Sending
+
+    node tools/buslab/cli.ts send --run <name> --hex <hex> [--arm] [--expect <mask>] \
+        [--quiet-ms 60] [--quiet-wait-ms 1000] [--direct-ms 150] [--polling-ms 3000]
+
+Without `--arm` nothing reaches the bus: the frame is checked, reported and dropped. With it,
+the send waits for the line to fall quiet for `--quiet-ms`, writes, and then listens for a frame
+matching `--expect`.
+
+**What a send reports, and what each figure means.**
+
+| field | meaning |
+| --- | --- |
+| `outcome` | `dry_run`, `written`, `refused`, `busy`, `no_quiet_window`, `write_failed` |
+| `achievedQuietMs` | how long the line had actually been silent when the write went out |
+| `quietWaitedMs` | how long the wait took; the distribution of this is a measurement in itself |
+| `matchingFrameAgoMs` | how long since a frame matching `--expect` last appeared, **before** the write |
+| `reply.window` | `direct` inside `--direct-ms`, `polling` after it |
+| `reply.latencyMs` | write callback to matching frame |
+| `waitedForReply` | false when no `--expect` was given, so silence is not mistaken for an answer |
+
+`no_quiet_window` means the line never fell quiet and **nothing was written**; a frame put into
+traffic is a collision, not a measurement. The command exits non-zero for it, so a loop of twenty
+sends cannot quietly skip half of them.
+
+**Latency is an upper bound and cannot be otherwise.** The write callback guarantees only the
+kernel buffer, the path adds two WiFi round trips, and the gateway holds each direction until
+the serial line has been quiet for its `Gap Time` — 50 ms on this device, reported alongside as
+`gatewayFlushMs`. A reply the gateway batches with something else is invisible below that floor.
+
+`matchingFrameAgoMs` exists because the wallpad polls about every two seconds, so a poll landing
+inside a 150 ms window by chance is roughly a one-in-fourteen event. "Arrived in the window" and
+"arrived because of us" are different claims, and only the first is an observation.
+
+One send at a time. A second while one is in flight is refused rather than run beside it: one
+frame on the line at a time is the premise of the whole exercise.
+
+## Comparing the two encoders
+
+`tools/buslab/encode.ts` builds frames from the frame rule alone and prints the add-on's
+`encodeSemanticAction` output beside its own. Neither is the authority; the bus is. Where they
+differ the tool keeps both and calls it a finding — as they do today for all-zones-off, where
+the add-on sends four per-zone frames and the wallpad sends one.
+
 ## Safety
 
-Sending is not implemented yet; that is Epic E3 of the plan. When it lands, the first phase
-allows only the six light on/off frames, by exact byte match, and the `0x7F` subphone macros,
-the `0x1E 02` frame and gas open are refused by a list no flag opens.
+The first phase allows only the six light on/off frames, by exact byte match rather than by
+pattern: a mistyped XOR that satisfied a pattern would leave the wallpad ignoring the frame, and
+recording that silence as "no response" is a false finding.
+
+Three refusals are not a phase and no flag opens them. The `0x7F` subphone macros open a door.
+The `0x1E 02` frame's meaning is undecided and may be a door-open command. Gas may be closed and
+never opened. The elevator is outside phase one but is not on that list, because it waits for
+its own approval rather than being forbidden for ever.
 
 Home Assistant must stay switched off while a run is measuring. It reaches the same RS485 bus
 through the same gateway, and a second writer on a half-duplex line makes every collision

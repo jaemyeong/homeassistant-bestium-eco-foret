@@ -1,10 +1,12 @@
 // The daemon holds the socket open across commands. A tool that reconnected for each command
 // could not answer "what arrived 200 ms after the write", and that question is the whole
-// measurement. Commands arrive as one JSON object per line over a unix socket; this module
-// owns the protocol and the wiring, and `main.ts` owns the socket that carries them.
+// measurement. Commands arrive as one JSON object per line over a unix socket; this module owns
+// the protocol, the wiring and the send path, and `cli.ts` owns the socket that carries them.
 
 import type { Link } from "./link.ts";
 import type { Session, SessionSummary } from "./session.ts";
+import type { BusFrame, Framer } from "./framer.ts";
+import { checkOutgoing, matchesMask, parseMask, type Mask } from "./guard.ts";
 
 export type ControlRequest = Record<string, unknown>;
 export type ControlReply = Record<string, unknown>;
@@ -35,26 +37,235 @@ export function parseControlLine(line: string): ParsedControlLine {
 export type DaemonDeps = {
   nowMs(): number;
   monoNs(): bigint;
+  setTimeout(fn: () => void, delayMs: number): unknown;
+  clearTimeout(id: unknown): void;
+};
+
+/** The gateway forwards serial bytes only after 50 ms of silence, so every latency includes it. */
+const GATEWAY_FLUSH_MS = 50;
+const DEFAULT_DIRECT_MS = 150;
+const DEFAULT_POLLING_MS = 3_000;
+const DEFAULT_QUIET_MS = 60;
+const DEFAULT_QUIET_WAIT_MS = 1_000;
+/** How often to re-check whether the line has gone quiet. Well under one frame time. */
+const QUIET_POLL_MS = 5;
+/** Enough tail to answer "when did this last appear" over a minute of a busy bus. */
+const RECENT_FRAMES = 512;
+
+const ms = (ns: bigint): number => Math.round(Number(ns) / 1_000) / 1_000;
+
+type Waiter = {
+  mask: Mask | null;
+  fromMonoNs: bigint;
+  directUntilNs: bigint;
+  settle(frame: BusFrame | null): void;
 };
 
 export function createDaemon(opts: {
   runName: string;
   session: Session;
   link: Link;
+  framer: Framer;
   deps: DaemonDeps;
 }) {
   let stopped = false;
   let summary: SessionSummary | null = null;
+  let rxSeq = 0;
+  /** One frame on the line at a time. Two writes racing is the collision being measured. */
+  let sendInFlight = false;
+  const waiters = new Set<Waiter>();
+  /** A short tail of what has arrived, so a coincidence can be told from a response. */
+  const recent: BusFrame[] = [];
 
-  const quietMs = (): number | null => {
+  const lastMatchingMonoNs = (mask: Mask): bigint | undefined => {
+    for (let i = recent.length - 1; i >= 0; i -= 1) {
+      if (matchesMask(recent[i].bytes, mask)) return recent[i].monoNs;
+    }
+    return undefined;
+  };
+
+  const quietMsNow = (): number | null => {
     const last = opts.link.lastRxMonoNs();
-    if (last === null) return null;
-    return Number((opts.deps.monoNs() - last) / 1_000_000n);
+    return last === null ? null : ms(opts.deps.monoNs() - last);
+  };
+
+  /** Called by the CLI for every read: records it, frames it, and wakes anything waiting. */
+  const observe = (bytes: Uint8Array, wallMs: number, monoNs: bigint): void => {
+    try {
+      opts.session.record("rx", { seq: rxSeq++, byteLength: bytes.byteLength, hex: Buffer.from(bytes).toString("hex"), wallMs, monoNs });
+    } catch {
+      return;                                    // the run closed under us; nothing to record into
+    }
+    const framed = opts.framer.push(bytes, { seq: rxSeq - 1, wallMs, monoNs });
+    for (const frame of framed.frames) {
+      recent.push(frame);
+      if (recent.length > RECENT_FRAMES) recent.shift();
+      for (const waiter of [...waiters]) {
+        if (frame.monoNs < waiter.fromMonoNs) continue;
+        if (waiter.mask && !matchesMask(frame.bytes, waiter.mask)) continue;
+        waiters.delete(waiter);
+        waiter.settle(frame);
+      }
+    }
+    for (const stray of framed.unparsed) {
+      opts.session.record("unparsed", { hex: stray.hex, seq: stray.seq, offset: stray.offset, reason: stray.reason });
+    }
+  };
+
+  /**
+   * Wait until the line has been silent for `quietMs`, or give up and say so. `timedOut` is
+   * separate from `achieved` on purpose: a line that has never spoken and a line that would not
+   * stop both leave nothing to report, and writing into the second is the collision this whole
+   * tool exists to measure.
+   */
+  const waitForQuiet = (quietMs: number, quietWaitMs: number): Promise<{ achieved: number | null; waited: number; timedOut: boolean }> => {
+    const startedNs = opts.deps.monoNs();
+    return new Promise((resolve) => {
+      const check = (): void => {
+        const quiet = quietMsNow();
+        const waited = ms(opts.deps.monoNs() - startedNs);
+        if (quiet === null || quiet >= quietMs) { resolve({ achieved: quiet, waited, timedOut: false }); return; }
+        if (waited >= quietWaitMs) { resolve({ achieved: quiet, waited, timedOut: true }); return; }
+        opts.deps.setTimeout(check, QUIET_POLL_MS);
+      };
+      check();
+    });
+  };
+
+  const waitForReply = (mask: Mask | null, fromNs: bigint, directMs: number, pollingMs: number): Promise<{ frame: BusFrame | null; window: "direct" | "polling" | null }> =>
+    new Promise((resolve) => {
+      const waiter: Waiter = {
+        mask,
+        fromMonoNs: fromNs,
+        directUntilNs: fromNs + BigInt(Math.max(0, directMs)) * 1_000_000n,
+        settle: (frame) => {
+          opts.deps.clearTimeout(timer);
+          if (!frame) { resolve({ frame: null, window: null }); return; }
+          resolve({ frame, window: frame.monoNs <= waiter.directUntilNs ? "direct" : "polling" });
+        },
+      };
+      waiters.add(waiter);
+      const timer = opts.deps.setTimeout(() => {
+        if (waiters.delete(waiter)) waiter.settle(null);
+      }, Math.max(directMs, pollingMs));
+    });
+
+  const send = async (request: ControlRequest): Promise<ControlReply> => {
+    const hex = typeof request.hex === "string" ? request.hex.trim().toLowerCase() : "";
+    const armed = request.arm === true;
+    const verdict = checkOutgoing({ hex, armed, allowAll: request.allowAll === true });
+    if (!verdict.ok) {
+      opts.session.record("tx_refused", { hex, reason: verdict.reason });
+      return { ok: false, outcome: "refused", hex, reason: verdict.reason };
+    }
+    if (!verdict.write) {
+      opts.session.record("tx_dry_run", { hex });
+      return { ok: true, outcome: "dry_run", hex, bytes: verdict.bytes.byteLength };
+    }
+    const outgoing = verdict.bytes;
+
+    let mask: Mask | null = null;
+    if (typeof request.expect === "string") {
+      const parsed = parseMask(request.expect);
+      if (!parsed.ok) return { ok: false, outcome: "refused", hex, reason: `bad --expect mask: ${parsed.reason}` };
+      mask = parsed.mask;
+    }
+
+    const quietMs = Number(request.quietMs ?? DEFAULT_QUIET_MS);
+    const quietWaitMs = Number(request.quietWaitMs ?? DEFAULT_QUIET_WAIT_MS);
+    const directMs = Number(request.directMs ?? DEFAULT_DIRECT_MS);
+    const pollingMs = Number(request.pollingMs ?? DEFAULT_POLLING_MS);
+
+    if (sendInFlight) {
+      return { ok: false, outcome: "busy", hex, reason: "another send is in flight on this run" };
+    }
+    sendInFlight = true;
+    try {
+      return await writeAndListen();
+    } finally {
+      sendInFlight = false;
+    }
+
+    async function writeAndListen(): Promise<ControlReply> {
+    const quiet = await waitForQuiet(quietMs, quietWaitMs);
+    if (quiet.timedOut) {
+      opts.session.record("tx_skipped", { hex, reason: "no_quiet_window", quietMs, quietWaitedMs: quiet.waited });
+      return {
+        ok: true, outcome: "no_quiet_window", hex,
+        quietMs, quietWaitedMs: quiet.waited,
+        note: "a frame written into traffic is a collision, not a measurement",
+      };
+    }
+
+    // How long since a frame matching `expect` last appeared, before we wrote anything. A poll
+    // landing inside the direct window by chance is roughly a one-in-fourteen event at this
+    // bus's rate, and this is what lets an analysis tell "arrived in the window" from "arrived
+    // because of us".
+    const lastMatching = mask === null ? undefined : lastMatchingMonoNs(mask);
+
+    let stamps;
+    try {
+      stamps = await opts.link.write(outgoing);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "write failed";
+      opts.session.record("tx_error", { hex, message });
+      return { ok: false, outcome: "write_failed", hex, reason: message };
+    }
+
+    const matchingFrameAgoMs = lastMatching === undefined ? null : ms(stamps.flushedMonoNs - lastMatching);
+    opts.session.record("tx", {
+      hex,
+      achievedQuietMs: quiet.achieved,
+      quietWaitedMs: quiet.waited,
+      requestedMonoNs: stamps.requestedMonoNs,
+      returnedMonoNs: stamps.returnedMonoNs,
+      flushedMonoNs: stamps.flushedMonoNs,
+      expect: request.expect ?? null,
+      matchingFrameAgoMs,
+    });
+
+    const answer = mask === null
+      ? { frame: null, window: null as null }
+      : await waitForReply(mask, stamps.flushedMonoNs, directMs, pollingMs);
+
+    const reply = answer.frame
+      ? {
+          hex: answer.frame.hex,
+          window: answer.window,
+          latencyMs: ms(answer.frame.monoNs - stamps.flushedMonoNs),
+        }
+      : null;
+
+    opts.session.record("tx_result", {
+      hex,
+      replyHex: reply?.hex ?? null,
+      window: reply?.window ?? null,
+      latencyMs: reply?.latencyMs ?? null,
+    });
+
+    return {
+      ok: true,
+      outcome: "written",
+      hex,
+      achievedQuietMs: quiet.achieved,
+      quietWaitedMs: quiet.waited,
+      matchingFrameAgoMs,
+      reply,
+      // Every figure above is an upper bound on what the device did. The write callback
+      // guarantees only the kernel buffer, the path adds two WiFi round trips, and the gateway
+      // holds each direction until the serial line has been quiet for its Gap Time.
+      latencyIsUpperBound: true,
+      gatewayFlushMs: Number(request.gatewayFlushMs ?? GATEWAY_FLUSH_MS),
+      // Without this, `reply: null` after asking is indistinguishable from never having asked.
+      waitedForReply: mask !== null,
+    };
+    }
   };
 
   const stop = async (reason: string): Promise<ControlReply> => {
     if (stopped) return { ok: true, ...summary, alreadyStopped: true };
     stopped = true;
+    for (const waiter of [...waiters]) { waiters.delete(waiter); waiter.settle(null); }
     // The link closes first so that no read can land after the file has been finalised.
     opts.link.close();
     opts.session.record("stop", { reason });
@@ -77,6 +288,8 @@ export function createDaemon(opts: {
       opts.session.record("start", { run: opts.runName });
     },
 
+    observe,
+
     async handle(request: ControlRequest): Promise<ControlReply> {
       const cmd = request.cmd;
       if (cmd === "stop") return stop(typeof request.reason === "string" ? request.reason : "stopped");
@@ -88,9 +301,10 @@ export function createDaemon(opts: {
           ok: true,
           run: opts.runName,
           connected: opts.link.isOpen(),
-          quietMs: quietMs(),
+          quietMs: quietMsNow(),
           records: stats.records,
           rxBytes: stats.rxBytes,
+          frames: opts.framer.stats().frames,
         };
       }
 
@@ -102,6 +316,8 @@ export function createDaemon(opts: {
         opts.session.record("mark", { label: label.trim() });
         return { ok: true, label: label.trim() };
       }
+
+      if (cmd === "send") return send(request);
 
       return { ok: false, reason: `unknown command ${JSON.stringify(cmd)}` };
     },

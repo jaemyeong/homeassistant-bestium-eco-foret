@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createDaemon, parseControlLine } from "../tools/buslab/daemon.ts";
+import { createFramer } from "../tools/buslab/framer.ts";
 
 // The daemon exists so the receive stream survives between commands. A tool that reconnected
 // per command could not answer "what arrived 200 ms after the write", which is the whole
@@ -56,7 +57,13 @@ function createFixture() {
     runName: "light1-discovery",
     session: session.session as never,
     link: link.link as never,
-    deps: { nowMs: () => wall, monoNs: () => mono },
+    framer: createFramer(),
+    deps: {
+      nowMs: () => wall,
+      monoNs: () => mono,
+      setTimeout: (fn: () => void, delayMs: number) => setTimeout(fn, delayMs),
+      clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    },
   });
   const advance = (ms: number): void => { wall += ms; mono += BigInt(ms) * 1_000_000n; };
   return { daemon, session, link, advance, setMono: (v: bigint) => { mono = v; } };

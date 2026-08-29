@@ -95,7 +95,9 @@ async function commandStart(flags: Record<string, string | true>): Promise<void>
     process.stderr.write(`buslab: dropped a late ${kind} record after the run closed\n`);
   });
 
-  let rxSeq = 0;
+  // The daemon receives every read, because the send path has to see frames as they arrive to
+  // tell a reply from the wallpad's own polling.
+  let deliver: (bytes: Uint8Array, wallMs: number, monoNs: bigint) => void = () => {};
   const link = createLink({
     config,
     connect: (input) => createConnection(input) as never,
@@ -106,15 +108,7 @@ async function commandStart(flags: Record<string, string | true>): Promise<void>
       setTimeout: (fn, delayMs) => setTimeout(fn, delayMs),
       clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
     },
-    onChunk: (bytes, wallMs, monoNs) => {
-      safeRecord("rx", {
-        seq: rxSeq++,
-        byteLength: bytes.byteLength,
-        hex: Buffer.from(bytes).toString("hex"),
-        wallMs,
-        monoNs,
-      });
-    },
+    onChunk: (bytes, wallMs, monoNs) => deliver(bytes, wallMs, monoNs),
     onEvent: (kind, fields) => safeRecord(kind, fields),
   });
 
@@ -122,8 +116,15 @@ async function commandStart(flags: Record<string, string | true>): Promise<void>
     runName,
     session,
     link,
-    deps: { nowMs: () => Date.now(), monoNs: () => process.hrtime.bigint() },
+    framer: createFramer(),
+    deps: {
+      nowMs: () => Date.now(),
+      monoNs: () => process.hrtime.bigint(),
+      setTimeout: (fn, delayMs) => setTimeout(fn, delayMs),
+      clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    },
   });
+  deliver = (bytes, wallMs, monoNs) => daemon.observe(bytes, wallMs, monoNs);
 
   await daemon.start();
   const server = await serveControl({
@@ -245,9 +246,21 @@ async function commandControl(command: string, flags: Record<string, string | tr
   const socketPath = join(RUNS_DIR, runName, "control.sock");
   const request: Record<string, unknown> = { cmd: command };
   if (typeof flags.label === "string") request.label = flags.label;
-  const reply = await requestControl({ socketPath, request });
+  if (typeof flags.hex === "string") request.hex = flags.hex;
+  if (flags.arm === true) request.arm = true;
+  if (typeof flags.expect === "string") request.expect = flags.expect;
+  for (const [flag, key] of [["quiet-ms", "quietMs"], ["quiet-wait-ms", "quietWaitMs"],
+                             ["direct-ms", "directMs"], ["polling-ms", "pollingMs"]] as const) {
+    if (typeof flags[flag] === "string") request[key] = Number(flags[flag]);
+  }
+  // A send waits for a quiet window and then for a reply, so it outlives the default deadline.
+  const reply = await requestControl({ socketPath, request, timeoutMs: command === "send" ? 30_000 : 5_000 });
   process.stdout.write(`${JSON.stringify(reply, null, 2)}\n`);
-  if (reply.ok !== true) process.exitCode = 1;
+  // A skipped send is a legitimate outcome, not an error, but a loop of twenty sends must not
+  // exit zero while half of them never reached the bus.
+  const wroteNothing = reply.outcome === "no_quiet_window" || reply.outcome === "refused"
+    || reply.outcome === "busy" || reply.outcome === "write_failed";
+  if (reply.ok !== true || wroteNothing) process.exitCode = 1;
 }
 
 const USAGE = `buslab — local RS485 measurement over the EW11 gateway
@@ -255,6 +268,7 @@ const USAGE = `buslab — local RS485 measurement over the EW11 gateway
   buslab start  --run <name> [--seconds N] [--connect-timeout-ms N]
   buslab status --run <name>
   buslab mark   --run <name> --label "what just happened"
+  buslab send   --run <name> --hex <hex> [--arm] [--expect <mask>] [--quiet-ms 60]
   buslab stop   --run <name>
 
   buslab frames    --run <name> | --file <path>
@@ -270,7 +284,9 @@ neither of which is committed. It is never written into a run's artifacts.
 export async function main(argv: string[]): Promise<void> {
   const { command, flags } = parseArgs(argv);
   if (command === "start") return commandStart(flags);
-  if (command === "status" || command === "mark" || command === "stop") return commandControl(command, flags);
+  if (command === "status" || command === "mark" || command === "stop" || command === "send") {
+    return commandControl(command, flags);
+  }
   if (command === "frames") return commandFrames(flags);
   if (command === "inventory") return commandInventory(flags);
   if (command === "around") return commandAround(flags);

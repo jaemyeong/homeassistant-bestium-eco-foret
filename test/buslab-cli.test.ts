@@ -10,6 +10,7 @@ import { parseArgs } from "../tools/buslab/cli.ts";
 import { createSession } from "../tools/buslab/session.ts";
 import { createLink } from "../tools/buslab/link.ts";
 import { createDaemon } from "../tools/buslab/daemon.ts";
+import { createFramer } from "../tools/buslab/framer.ts";
 import { serveControl, requestControl, isRunAlive } from "../tools/buslab/control.ts";
 import { createRedactor } from "../tools/buslab/config.ts";
 
@@ -30,6 +31,7 @@ type Wired = {
   dir: string;
   socketPath: string;
   push(hex: string): void;
+  written(): string[];
   stopAll(): Promise<void>;
   runLines(): Promise<Record<string, unknown>[]>;
 };
@@ -40,7 +42,11 @@ async function wire(): Promise<Wired> {
   const socketPath = join(dir, "control.sock");
 
   let peer: Socket | null = null;
-  const gateway: Server = createServer((connection) => { peer = connection; });
+  const sentToGateway: Buffer[] = [];
+  const gateway: Server = createServer((connection) => {
+    peer = connection;
+    connection.on("data", (chunk: Buffer) => { sentToGateway.push(Buffer.from(chunk)); });
+  });
   await new Promise<void>((resolve) => gateway.listen(gatewayPath, resolve));
 
   const config = { host: "ew11-77e3a1.invalid", port: 8899 };
@@ -67,18 +73,25 @@ async function wire(): Promise<Wired> {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
       clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
     },
-    onChunk: (bytes) => session.record("rx", {
-      seq: seq++, byteLength: bytes.byteLength, hex: Buffer.from(bytes).toString("hex"),
-    }),
+    onChunk: (bytes, wallMs, monoNs) => daemonRef!.observe(bytes, wallMs, monoNs),
     onEvent: (kind, fields) => session.record(kind, fields),
   });
+  void seq;
 
+  let daemonRef: ReturnType<typeof createDaemon> | null = null;
   const daemon = createDaemon({
     runName: "wiring",
     session,
     link,
-    deps: { nowMs: () => Date.now(), monoNs: () => process.hrtime.bigint() },
+    framer: createFramer(),
+    deps: {
+      nowMs: () => Date.now(),
+      monoNs: () => process.hrtime.bigint(),
+      setTimeout: (fn, delayMs) => setTimeout(fn, delayMs),
+      clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    },
   });
+  daemonRef = daemon;
   await daemon.start();
   const server = await serveControl({ socketPath, handle: (request) => daemon.handle(request) });
 
@@ -86,6 +99,7 @@ async function wire(): Promise<Wired> {
     dir,
     socketPath,
     push: (hex) => { peer?.write(Buffer.from(hex, "hex")); },
+    written: () => sentToGateway.map((b) => b.toString("hex")),
     async stopAll() {
       await daemon.stop("test");
       await server.close();
@@ -195,6 +209,42 @@ test("E1 RED: a read arriving after stop reaches no file, because the link close
     await settle();
     const rx = (await w.runLines()).filter((l) => l.t === "rx");
     assert.equal(rx.length, 0, "stopping detaches the link before the run file is finalised");
+  } finally {
+    await w.stopAll();
+  }
+});
+
+test("E3 RED: an armed send really reaches the gateway, and a refused one really does not", async () => {
+  const w = await wire();
+  try {
+    const dry = await requestControl({
+      socketPath: w.socketPath,
+      request: { cmd: "send", hex: "f70b01190240110100b6ee" },
+    });
+    assert.equal(dry.outcome, "dry_run", JSON.stringify(dry));
+    await settle();
+    assert.deepEqual(w.written(), [], "a dry run puts no byte on the wire");
+
+    const refused = await requestControl({
+      socketPath: w.socketPath,
+      request: { cmd: "send", hex: "7f01020304", arm: true },
+    });
+    assert.equal(refused.ok, false, JSON.stringify(refused));
+    await settle();
+    assert.deepEqual(w.written(), [], "a refusal puts no byte on the wire either");
+
+    const armed = await requestControl({
+      socketPath: w.socketPath,
+      request: { cmd: "send", hex: "f70b01190240110100b6ee", arm: true, quietMs: 0 },
+    });
+    assert.equal(armed.outcome, "written", JSON.stringify(armed));
+    await settle();
+    assert.deepEqual(w.written(), ["f70b01190240110100b6ee"], "and exactly those eleven bytes go out");
+
+    await requestControl({ socketPath: w.socketPath, request: { cmd: "stop" } });
+    const kinds = (await w.runLines()).map((line) => line.t);
+    assert.ok(kinds.includes("tx_dry_run") && kinds.includes("tx_refused") && kinds.includes("tx"),
+      kinds.join(","));
   } finally {
     await w.stopAll();
   }

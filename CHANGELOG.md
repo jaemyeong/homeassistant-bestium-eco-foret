@@ -6,6 +6,20 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- A guarded send path for `tools/buslab`, `M4.12` Epic E3, with evidence row `M4-E127`. Without
+  `--arm` nothing reaches the bus. With it, the phase-one allowlist is the six light frames matched
+  byte for byte rather than by pattern, because a mistyped XOR that satisfied a pattern would leave
+  the wallpad ignoring the frame and the tool recording a silence that means nothing. Three refusals
+  are not a phase and no flag opens them: the `0x7F` subphone macros, which open a door; the
+  `0x1E` `0x02` frame, whose meaning is undecided; and any gas frame that is not the close. A send
+  waits for the line to fall quiet, records the gap it actually got, and reports a matching frame as
+  `direct` within 150 ms or `polling` after it, alongside how long since that frame last appeared
+  before the write — because the wallpad polls every two seconds and "arrived in the window" is not
+  the same claim as "arrived because of us". Every latency is an upper bound and says so: the write
+  callback reaches only the kernel buffer and the gateway holds each direction for its 50 ms flush.
+  One send at a time; a second while one is in flight is refused. `encode.ts` builds frames from the
+  frame rule and prints the add-on's encoder beside its own, which already disagrees on all-zones-off.
+
 - An independent framer and offline analysis for `tools/buslab`, `M4.12` Epic E2, with evidence
   row `M4-E126`. The framer knows a length byte, an XOR over all but the last two bytes, and the
   terminator `EE`, and imports nothing from the add-on, so when the two agree the agreement is

@@ -62,6 +62,8 @@ function checksumOk(frame: Uint8Array): boolean {
   return x === frame[frame.length - 2] && frame[frame.length - 1] === 0xee;
 }
 
+export type Framer = ReturnType<typeof createFramer>;
+
 export function createFramer() {
   let pending = new Uint8Array(0);
   let pendingMeta: ReadMeta | null = null;
