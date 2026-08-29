@@ -119,6 +119,13 @@ export function createFramer() {
       if (byte === 0x7f) {
         if (i + SEVEN_F_LENGTH > data.length) break;           // wait for the rest
         const frame = data.subarray(i, i + SEVEN_F_LENGTH);
+        // `7F <header> 00 00 EE`. There is no checksum, so the fixed fields are the only defence:
+        // without this check any corrupt byte that happens to be 0x7F becomes a frame, and the
+        // four bytes it swallows may be the start of a real one. Both were seen on the live bus.
+        if (frame[2] !== 0x00 || frame[3] !== 0x00 || frame[4] !== 0xee) {
+          dropOne("0x7F without its 00 00 EE fixed fields");
+          continue;
+        }
         const where = startMetaOf(i);
         out.frames.push({
           kind: "7f",

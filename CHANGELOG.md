@@ -58,6 +58,32 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Find that the lost sends are collisions after all, and gate the write on the moment the
+  wallpad reserves for a query nobody answers, with evidence rows `M4-E131` and `M4-E132`. Pooling
+  every write ever sent shows it: 62 % of unanswered writes had corruption on the bus within
+  400 ms against 9 % of answered ones, and the next frame after an unanswered write arrived at a
+  median of 56 ms and was usually the wallpad's next query. The achieved quiet window fails to
+  predict this not because collision is absent but because the gateway's 50 ms `Gap Time` makes
+  every idle judgement 50 ms stale, so a wallpad about to transmit is invisible. Four devices
+  never answer their query and the wallpad then waits about 270 ms: 7,019 such windows in the
+  capture, where an eleven-byte frame fits every time against 42 % for a 60 ms quiet window.
+  Through that gate, two blocks of twenty sends were answered 20/20 and 20/20 with **zero corrupt
+  bytes**, against 15/20 and 66 corrupt bytes per thousand frames under the quiet window.
+
+  This supersedes the retry-first conclusion recorded a few hours earlier; the analysis is
+  corrected in place rather than left standing. Retry remains as a net, and because collision is
+  the cause, more attempts mean more damage to the wallpad's own traffic.
+
+  Changing the gateway's `Flow Control` to `Half Duplex` was tried and reverted: 16/20 answered,
+  indistinguishable from the baseline, and more corruption rather than less.
+
+- Stop the framer turning corruption into frames, with evidence row `M4-E132`. Any byte equal to
+  `0x7F` began a five-byte frame with nothing checked, and `0x7F` has never appeared on this line
+  at all. Nine such frames were fabricated from live corruption and one of them consumed the
+  opening three bytes of a valid frame. The repair checks the `7F <header> 00 00 EE` fixed fields
+  rather than the eight documented headers, so a ninth header would still parse, and it raised one
+  run's corruption count from 31 to 46 bytes — which is how much the defect had been hiding.
+
 - Record the first live measurement in `.agent/analysis-live-light-measurement.md`, with evidence
   rows `M4-E129` and `M4-E130`, and add an explicit phase-two allowlist to `tools/buslab` for the
   two light group frames. Sixty-five frames reached the wallpad, all of them lights.

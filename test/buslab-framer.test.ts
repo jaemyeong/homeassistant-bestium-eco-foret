@@ -61,14 +61,48 @@ test("E2 RED: a frame split one byte at a time still comes out whole", () => {
   assert.deepEqual(seen, [hex]);
 });
 
-test("E2 RED: a 0x7F frame is five bytes with no checksum to check", () => {
-  // The subphone line carries these. None appear in either capture, so only this pins the shape.
+test("E2 RED: a 0x7F frame is five bytes with fixed fields, and those fields are checked", () => {
+  // `7F <header> 00 00 EE`, per `.agent/spec-device-protocol.md` §5.2. There is no checksum, so
+  // the trailing `00 00 EE` is the only thing standing between a real frame and any byte that
+  // happens to be 0x7F.
   const framer = createFramer();
-  const out = framer.push(bytes("7f01020304" + "f70b01190140100000b5ee"), meta(0));
+  const out = framer.push(bytes("7fb40000ee" + "f70b01190140100000b5ee"), meta(0));
   assert.deepEqual(out.frames.map((f) => [f.kind, f.hex]), [
-    ["7f", "7f01020304"],
+    ["7f", "7fb40000ee"],
     ["f7", "f70b01190140100000b5ee"],
   ]);
+});
+
+test("E4 RED: a header nobody has documented still parses, if the fixed fields are right", () => {
+  // Eight headers are documented and the subphone work is a later milestone. Gating on that list
+  // would silently drop a ninth; gating on the shape does not.
+  const framer = createFramer();
+  const out = framer.push(bytes("7f420000ee"), meta(0));
+  assert.deepEqual(out.frames.map((f) => f.hex), ["7f420000ee"]);
+});
+
+test("E4 RED: corruption that starts with 0x7F is not turned into a frame", () => {
+  // Every one of these was invented by this framer from real corruption on the live bus. `0x7F`
+  // has never been observed on this line at all, so accepting any such byte as a five-byte header
+  // both fabricated frames and undercounted the damage.
+  for (const garbage of [
+    "7ffbfffdff", "7fddfdff93", "7fddffa5c2", "7fffff36a0", "7f73bf75fd", "7ff377ffd2",
+  ]) {
+    const framer = createFramer();
+    const out = framer.push(bytes(garbage), meta(0));
+    assert.deepEqual(out.frames, [], `${garbage} must not become a frame`);
+    assert.ok(out.unparsed.length > 0, garbage);
+  }
+});
+
+test("E4 RED: a stray 0x7F no longer eats the frame that follows it", () => {
+  // Seen live: `7f df` in front of a valid frame made the framer consume `7f df f7 0b 01`,
+  // destroying three bytes of a frame that was perfectly good.
+  const framer = createFramer();
+  const out = framer.push(bytes("7fdf" + "f70b012b014011000086ee"), meta(0));
+  assert.deepEqual(out.frames.map((f) => f.hex), ["f70b012b014011000086ee"],
+    "the real frame survives the stray byte in front of it");
+  assert.equal(out.unparsed.length, 2, "and the two stray bytes are recorded as such");
 });
 
 test("E2 RED: a byte that begins nothing is kept as unparsed, with where it was", () => {

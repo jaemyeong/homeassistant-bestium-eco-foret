@@ -42,11 +42,11 @@ test("E2 RED: the key is what the frame is about, not what we think it means", (
   const [light, heat, seven] = framesOf([
     { seq: 0, ms: 0, hex: "f70b01190140100000b5ee" },
     { seq: 1, ms: 100, hex: "f70b01180246110100b1ee" },
-    { seq: 2, ms: 200, hex: "7f01020304" },
+    { seq: 2, ms: 200, hex: "7fb40000ee" },   // a real subphone frame: 7F <header> 00 00 EE
   ]);
   assert.equal(frameKey(light), "19/01/40/10");
   assert.equal(frameKey(heat), "18/02/46/11");
-  assert.equal(frameKey(seven), "7f/01", "the subphone line has no length or address to key on");
+  assert.equal(frameKey(seven), "7f/b4", "the subphone line keys on its header alone");
 });
 
 test("E2 RED: the inventory counts each tuple and remembers which values its bytes took", () => {

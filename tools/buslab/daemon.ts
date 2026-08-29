@@ -51,6 +51,14 @@ const DEFAULT_QUIET_WAIT_MS = 1_000;
 const QUIET_POLL_MS = 5;
 /** Enough tail to answer "when did this last appear" over a minute of a busy bus. */
 const RECENT_FRAMES = 512;
+/**
+ * Devices whose query the bus never answers. The wallpad asks and then waits about 270 ms before
+ * moving on, and that wait is the only place on this line where an eleven-byte frame fits every
+ * time: 7,019 such queries in `capture-1788009200284`, 100 % fit, against 42 % for a 60 ms quiet
+ * window. Entrance, elevator, ventilation and outlet.
+ */
+const SILENT_QUERY_DEVICES = new Set([0x1e, 0x34, 0x2b, 0x1f]);
+const DEFAULT_GATE_WAIT_MS = 3_000;
 
 const ms = (ns: bigint): number => Math.round(Number(ns) / 1_000) / 1_000;
 
@@ -74,6 +82,7 @@ export function createDaemon(opts: {
   /** One frame on the line at a time. Two writes racing is the collision being measured. */
   let sendInFlight = false;
   const waiters = new Set<Waiter>();
+  const gateWaiters = new Set<(device: number | null) => void>();
   /** A short tail of what has arrived, so a coincidence can be told from a response. */
   const recent: BusFrame[] = [];
 
@@ -107,6 +116,12 @@ export function createDaemon(opts: {
         waiter.settle(frame);
       }
     }
+    // A read that *ends* on one of the silent queries opens the window. A query answered inside
+    // the same read does not: that exchange is over and the next query is moments away.
+    const last = framed.frames.at(-1);
+    if (last && last.bytes[0] === 0xf7 && last.bytes[4] === 0x01 && SILENT_QUERY_DEVICES.has(last.bytes[3])) {
+      for (const wake of [...gateWaiters]) { gateWaiters.delete(wake); wake(last.bytes[3]); }
+    }
     for (const stray of framed.unparsed) {
       opts.session.record("unparsed", { hex: stray.hex, seq: stray.seq, offset: stray.offset, reason: stray.reason });
     }
@@ -131,6 +146,15 @@ export function createDaemon(opts: {
       check();
     });
   };
+
+  const waitForSilentQuery = (waitMs: number): Promise<number | null> =>
+    new Promise((resolve) => {
+      const wake = (device: number | null): void => { opts.deps.clearTimeout(timer); resolve(device); };
+      gateWaiters.add(wake);
+      const timer = opts.deps.setTimeout(() => {
+        if (gateWaiters.delete(wake)) resolve(null);
+      }, Math.max(0, waitMs));
+    });
 
   const waitForReply = (mask: Mask | null, fromNs: bigint, directMs: number, pollingMs: number): Promise<{ frame: BusFrame | null; window: "direct" | "polling" | null }> =>
     new Promise((resolve) => {
@@ -187,6 +211,17 @@ export function createDaemon(opts: {
     }
 
     async function writeAndListen(): Promise<ControlReply> {
+    if (request.gate === "silent-query") {
+      const device = await waitForSilentQuery(Number(request.gateWaitMs ?? DEFAULT_GATE_WAIT_MS));
+      if (device === null) {
+        opts.session.record("tx_skipped", { hex, reason: "no_gate_window", gate: "silent-query" });
+        return {
+          ok: true, outcome: "no_gate_window", hex, gate: "silent-query",
+          note: "no unanswered query came by; nothing was written",
+        };
+      }
+      return writeNow({ achieved: null, waited: 0 }, { gate: "silent-query", gateDevice: device.toString(16).padStart(2, "0") });
+    }
     const quiet = await waitForQuiet(quietMs, quietWaitMs);
     if (quiet.timedOut) {
       opts.session.record("tx_skipped", { hex, reason: "no_quiet_window", quietMs, quietWaitedMs: quiet.waited });
@@ -197,6 +232,14 @@ export function createDaemon(opts: {
       };
     }
 
+    return writeNow(quiet, {});
+
+    }
+
+    async function writeNow(
+      quiet: { achieved: number | null; waited: number },
+      extra: Record<string, unknown>,
+    ): Promise<ControlReply> {
     // How long since a frame matching `expect` last appeared, before we wrote anything. A poll
     // landing inside the direct window by chance is roughly a one-in-fourteen event at this
     // bus's rate, and this is what lets an analysis tell "arrived in the window" from "arrived
@@ -215,6 +258,7 @@ export function createDaemon(opts: {
     const matchingFrameAgoMs = lastMatching === undefined ? null : ms(stamps.flushedMonoNs - lastMatching);
     opts.session.record("tx", {
       hex,
+      ...extra,
       achievedQuietMs: quiet.achieved,
       quietWaitedMs: quiet.waited,
       requestedMonoNs: stamps.requestedMonoNs,
@@ -247,6 +291,7 @@ export function createDaemon(opts: {
       ok: true,
       outcome: "written",
       hex,
+      ...extra,
       achievedQuietMs: quiet.achieved,
       quietWaitedMs: quiet.waited,
       matchingFrameAgoMs,

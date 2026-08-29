@@ -263,9 +263,10 @@ async function commandControl(command: string, flags: Record<string, string | tr
   if (typeof flags.hex === "string") request.hex = flags.hex;
   if (flags.arm === true) request.arm = true;
   if (typeof flags.expect === "string") request.expect = flags.expect;
+  if (typeof flags.gate === "string") request.gate = flags.gate;
   for (const [flag, key] of [["quiet-ms", "quietMs"], ["quiet-wait-ms", "quietWaitMs"],
                              ["direct-ms", "directMs"], ["polling-ms", "pollingMs"],
-                             ["phase", "phase"]] as const) {
+                             ["phase", "phase"], ["gate-wait-ms", "gateWaitMs"]] as const) {
     if (typeof flags[flag] === "string") request[key] = Number(flags[flag]);
   }
   // A send waits for a quiet window and then for a reply, so it outlives the default deadline.
@@ -273,7 +274,8 @@ async function commandControl(command: string, flags: Record<string, string | tr
   process.stdout.write(`${JSON.stringify(reply, null, 2)}\n`);
   // A skipped send is a legitimate outcome, not an error, but a loop of twenty sends must not
   // exit zero while half of them never reached the bus.
-  const wroteNothing = reply.outcome === "no_quiet_window" || reply.outcome === "refused"
+  const wroteNothing = reply.outcome === "no_quiet_window" || reply.outcome === "no_gate_window"
+    || reply.outcome === "refused"
     || reply.outcome === "busy" || reply.outcome === "write_failed";
   if (reply.ok !== true || wroteNothing) process.exitCode = 1;
 }

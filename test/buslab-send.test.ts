@@ -336,3 +336,69 @@ test("E3 RED: a send that did wait and heard nothing says that instead", async (
   assert.equal(reply.reply, null);
   assert.equal(reply.waitedForReply, true, "silence after waiting is a different result from not waiting");
 });
+
+test("E4 RED: the silent-query gate writes on the query, not on a stretch of silence", async () => {
+  // Four devices never answer their query: 0x1E, 0x34, 0x2B and 0x1F. The wallpad asks and then
+  // waits about 270 ms before moving on, and that wait is the only place on this bus where an
+  // eleven-byte frame fits every time. Measured over 7,019 such queries in
+  // `capture-1788009200284`: 100 % fit, against 42 % for a 60 ms quiet window.
+  const f = createFixture();
+  await start(f);
+  const pending = f.daemon.handle({
+    cmd: "send", hex: "f70b01190240110100b6ee", arm: true, gate: "silent-query", gateWaitMs: 5_000,
+  });
+  await f.settle();
+  assert.equal(f.writes.length, 0, "it waits for the query rather than for silence");
+
+  f.advance(30);
+  f.receive(replyFrame("01190440110101"));               // a reply: not the signal
+  await f.settle();
+  assert.equal(f.writes.length, 0, "a reply is the wrong moment; the next query follows at once");
+
+  f.advance(30);
+  f.receive("f70b011f0140100000b3ee");                   // the outlet query, which nothing answers
+  await f.settle();
+  const reply = await pending;
+  assert.equal(reply.outcome, "written", JSON.stringify(reply));
+  assert.equal(f.writes.length, 1);
+  assert.equal(reply.gate, "silent-query");
+  assert.equal(reply.gateDevice, "1f", "the record says which query opened the window");
+});
+
+test("E4 RED: a query that is answered inside the same read is not the signal", async () => {
+  // A query and its reply arriving together means the exchange finished and the next query is
+  // moments away. Only a read that *ends* on one of the four silent queries counts.
+  const f = createFixture();
+  await start(f);
+  const pending = f.daemon.handle({
+    cmd: "send", hex: "f70b01190240110100b6ee", arm: true, gate: "silent-query", gateWaitMs: 5_000,
+  });
+  await f.settle();
+  f.advance(20);
+  f.receive("f70b011f0140100000b3ee" + replyFrame("011f04401000000000"));
+  await f.settle();
+  assert.equal(f.writes.length, 0, "the read ended on the reply, so the window is already closing");
+
+  f.advance(20);
+  f.receive("f70b012b014011000086ee");                   // ventilation query, unanswered
+  await f.settle();
+  await pending;
+  assert.equal(f.writes.length, 1);
+});
+
+test("E4 RED: if no such query comes, nothing is written and the result says why", async () => {
+  const f = createFixture();
+  await start(f);
+  const pending = f.daemon.handle({
+    cmd: "send", hex: "f70b01190240110100b6ee", arm: true, gate: "silent-query", gateWaitMs: 400,
+  });
+  await f.settle();
+  for (let i = 0; i < 10; i += 1) {
+    f.advance(60);
+    f.receive(replyFrame("01190440110101"));
+    await f.settle();
+  }
+  const reply = await pending;
+  assert.equal(reply.outcome, "no_gate_window", JSON.stringify(reply));
+  assert.equal(f.writes.length, 0);
+});
