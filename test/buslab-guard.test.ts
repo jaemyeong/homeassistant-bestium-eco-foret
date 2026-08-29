@@ -392,3 +392,72 @@ test("E7 RED: phase five is still a list, and the refusals are still shut", () =
     assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, false, `${hex} at phase five`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase six: the batch-off set frames, from the legacy source rather than derived.
+//
+// Phase five's candidates were derived and ignored. The legacy implementation has the real ones,
+// and they differ in three places: the length is `0x0C` not `0x0B`, the address is `0x11` not
+// `0x10`, and a `19 00` payload follows the value. The derivation failed because a set frame does
+// not have to use the query's address — for lights, `10` is the group and `11`..`13` the
+// individual lamps, and `0x2A` follows that shape with `10` queried and `11` set.
+//
+// The source is corroborated rather than trusted: the query frame the same file builds,
+// `f70e012a0140100019001b0382ee`, is byte-identical to the one this bus carries.
+//
+// This device is the only path to the other rooms' lights. The wallpad cannot reach them, so the
+// `0x19` group frame is not a whole-house off and never was.
+
+const PHASE6_EXPECTED_ADDITIONS = [
+  "f70c012a0240110119009bee",  // engage: every light in the home off
+  "f70c012a02401102190098ee",  // release
+];
+
+test("E8 RED: phase six adds the two batch-off set frames and nothing else", async () => {
+  const { PHASE5_ALLOWED, PHASE6_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE6_ALLOWED.filter((hex) => !PHASE5_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, [...PHASE6_EXPECTED_ADDITIONS].sort());
+  assert.equal(PHASE6_ALLOWED.length, 30, "twenty-eight from phase five plus two");
+});
+
+test("E8 RED: the batch-off set frames are twelve bytes and carry their own checksum", () => {
+  // The length byte is the thing phase five got wrong, so assert it rather than only the XOR.
+  for (const hex of PHASE6_EXPECTED_ADDITIONS) {
+    const b = bytes(hex);
+    assert.equal(b.length, 12, `${hex} must be twelve bytes`);
+    assert.equal(b[1], 0x0c, `${hex} must declare 0x0C`);
+    assert.equal(b[6], 0x11, `${hex} must address 0x11, not the query's 0x10`);
+    assert.equal(b[8], 0x19, `${hex} must carry the 19 payload byte`);
+    let x = 0;
+    for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+    assert.equal(x, b[b.length - 2], `${hex} has the wrong XOR`);
+    assert.equal(b[b.length - 1], 0xee, `${hex} does not end in EE`);
+  }
+});
+
+test("E8 RED: phase five still refuses them, including the candidates it did allow", async () => {
+  const { PHASE6_ALLOWED } = await import("../tools/buslab/guard.ts");
+  for (const hex of PHASE6_EXPECTED_ADDITIONS) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, false, `phase five must refuse ${hex}`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 6 }).ok, true, `phase six permits ${hex}`);
+  }
+  // The derived pair stays on the list: it was sent, ignored, and the negative is evidence.
+  for (const hex of ["f70b012a024010010084ee", "f70b012a024010020087ee"]) {
+    assert.ok(PHASE6_ALLOWED.includes(hex), `phase six still carries the derived ${hex}`);
+  }
+});
+
+test("E8 RED: phase six is still a list, and the refusals are still shut", () => {
+  for (const hex of [
+    "f70c012a0240110319009aee",  // a value the legacy never builds
+    "f70c012a02401201190098ee",  // an address nobody has seen set
+    "f70b013402411006009cee",    // the elevator
+  ]) {
+    const verdict = checkOutgoing({ hex, armed: true, phase: 6 });
+    assert.equal(verdict.ok, false, hex);
+    assert.match(String(verdict.reason), /allowlist|checksum|xor/i, hex);
+  }
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b01180245111800abee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 6 }).ok, false, `${hex} at phase six`);
+  }
+});

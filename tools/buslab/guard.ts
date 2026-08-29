@@ -105,12 +105,36 @@ export const PHASE5_ALLOWED: readonly string[] = [
   "f70b012a024010020087ee",
 ];
 
+/**
+ * Phase six carries the batch-off set frames, taken from the legacy implementation rather than
+ * derived. Phase five's derived pair was written to the bus and ignored; these differ from it in
+ * three places: the length is `0x0C` not `0x0B`, the address is `0x11` not `0x10`, and a `19 00`
+ * payload follows the value.
+ *
+ * The derivation failed on an assumption worth writing down: a set frame does not have to use the
+ * address its query uses. For lights, `10` is the group and `11`..`13` the individual lamps, and
+ * `0x2A` follows the same shape with `10` queried and `11` set.
+ *
+ * The source is corroborated, not trusted. The query frame the same legacy file builds,
+ * `f70e012a0140100019001b0382ee`, is byte-identical to the one this bus carries.
+ *
+ * **This device is the only path to the other rooms' lights.** The wallpad cannot reach them, so
+ * the `0x19` group frame turns off three lamps and never was a whole-house off. Engaging here
+ * darkens the whole home, which is a larger action than anything else on any of these lists.
+ */
+export const PHASE6_ALLOWED: readonly string[] = [
+  ...PHASE5_ALLOWED,
+  "f70c012a0240110119009bee",
+  "f70c012a02401102190098ee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
   3: PHASE3_ALLOWED,
   4: PHASE4_ALLOWED,
   5: PHASE5_ALLOWED,
+  6: PHASE6_ALLOWED,
 };
 
 export type Verdict =
