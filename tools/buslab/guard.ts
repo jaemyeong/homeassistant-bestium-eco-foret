@@ -56,10 +56,30 @@ export const PHASE3_ALLOWED: readonly string[] = [
   "f70b01180245111700a4ee",
 ];
 
+/**
+ * Phase four adds the heating group, `0x18 02 46 10`, which addresses all four zones at once.
+ *
+ * The off frame was watched twice in `capture-1788009200284`. The **on** frame has never been
+ * observed anywhere, in either capture or the legacy source, and comes from the address rule
+ * alone. That rule has since produced eight per-zone frames the wallpad answered and the poll
+ * confirmed, and group-off at this very address is observed, so group-on is one value byte from a
+ * confirmed frame rather than an invention. The ledger grades the two apart regardless.
+ *
+ * Neither can call for heat while every room is warmer than its target, and the observed off frame
+ * undoes the inferred on frame, so the direction that costs money has a confirmed way back. The
+ * caller still has to read the temperatures first; see the refusal below for why the guard cannot.
+ */
+export const PHASE4_ALLOWED: readonly string[] = [
+  ...PHASE3_ALLOWED,
+  "f70b01180246100400b5ee",
+  "f70b01180246100100b0ee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
   3: PHASE3_ALLOWED,
+  4: PHASE4_ALLOWED,
 };
 
 export type Verdict =

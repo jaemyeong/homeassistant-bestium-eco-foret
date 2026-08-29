@@ -68,6 +68,31 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Measure the heating group frames, with evidence rows `M4-E139` and `M4-E140`. Phase four of the
+  `buslab` allowlist opens `0x18 02 46 10`, which addresses all four zones at once. Six armed sends
+  through the gate, all six confirmed by the poll, 989 frames over 155 s with zero corrupt bytes.
+
+  **The group-on frame works, and it had never been observed anywhere.** `f70b01180246100100b0ee`
+  appears in neither capture nor the legacy source; it took `04040404` to `01010101`, and the
+  group-off frame watched twice on the bus took it back. The ledger grades them apart: one is
+  confirmed by observation, the other only by our own send.
+
+  **Neither draws a direct reply.** Across the run the only `0x18` frames are the query and the
+  full poll — no third shape at any length — where a per-zone command answers in 100 ms with
+  eighteen bytes. What arrives instead is an unscheduled full poll carrying the new state, 161 and
+  162 ms after the write against a 2,050 ms median period; exactly two of 67 poll intervals fall
+  under a second and both follow these sends, while the same run's four light sends produce none.
+  A confirmation window has to treat group and per-zone differently.
+
+  **`0x2A` did not move.** The light group-off frame is the one the wallpad emits when its own
+  batch-off button engages, and sending it ourselves left byte 9 at `02` in all 91 replies. That is
+  what the `M4-E134` decode predicted, so the desynchronisation concern withdrawn there is now
+  actively falsified rather than merely retracted. It cuts both ways: turning every light off over
+  the bus leaves the wallpad's batch-off indicator released, so the two states can diverge.
+
+  The light group frames also rise from reply-confirmed to poll-confirmed in the same run, and the
+  lights were returned to the state the run found them in.
+
 - Measure heating on the live bus, with evidence rows `M4-E136` and `M4-E137`. Phase three of the
   `buslab` allowlist opens the eight zone on/off frames and two zone 1 target frames; 22 armed
   sends went out through the silent-query gate with no `no_gate_window`, and 1,825 frames over

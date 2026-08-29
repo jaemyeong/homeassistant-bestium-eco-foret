@@ -250,3 +250,65 @@ test("E5 RED: a target at or below the ceiling is not refused by that rule", () 
     assert.equal(checkOutgoing({ hex, armed: true, allowAll: true }).ok, true, hex);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase four: the heating group.
+//
+// `0x18 02 46 10` addresses all four zones at once. The off frame was watched twice in
+// `capture-1788009200284` and is documented in the spec; the **on** frame has never been observed
+// anywhere, in either capture or the legacy source, and is derived from the address rule alone.
+// That rule has now produced eight per-zone frames the wallpad answered and the poll confirmed,
+// and group-off at the same address is observed, so group-on is one value byte away from a
+// confirmed frame rather than an invention. It stays graded apart all the same.
+//
+// Neither can call for heat while every room is warmer than its 23 °C target, and the observed
+// off frame undoes the inferred on frame, so the unsafe direction has a confirmed way back.
+
+const PHASE4_EXPECTED_ADDITIONS = [
+  "f70b01180246100400b5ee",  // all zones off, watched twice
+  "f70b01180246100100b0ee",  // all zones on, inferred
+];
+
+test("E6 RED: phase four adds the two heating group frames and nothing else", async () => {
+  const { PHASE3_ALLOWED, PHASE4_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE4_ALLOWED.filter((hex) => !PHASE3_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, [...PHASE4_EXPECTED_ADDITIONS].sort());
+  assert.equal(PHASE4_ALLOWED.length, 20, "eighteen from phase three plus the two group frames");
+});
+
+test("E6 RED: both heating group frames carry their own correct checksum", () => {
+  for (const hex of PHASE4_EXPECTED_ADDITIONS) {
+    const b = bytes(hex);
+    let x = 0;
+    for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+    assert.equal(x, b[b.length - 2], `${hex} has the wrong XOR`);
+    assert.equal(b[b.length - 1], 0xee, `${hex} does not end in EE`);
+    assert.equal(b[1], b.length, `${hex} declares the wrong length`);
+  }
+});
+
+test("E6 RED: phase three still refuses the heating group, and phase four carries the light group", async () => {
+  const { PHASE4_ALLOWED } = await import("../tools/buslab/guard.ts");
+  for (const hex of PHASE4_EXPECTED_ADDITIONS) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 3 }).ok, false, `phase three must refuse ${hex}`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, true, `phase four permits ${hex}`);
+  }
+  // A phase is cumulative: the light group frames the group test also needs are still there.
+  for (const hex of ["f70b01190240100200b4ee", "f70b01190240100100b7ee"]) {
+    assert.ok(PHASE4_ALLOWED.includes(hex), `phase four still carries ${hex}`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, true, hex);
+  }
+});
+
+test("E6 RED: phase four is still a list, and the refusals are still shut", () => {
+  for (const hex of [
+    "f70b01180246100200b3ee",  // the light group's off value on the heating device: not a frame anyone has seen
+    "f70b01180245101500a7ee",  // a target written to the group address, never observed and never asked for
+    "f70b013402411006009cee",  // the elevator
+  ]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, false, hex);
+  }
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b01180245111800abee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, false, `${hex} at phase four`);
+  }
+});
