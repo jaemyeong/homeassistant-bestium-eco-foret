@@ -68,6 +68,32 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Measure the per-zone heating target and test the batch-off device, with evidence rows `M4-E141`
+  and `M4-E142`. Phase five opens `0x45` for zones 2 to 4 at the two values zone 1 used, and two
+  derived `0x2A` set candidates. Eleven armed sends, 1,362 frames over 214 s, zero corrupt bytes.
+
+  **All four zones take an individual target**, confirmed by direct reply in 99 to 110 ms and by
+  the poll. Every one of the six target writes carries state `01`, so the effect first seen on zone
+  1 holds in every zone: writing a target switches its zone on. The zone-dependent reading is dead;
+  the temperature confound is not, since all eight values were below the room and separating them
+  needs a target above it, which means real heating demand.
+
+  **The derived `0x2A` set frames do not work.** The operator was right that "there is no command
+  to send" was an argument from absence, and asked for it to be tried. Both candidates went out
+  through the gate and were ignored: all 111 `0x2A` replies in the run are one identical frame, the
+  lights never moved, and the 1.5 s after the engage carried only routine polling with nothing to
+  or from that device. This is a negative on one shape, not a proof that no set command exists —
+  the fourteen-byte skeleton the reply itself uses, other sub-commands and other addresses are
+  untried. It carries weight because the heating group-on frame, derived the same way and equally
+  unobserved, worked on its first send.
+
+  The release send reported a reply at 399 ms. It is a false positive: `0x2A` already held the
+  value the mask was written for, and the record's own `matchingFrameAgoMs` of 1,504 ms says a
+  matching frame preceded the write. The fault was taking the engage's success as the premise for
+  the release's mask, which a chained test must not do.
+
+  The batch-off switch is at the front door, not on the wallpad. Corrected wherever it was recorded.
+
 - Measure the heating group frames, with evidence rows `M4-E139` and `M4-E140`. Phase four of the
   `buslab` allowlist opens `0x18 02 46 10`, which addresses all four zones at once. Six armed sends
   through the gate, all six confirmed by the poll, 989 frames over 155 s with zero corrupt bytes.

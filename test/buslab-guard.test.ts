@@ -377,12 +377,16 @@ test("E7 RED: the target ceiling still governs the zones phase five opened", () 
 });
 
 test("E7 RED: phase five is still a list, and the refusals are still shut", () => {
+  // These carry correct checksums on purpose. A mistyped one would be refused for its XOR and the
+  // allowlist would never be reached, which is a test that passes without testing anything.
   for (const hex of [
-    "f70b012a024010030085ee",  // a batch-off value nobody has seen in the reply
+    "f70b012a024010030086ee",  // a batch-off value nobody has seen in the reply
     "f70b012a024011010085ee",  // a batch-off address nobody has seen
     "f70b013402411006009cee",  // the elevator
   ]) {
-    assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, false, hex);
+    const verdict = checkOutgoing({ hex, armed: true, phase: 5 });
+    assert.equal(verdict.ok, false, hex);
+    assert.match(String(verdict.reason), /allowlist/i, `${hex} must be refused by the list, not by its checksum`);
   }
   for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee"]) {
     assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, false, `${hex} at phase five`);
