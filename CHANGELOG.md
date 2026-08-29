@@ -58,6 +58,30 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Measure heating on the live bus, with evidence rows `M4-E136` and `M4-E137`. Phase three of the
+  `buslab` allowlist opens the eight zone on/off frames and two zone 1 target frames; 22 armed
+  sends went out through the silent-query gate, 22 were answered, and 1,825 frames over 285 s carry
+  zero corrupt bytes. Every one of the eleven sends in the second pass is confirmed by the wallpad's
+  own poll rather than only by its reply. **Zones 2 to 4 off rise from rule-derived to observed.**
+
+  The gate is therefore not a light-only result. `quietWaitedMs` was 0 on all 22, so it removes the
+  wait rather than shortening it, and all four silent devices opened windows. Heating's 74-byte full
+  reply is the largest frame on this line, and no gate-opening query was followed by one inside
+  300 ms in 260 windows.
+
+  **The target command `0x45` also switches its zone on.** Zone 1 was off, received 21 °C and then
+  23 °C, and both replies carried state `01` with the poll agreeing. A restore must put the target
+  back and then turn the zone off, in that order; the first pass did only the former and left the
+  zone on, which the poll caught. `protocol-debug.ts` builds only the `0x45` frame for a
+  `temperatureC` action and records no such effect, so changing a cold zone's target from Home
+  Assistant will switch that zone on. That is a defect report against the add-on, not yet a fix.
+
+  The safety argument for arming at all is a fact about August: every room read 24 °C or warmer
+  against a 23 °C target, so nothing sent could call for heat. The guard's ceiling stops the tool
+  raising a target and cannot stop a zone turned on at the existing target from heating a room that
+  has since cooled, so the caller reads the temperatures first. The house was verified back at its
+  baseline before the run closed.
+
 - Redact the gateway address from the ledger, with evidence row `M4-E135`. It was written by hand
   into five cells of `.agent/progress.md`. The `buslab` redactor had done its job — no run artifact
   and no untracked file carries the literal — so every occurrence came from prose. Four sit in the

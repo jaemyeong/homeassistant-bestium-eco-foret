@@ -95,12 +95,27 @@ Without the variable those three tests skip rather than quietly pass.
 
 ## Sending
 
-    node tools/buslab/cli.ts send --run <name> --hex <hex> [--arm] [--expect <mask>] \
+    node tools/buslab/cli.ts send --run <name> --hex <hex> [--arm] [--phase N] [--expect <mask>] \
+        [--gate silent-query] [--gate-wait-ms N] \
         [--quiet-ms 60] [--quiet-wait-ms 1000] [--direct-ms 150] [--polling-ms 3000]
 
 Without `--arm` nothing reaches the bus: the frame is checked, reported and dropped. With it,
 the send waits for the line to fall quiet for `--quiet-ms`, writes, and then listens for a frame
 matching `--expect`.
+
+**Use `--gate silent-query`.** Four devices — `0x1E`, `0x34`, `0x2B` and `0x1F` — never answer
+the wallpad's query, so a read ending on one of them opens a window nothing is about to fill.
+Writing there is what took the light sends from 138 of 183 to 109 of 109, and heating to 22 of
+22 with no corrupt byte in either. Waiting for the line to look quiet instead does not work: the
+gateway holds bytes for its 50 ms gap timer, so that judgement is always 50 ms out of date, and
+the failures it produced were collisions. With the gate, `quietWaitedMs` is 0 — it removes the
+wait rather than shortening it.
+
+**Set `--polling-ms` from the device's own cadence.** The light group polls about every 2.2 s and
+heating between 2.0 and 2.3 s, so 6,000 leaves room; the 3,000 default is tight. And write the
+mask against a reply you have actually seen — a heating direct reply carries its state where a
+guessed mask is likely to put a `00`, and a mask that cannot match records a real answer as
+silence.
 
 **What a send reports, and what each figure means.**
 
