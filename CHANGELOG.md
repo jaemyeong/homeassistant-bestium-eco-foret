@@ -90,10 +90,16 @@ All notable changes to this project are documented here.
   0 and so does the add-on's setting, so the frame that worked is variant 0 — the same skeleton the
   current add-on builds.
 
-  The down call and the descending state are observed for the first time; the capture on disk held
-  only an up call. State `06` is stopped with a down call pending, `b6` is descending with one, and
-  both resolve to arrived and then to idle within two seconds. The floor field is the car's
-  position, `04` while active and `00` when idle.
+  All four states are now watched live. A second call, with the car at floor 1, gave a whole
+  journey: `06` at floor 1, `a6` rising, the floor jumping 1 to 3 to 4 because the car outruns the
+  1.3 to 2.0 s frame period, then `b6`, then `01` and idle. Registration to arrival was 15.0 s
+  against the earlier up call's 14.8 s, and the return to idle 1.9 s in both.
+
+  **The high nibble is probably not the car's motion.** `b6` held for eight seconds while the car
+  sat at floor 4 with its doors open — nothing was descending. Read as the direction this call will
+  travel, `a` for an up call and `b` for a down one, it fits this run and the up call in the capture
+  equally, which showed `a5` in the same position. The legacy reads it as movement; that is left
+  open rather than rewritten.
 
   **The car field cannot mean what the legacy says.** It reads `0b` every time and the building has
   one elevator, so an nth-car index cannot be right; it is not a meaningless constant either, since
