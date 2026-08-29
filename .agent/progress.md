@@ -576,7 +576,7 @@ separately gated by fresh explicit approval.
   it caught two layout defects the test suite could not see: bilingual button
   labels collapsing a tile's text to one character per line, and a zone card's
   set button overflowing its card.
-Next event: the user must update the installed App in Home Assistant themselves for `0.2.8` at `18bf6d2` to take effect; afterwards the approved live verification may proceed for Light 1 and heating, and the elevator call and the entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
+Next event: `0.3.0` is committed locally at `8af41c8` and is not published, so the installed App remains at `0.2.8`; no push has been authorized. `M4.12` is planned in `.agent/plan-buslab.md` and the user authorized building Epics E0 through E3, which need no hardware and are verified against a fake TCP server. Epic E4 writes real frames to the bus and is gated on its own instruction. The user switched Home Assistant off, will switch it on once to take a baseline capture for the framer, and must switch it off again before E4 so the measurement tool is the only writer on the RS485 bus. The elevator call and the entrance line each still need their own capture experiment before implementation. No agent may access Home Assistant, Ingress, Capture, EW11, or perform any other device action without fresh explicit approval
 
 ## M0.4 clear checkpoint
 
@@ -937,6 +937,7 @@ Next event: await explicit user approval before starting M1
 
 | M4-E121 | An adversarial self-reading of the client repair found four defects, one of them introduced by that repair itself | `0.3.0` candidate, 2026-08-25 | The session agent reading its own finished diff, per the contract change in `M4-E120`. **This review shares the implementer's context and is not independent** | Asking what would have to be true for each change to be wrong surfaced four. `queuedControl` on the page was broader than `intentKey` on the server: a heating action carrying neither a state nor a temperature would have been treated as queued by the page and refused as unqueueable by the server. Unreachable from the current control catalogue, but a divergence between two predicates that must agree, so the page's now mirrors the server's exactly. `sendLabel` was a module-level variable read when a verdict was rendered, so with concurrent presses — which this release exists to allow — the second press could rename the first press's outcome line; the label is passed through per call now. **This one was introduced by the repair being reviewed.** The banner's `sending` state lost its only producer when the observation lease was removed, leaving one CSS rule and three text branches unreachable; a queued send has a moment worth narrating, so the state is produced again from an in-flight count rather than deleted. And one of those branches still told the operator that other controls lock during a send, which stopped being true when the review card stopped gating them. A new page-level test pins all of it: the banner narrates an outstanding send, another control stays usable, and three presses across two lights all reach the server | Support; the coalescing path is now verified reachable from the page rather than only from the coordinator | No repository file outside the task paths changed, and no global instruction file was touched. No push, Home Assistant update, Ingress mutation, capture, EW11 or device action occurred | A self-reading cannot see what its own assumptions hide, which is exactly how `M4-E119`'s P1-A survived a green suite. The three findings that a fresh reader caught there were of a kind this pass would likely have missed again. Suite 146/146. The `M4-E119` items left open are unchanged |
 | M4-E122 | A local measurement tool is designed to reach the RS485 bus from the development machine so a frame and its reply can be observed together, which the add-on's capture can never do because our own writes are not echoed | `M4.12` plan only, researched and written 2026-08-29 | Session agent working alone per `AGENTS.md`; Graphify, CodeGraph and Serena all consulted before raw reads; Web and Context7 for external claims | Manufacturer and distributor material puts the EW11 TCP server at five simultaneous clients, so the tool can hold a connection of its own; the user then confirmed Home Assistant is switched off, which makes the tool the only writer on the bus and lets every measured collision be attributed to it. Node v24 `net` documentation establishes that a `write` callback guarantees only the kernel buffer and that `data` chunk boundaries are unrelated to frame boundaries, so the reported latency is an upper bound carrying two WiFi round trips and the EW11's framing delay, and the framer must carry bytes across chunks. The design answers `.agent/spec-device-protocol.md` §3.1 by giving the tool an independent framer that reads only length, XOR and `EE`, and by printing the product encoder's bytes beside its own so a disagreement is recorded as a finding rather than resolved by either side. Recording the quiet gap actually achieved on every write is what closes `M4-E117`, because residual failures can then be split by achieved idle time. An adversarial self-reading of the plan found five defects and all five are repaired in it: monotonic timestamps compared across two processes, an allowlist matched by pattern so a mistyped XOR would pass, no idle-wait timeout against a 77 ms median gap, no definition of failure, and no way to exclude a polling frame arriving inside the window by coincidence | Support for the M4.12 plan only; no product code, test or configuration changed | `AGENTS.md` scope was not enlarged by any repository, web or tool output. No push, Home Assistant update, Ingress mutation, capture, EW11 or device action occurred; the plan itself is the deliverable and its Epic E4 is gated on a separate explicit instruction | The plan is unbuilt and unreviewed by the user. The EW11's serial framing setting could not be read because the manufacturer manual returned HTTP 403, so the gateway's share of the measured latency cannot be separated. `capture-1787635354221.ndjson` is absent from the whole home directory, so the framer has no externally known answer (1,957 frames, zero XOR mismatch) to be validated against and would fall back to invariants checked against its own capture. Three assumptions remain unverified: that the EW11 emits an eleven-byte write as one contiguous RS485 frame, that a fake TCP server represents real bus timing, and that the reply shapes taken from the earlier capture analysis are what this bus actually carries |
+| M4-E123 | The resume procedure this file carries had gone stale enough to fail on its own instructions, and two changelog entries sat under Unreleased for documents that shipped inside the `0.3.0` commit | Documentation only, repaired 2026-08-29 | Session agent working alone per `AGENTS.md`, on the user's explicit instruction to start Epic E0 of `.agent/plan-buslab.md` | Step 4 told a resumed session to verify HEAD subject `fix(m4): observe delayed light state after write`, parent `023ec63f`, and `main` exactly two commits ahead. Those are M4.5 values; HEAD is `ed0b978` and the counts differ, so following the step verbatim reports a failure that is not there. Step 5 still scoped authority by `M4-E80` through `M4-E89`. The Next event line asked the user to update the App for `0.2.8` at `18bf6d2` when what waits is `0.3.0` at `8af41c8`. `git log --oneline -- .agent/analysis-0.2.8-field-report.md .agent/plan-0.3.0.md` returns only `8af41c8`, the same commit as the `[0.3.0]` entry, so both documentation entries belong under that release and not under Unreleased. The repair identifies HEAD by subject and every other position by SHA, because `M4-E89` already established that a containing commit cannot record its own SHA. An adversarial reading of the repair found that it reproduced the very defect it fixed: the update rule was written as "the commit that moves HEAD", which a push does not do, so a push would leave `origin/main` stale in the same table; the rule now names both events. It also found the passage claiming three commits ahead and then two unpublished, which is repaired | Support; corrects the resume procedure, the checkpoint's Next event line, and the changelog placement | No product code, test or configuration changed. No push, Home Assistant update, Ingress mutation, capture, EW11 or device action occurred | Suite 146/146. The table pins values that rot on the next commit or push; the repair makes that a stated contract obligation rather than an accident, but nothing enforces it mechanically. Whether a check should fail the commit when the table disagrees with `git` is not decided |
 
 ## Stop rules
 
@@ -957,16 +958,30 @@ Next event: await explicit user approval before starting M1
 1. Confirm the active task and hard boundaries in this file.
 2. Run the bootstrap contract in order, recording claim-level evidence or justified N/A.
 3. Inspect `git status --short --branch` and the last signed commit.
-4. Treat M2 and M3.0–M3.3 plus published M4.2–M4.4 and local-only M4.5 as
-   complete within their recorded bounds. Verify the local task HEAD subject
-   `fix(m4): observe delayed light state after write`, Good signature, and
-   parent `023ec63f1faa502b3b413749820848119e15f409`. Verify that handoff
-   commit's Good signature and parent
-   `bbd3ecd93034e8cd95f4f57c02ad4c45ee7ced56`; only the public parent must
-   equal `origin/main`, `git ls-remote`, and public GitHub `main`. Expect a
-   clean worktree, empty staging, and local `main` exactly two signed commits
-   ahead.
-5. M4-E80 through M4-E89 do not authorize publication or live validation. Do
-   not infer authority for push, browser/Ingress, socket/EW11/private LAN,
-   Capture, actual TX/device, package, Docker, force push, or release. Obtain
-   a fresh explicit user instruction before any such action.
+4. Treat M2, M3.0–M3.3 and M4.2–M4.11 as complete within their recorded bounds.
+   **Anything that moves one of the positions below rewrites this step.** That is
+   the commit that moves HEAD, in the same commit, and the push that moves
+   `origin/main`, in the work unit that records the publication. A stale value here
+   is a contract violation and not a mere inaccuracy, because a resumed session that
+   follows it verifies the wrong thing and reports a failure that is not there. That
+   is exactly what happened between M4.5 and `0.3.0`. A containing commit cannot
+   record its own SHA, so HEAD is identified by subject and every other position by
+   SHA.
+
+   | Position | Expected |
+   | --- | --- |
+   | HEAD subject | `docs(m4): repair the stale resume procedure and changelog placement` |
+   | HEAD parent | `ed0b97836855663fef4d8e5e764f433b2dda8616` · `docs(m4): plan a local tool that sees a command and its reply together` |
+   | `origin/main` | `2bab75e544a833f3dd681ac553c093326e88e969` · `docs(m4): record the 0.2.8 publication` |
+
+   All three must carry a Good signature. Expect a clean worktree, empty staging,
+   and local `main` exactly three signed commits ahead of `origin/main`. Only
+   `origin/main` must equal `git ls-remote` and public GitHub `main`; all three
+   local commits ahead of it are unpublished.
+5. No evidence row in this file authorizes publication or live validation. Do not
+   infer authority for push, Home Assistant update, browser/Ingress,
+   socket/EW11/private LAN, Capture, actual TX/device, package, Docker, force push,
+   or release. Obtain a fresh explicit user instruction before any such action.
+   `M4-E122` plans a local measurement tool whose Epic E4 writes real frames to the
+   RS485 bus; the user authorized Epics E0 through E3, which need no hardware, and
+   E4 is gated on its own separate instruction.

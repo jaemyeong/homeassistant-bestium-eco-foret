@@ -6,6 +6,17 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Repair three documents that had gone stale, with evidence row `M4-E123`. The resume
+  procedure in `.agent/progress.md` told a resumed session to verify a HEAD subject, a parent
+  and an ahead-count from M4.5, so following it verbatim reported a failure that was not
+  there; it now identifies HEAD by subject and every other position by SHA, and names both
+  the commit that moves HEAD and the push that moves `origin/main` as the events that must
+  rewrite it. The checkpoint's Next event line asked for a Home Assistant update of `0.2.8`
+  at `18bf6d2` when what waits is `0.3.0` at `8af41c8`. Two changelog entries describing
+  `.agent/analysis-0.2.8-field-report.md` and `.agent/plan-0.3.0.md` sat under Unreleased,
+  though `git log` shows both files entered the tree in `8af41c8`, the same commit as
+  `[0.3.0]`; they are moved under that release. No product code, test or configuration
+  changed in this unit.
 - Record the `M4.12` design for a local measurement tool in `.agent/plan-buslab.md`, with
   evidence row `M4-E122`. The add-on's capture can never pair a command with its reply, because
   our own writes are not echoed on this line; a tool that holds its own connection from the
@@ -19,22 +30,6 @@ All notable changes to this project are documented here.
   list no flag opens. An adversarial self-reading of the plan found and repaired five defects,
   including monotonic timestamps compared across two processes. No product code, test or
   configuration changed in this unit, and the plan's live phase is gated on a separate instruction.
-- Record the field analysis of the two `0.2.8` captures in
-  `.agent/analysis-0.2.8-field-report.md`, with evidence rows `M4-E115` and `M4-E116`.
-  The heating encoder reproduces the wallpad's own frames byte for byte, so the reported
-  heating failure is above the wire; the wallpad's own elevator call puts no set frame on
-  this line; the `0x1E` `0x02` triple is coincident with the operator's door-open press but
-  is not yet distinguishable from a call-cleared notice; and the unparsed runs carry the
-  shape of a half-duplex receiver blanked during our own transmission, which points at
-  `tx_quiet_ms` being 20 ms against a frame that occupies about 12 ms. No product code,
-  test, or configuration changed in this unit.
-- Record the `0.3.0` design in `.agent/plan-0.3.0.md`, with evidence row `M4-E117`. Raising
-  `tx_quiet_ms` removed the intermittent losses, which closes the collision attribution by
-  intervention and withdraws the journal correlation `M4-E116` had listed. The design covers
-  a server-side send queue keyed by target with last-write-wins coalescing, bounded retry,
-  and success defined as the addressed device's own field matching the intent in an
-  observation stamped after the write rather than as any observed change. No product code,
-  test, or configuration changed in this unit.
 
 ## [0.3.0] - 2026-08-25
 
@@ -130,6 +125,25 @@ lost to a collision was never sent again.
   send control.
 - The communal entrance no longer shows an initial value as though it were an observation.
   Every one of its poll frames is byte-identical across all three captures.
+
+### Documentation
+
+- Record the field analysis of the two `0.2.8` captures in
+  `.agent/analysis-0.2.8-field-report.md`, with evidence rows `M4-E115` and `M4-E116`.
+  The heating encoder reproduces the wallpad's own frames byte for byte, so the reported
+  heating failure is above the wire; the wallpad's own elevator call puts no set frame on
+  this line; the `0x1E` `0x02` triple is coincident with the operator's door-open press but
+  is not yet distinguishable from a call-cleared notice; and the unparsed runs carry the
+  shape of a half-duplex receiver blanked during our own transmission, which points at
+  `tx_quiet_ms` being 20 ms against a frame that occupies about 12 ms. No product code,
+  test, or configuration changed in this unit.
+- Record the `0.3.0` design in `.agent/plan-0.3.0.md`, with evidence row `M4-E117`. Raising
+  `tx_quiet_ms` removed the intermittent losses, which closes the collision attribution by
+  intervention and withdraws the journal correlation `M4-E116` had listed. The design covers
+  a server-side send queue keyed by target with last-write-wins coalescing, bounded retry,
+  and success defined as the addressed device's own field matching the intent in an
+  observation stamped after the write rather than as any observed change. No product code,
+  test, or configuration changed in this unit.
 
 ### Notes
 
