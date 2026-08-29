@@ -58,6 +58,13 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Redact the gateway address from the ledger, with evidence row `M4-E135`. It was written by hand
+  into five cells of `.agent/progress.md`. The `buslab` redactor had done its job — no run artifact
+  and no untracked file carries the literal — so every occurrence came from prose. Four sit in the
+  unpushed M4.12 commits; the fifth entered during M3 and is on the public remote already, which a
+  redaction here does not undo. The sweep found no other private address, and neither the admin
+  password nor the WiFi key from the EW11 backup is anywhere in the repository.
+
 - Decode the batch-off device `0x2A`, with evidence row `M4-E134`. The specification left it
   `ambiguous`; the operator pressed the wallpad's own button four times while the tool listened.
   **`0x2A` has no command of its own.** It reports a state — byte 9 of its reply, `01` engaged and
