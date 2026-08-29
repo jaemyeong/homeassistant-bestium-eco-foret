@@ -95,11 +95,18 @@ All notable changes to this project are documented here.
   1.3 to 2.0 s frame period, then `b6`, then `01` and idle. Registration to arrival was 15.0 s
   against the earlier up call's 14.8 s, and the return to idle 1.9 s in both.
 
-  **The high nibble is probably not the car's motion.** `b6` held for eight seconds while the car
-  sat at floor 4 with its doors open — nothing was descending. Read as the direction this call will
-  travel, `a` for an up call and `b` for a down one, it fits this run and the up call in the capture
-  equally, which showed `a5` in the same position. The legacy reads it as movement; that is left
-  open rather than rewritten.
+  **The legacy's reading of the high nibble is falsified.** It reads it as the direction the car is
+  moving. A third call, up this time, settles it: held at floor 4 in the same place in the sequence,
+  a down call reads `b6` for eight seconds and an up call reads `a5` for seven. Same physical
+  state, different value — the nibble tracks the call, not the motion. It is the direction the car
+  is going **or about to go**, which also explains `a5` sitting at floor 1 for 21 seconds with the
+  floor unchanged.
+
+  Two consequences for anything built on this. **The nibble never falls to `0` while a call is
+  live**, so a state machine must not read "stopped" from it; the only real stops are `00` idle and
+  `01` arrived. And the timings do not repeat: registration to arrival was 14.8, 15.0 and 37.0 s
+  across the three calls, while arrival to idle was 1.9 s in all three. A timeout belongs on the
+  first, sized for the worst.
 
   **The car field cannot mean what the legacy says.** It reads `0b` every time and the building has
   one elevator, so an nth-car index cannot be right; it is not a meaningless constant either, since
