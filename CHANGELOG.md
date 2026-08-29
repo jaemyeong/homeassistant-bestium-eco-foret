@@ -6,6 +6,22 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Record what the EW11's own settings page and a fresh 54.6-minute capture establish, in
+  `.agent/analysis-ew11-timing-and-group-frames.md`, with evidence row `M4-E124`. `Gap Time`
+  is 50 ms, so the gateway forwards serial bytes only after the line has been quiet that long;
+  a TCP read arriving at `T` describes a wire that fell silent near `T - 50`, which is the size
+  of the error `M4-E111` recorded without a number, and it is why one read in five carries more
+  than one frame. A parser that imports no product code and knows only length, XOR and `EE`
+  returned 21,094 frames and left 14 bytes of 350,203, so the framer for `M4.12` now has an
+  external answer to reproduce. The capture also carries two frames the specification said did
+  not exist: `F7 0B 01 19 02 40 10 02 00 B4 EE` turns all three lights off and
+  `F7 0B 01 18 02 46 10 04 00 B5 EE` turns all four heating zones off, each in one frame, both
+  confirmed by the state replies that follow. `.agent/spec-device-protocol.md` claimed that
+  neither the bus nor the legacy implementation has a batch heating command; that claim is
+  corrected. Seven encoder frames and the gas close frame are byte-identical to the wallpad's
+  own. No product code, test or configuration changed in this unit, and the falsified comment
+  at `protocol-debug.ts:551` is recorded rather than edited, because a frame watched on the bus
+  is not yet a frame we have sent.
 - Repair three documents that had gone stale, with evidence row `M4-E123`. The resume
   procedure in `.agent/progress.md` told a resumed session to verify a HEAD subject, a parent
   and an ahead-count from M4.5, so following it verbatim reported a failure that was not
