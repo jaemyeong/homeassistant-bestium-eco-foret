@@ -68,6 +68,23 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Measure gas closing without touching the valve, with evidence row `M4-E145`. Phase seven carries
+  one frame, and stage A of the gas scenario sends it while the valve is already shut, so nothing
+  could change. It answered in 127 ms, and the reply is byte-identical to the single one in
+  `capture-1788009200284` that the wallpad's own command drew — the frame and its answer are now
+  confirmed from two independent directions. `matchingFrameAgoMs` is `None`, so this is a real
+  answer and not a poll landing in the window the way the `0x2A` release was.
+
+  **A device answers a command for the state it already holds.** The add-on's confirm-by-state-match
+  leans on that, and it had never been checked on gas. The direct-reply shape
+  `F7 0B 01 1B 04 43 11 <value> <state> <XOR> EE` was missing from the specification and is added,
+  along with the full inventory: five distinct `0x1B` frames in 41,504.
+
+  Opening is refused at every phase and under `allow-all`, asserted across six values rather than
+  only `04`, and the mutation that weakens the refusal to `04` alone is caught. No state transition
+  was observed; that is stage B, and it needs the valve opened by hand and opened again afterwards.
+  The operator confirms it feeds the kitchen only.
+
 - **`0x2A` does have a set command**, with evidence rows `M4-E143` and `M4-E144`. This project's
   own claim that it had none is falsified. The legacy implementation carries the frames, read under
   the AGENTS.md clause that permits the legacy source for protocol specification, and both work:
