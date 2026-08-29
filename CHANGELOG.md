@@ -69,11 +69,15 @@ All notable changes to this project are documented here.
   `ambiguous`; the operator pressed the wallpad's own button four times while the tool listened.
   **`0x2A` has no command of its own.** It reports a state — byte 9 of its reply, `01` engaged and
   `02` released — and the button acts entirely through the light device. Engaging sends the group-off
-  frame we already had; releasing sends light 1 on. Byte 9 always moves *before* the light command —
-  84, 186, 192 and 200 ms — so the button sets this device and the light frame follows as a
-  consequence. Those figures are TCP arrival differences rather than wire intervals, since the
-  gateway holds each frame until the line falls quiet; the ordering, which is what the claim rests
-  on, is exact because TCP preserves it.
+  frame we already had; releasing sends light 1 on. The reply carrying the new state always arrives
+  *before* the light command, by 84, 186, 192 and 200 ms.
+
+  Those figures are not the interval between the state changing and the command. `0x2A` is polled
+  uniformly — 453 replies in 67 minutes, median interval 1,860 ms, and not one of the 452 intervals
+  under 250 ms — so the change itself can precede its own report by up to about 1.9 s. Only the
+  ordering is established. What the narrow 84–200 ms band does suggest is the mechanism: against a
+  1.86 s polling period, a command landing within 0.2 s of the reporting reply four times out of
+  four reads as the wallpad acting on what it just polled. That is a hypothesis on four samples.
 
   The release is not a restore. It looked like one that had lost part of its memory, and the guess
   was that a group frame fails to update what the wallpad remembers. Rebuilding the state with
