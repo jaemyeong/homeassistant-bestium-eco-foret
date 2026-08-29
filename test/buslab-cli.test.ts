@@ -264,3 +264,62 @@ test("E4 RED: the control socket path fits in a unix socket address", () => {
   assert.equal(controlSocketPath("light1-discovery"), long);
   assert.notEqual(controlSocketPath("light1-tx"), long, "two runs do not share one socket");
 });
+
+// ---------------------------------------------------------------------------
+// `stop` used to leave the process behind.
+//
+// Found while closing down the heating run: `stop` returned `{"ok":true,"reason":"stopped"}`, the
+// run's `stop` and `close` records were written and the gateway socket dropped, and the process
+// was still alive minutes later with its control socket still on disk. The control socket routed
+// straight to `daemon.handle`, which stops the daemon and knows nothing about the process around
+// it, so only the `--seconds` timer or a signal ever ended it. An operator who runs `stop` and
+// starts the next run is entitled to assume the last one is gone.
+
+test("E5 RED: a stop over the control socket asks the process to end, and still answers", async () => {
+  const { createControlHandler } = await import("../tools/buslab/cli.ts");
+  let stopped = 0;
+  const handler = createControlHandler({
+    handle: async (request) => ({ ok: true, echoed: request.cmd }),
+    onStopped: () => { stopped += 1; },
+  });
+  const reply = await handler({ cmd: "stop", reason: "stopped" });
+  assert.deepEqual(reply, { ok: true, echoed: "stop" }, "the caller still gets the daemon's reply");
+  assert.equal(stopped, 1, "and the process is asked to end exactly once");
+});
+
+test("E5 RED: no other command ends the process", async () => {
+  const { createControlHandler } = await import("../tools/buslab/cli.ts");
+  let stopped = 0;
+  const handler = createControlHandler({
+    handle: async () => ({ ok: true }),
+    onStopped: () => { stopped += 1; },
+  });
+  for (const cmd of ["status", "mark", "send", "", undefined]) {
+    await handler({ cmd });
+  }
+  assert.equal(stopped, 0);
+});
+
+test("E5 RED: a stop the daemon refused leaves the process running", async () => {
+  // Tearing down on a refusal would end a run over a request that changed nothing.
+  const { createControlHandler } = await import("../tools/buslab/cli.ts");
+  let stopped = 0;
+  const handler = createControlHandler({
+    handle: async () => ({ ok: false, reason: "already stopped" }),
+    onStopped: () => { stopped += 1; },
+  });
+  const reply = await handler({ cmd: "stop" });
+  assert.deepEqual(reply, { ok: false, reason: "already stopped" });
+  assert.equal(stopped, 0);
+});
+
+test("E5 RED: a handler that throws does not end the process either", async () => {
+  const { createControlHandler } = await import("../tools/buslab/cli.ts");
+  let stopped = 0;
+  const handler = createControlHandler({
+    handle: async () => { throw new Error("boom"); },
+    onStopped: () => { stopped += 1; },
+  });
+  await assert.rejects(() => handler({ cmd: "stop" }), /boom/);
+  assert.equal(stopped, 0, "the control server turns the throw into its own error reply");
+});

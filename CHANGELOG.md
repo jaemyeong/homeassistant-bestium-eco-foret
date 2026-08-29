@@ -56,6 +56,16 @@ All notable changes to this project are documented here.
   cannot be: that is Epic E3. The gateway address stays out of the repository and out of every
   artifact.
 
+### Fixed
+
+- `stop` over the control socket now ends the process, with evidence row `M4-E138`. It stopped the
+  run and dropped the gateway socket but left the process alive holding its control socket until
+  the `--seconds` timer or a signal: the operator saw `{"ok":true,"reason":"stopped"}` and a
+  process still running ten minutes later. `createControlHandler` now asks the process to end after
+  a stop the daemon accepted, after the reply exists so the caller is still answered; a refusal or
+  a throw leaves it alone, because ending a run over a request that changed nothing would be worse
+  than the leak.
+
 ### Documentation
 
 - Measure heating on the live bus, with evidence rows `M4-E136` and `M4-E137`. Phase three of the
@@ -72,12 +82,14 @@ All notable changes to this project are documented here.
   reply is the largest frame on this line, and no gate-opening query was followed by one inside
   300 ms in 260 windows.
 
-  **The target command `0x45` also switches its zone on.** Zone 1 was off, received 21 °C and then
-  23 °C, and both replies carried state `01` with the poll agreeing. A restore must put the target
-  back and then turn the zone off, in that order; the first pass did only the former and left the
-  zone on, which the poll caught. `protocol-debug.ts` builds only the `0x45` frame for a
-  `temperatureC` action and records no such effect, so changing a cold zone's target from Home
-  Assistant will switch that zone on. That is a defect report against the add-on, not yet a fix.
+  **Writing a target to an off zone left it on, both times.** Zone 1 was off, received 21 °C and
+  then 23 °C, and both replies carried state `01` with the poll agreeing. A restore must put the
+  target back and then turn the zone off, in that order; the first pass did only the former and
+  left the zone on, which the poll caught. It is not promoted to a rule: both values were below the
+  room's 24 °C, so "writing a target enables the zone" and "writing a target below the room enables
+  it" both fit, and those are different defects with different fixes. Either way `protocol-debug.ts`
+  builds only the `0x45` frame for a `temperatureC` action and models no such effect. A defect
+  report against the add-on, not yet a fix.
 
   The safety argument for arming at all is a fact about August: every room read 24 °C or warmer
   against a 23 °C target, so nothing sent could call for heat. The guard's ceiling stops the tool

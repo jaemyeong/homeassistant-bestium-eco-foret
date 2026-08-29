@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { createRedactor, parseBuslabConfig, type BuslabConfig } from "./config.ts";
 import { createSafeRecorder, createSession } from "./session.ts";
 import { createLink } from "./link.ts";
-import { createDaemon } from "./daemon.ts";
+import { createDaemon, type ControlReply, type ControlRequest } from "./daemon.ts";
 import { isRunAlive, requestControl, serveControl } from "./control.ts";
 import { createFramer, type BusFrame } from "./framer.ts";
 import { around, frameKey, gapSummary, inventory, loadRecords } from "./analyze.ts";
@@ -141,13 +141,21 @@ async function commandStart(flags: Record<string, string | true>): Promise<void>
   deliver = (bytes, wallMs, monoNs) => daemon.observe(bytes, wallMs, monoNs);
 
   await daemon.start();
+  // `finish` is used by the control handler below and defined after it, so the reference is
+  // deferred rather than the definition moved: `finish` closes over `server`.
+  let finish: (reason: string) => Promise<void>;
   const server = await serveControl({
     socketPath,
-    handle: (request) => daemon.handle(request),
+    handle: createControlHandler({
+      handle: (request) => daemon.handle(request),
+      // The reply is written by the control server after this handler resolves, and `finish`
+      // ends the process, so the teardown waits a beat rather than racing that write.
+      onStopped: () => { setTimeout(() => void finish("stopped"), 50); },
+    }),
   });
   process.stderr.write(`buslab: run ${runName} recording to ${runDir}\n`);
 
-  const finish = async (reason: string): Promise<void> => {
+  finish = async (reason: string): Promise<void> => {
     await daemon.stop(reason);
     await server.close();
     await rm(socketPath, { force: true });
@@ -162,6 +170,29 @@ async function commandStart(flags: Record<string, string | true>): Promise<void>
 
   // Hold the process open until the daemon stops; the control server keeps the loop alive.
   await new Promise<void>(() => {});
+}
+
+/**
+ * The control handler, kept separate from the wiring so the teardown is testable.
+ *
+ * A `stop` over the control socket used to reach `daemon.handle` and end there. The run closed
+ * and the gateway socket dropped, but this process stayed alive until its `--seconds` timer or a
+ * signal, with its control socket still on disk: the operator saw `{"ok":true,"reason":"stopped"}`
+ * and a process that was still running. Found while closing a heating run down.
+ *
+ * `onStopped` fires only for a stop the daemon accepted, and only after the reply exists, so the
+ * caller is still answered. A refusal or a throw leaves the process alone: ending a run over a
+ * request that changed nothing would be worse than the leak.
+ */
+export function createControlHandler(opts: {
+  handle: (request: ControlRequest) => Promise<ControlReply>;
+  onStopped: () => void;
+}): (request: ControlRequest) => Promise<ControlReply> {
+  return async (request) => {
+    const reply = await opts.handle(request);
+    if (request?.cmd === "stop" && reply?.ok !== false) opts.onStopped();
+    return reply;
+  };
 }
 
 /** Read a finished run, or any add-on capture, and frame it. Nothing here touches the network. */
