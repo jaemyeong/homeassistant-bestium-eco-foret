@@ -68,6 +68,28 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Close gas over the bus and watch the transition both ways, with evidence rows `M4-E146` and
+  `M4-E147`. Stage B ran with the operator opening the valve by hand before and after. The valve
+  read `04` in sixteen polls, the close answered in 118 ms, and the first poll carrying `03` came
+  at 1,518 ms; the operator's reopen gave the return leg.
+
+  **The direct reply cannot tell whether the command did anything.** Stage A's reply, where nothing
+  changed, and stage B's, where the valve actually shut, are byte-identical. The reply says the
+  command was received; only the poll says it had an effect. The criterion the lights and heating
+  settled on is therefore necessary here, not merely prudent.
+
+  **`0x2A` carries two devices' states, not one.** Its reply is
+  `F7 0E 01 2A 04 40 10 00 19 <light batch-off> 1B <gas> <XOR> EE`: byte 8 is the light device's
+  address and byte 10 the gas device's, each followed by that device's state. All 268 replies on
+  record have byte 11 equal to the `0x1B` state at that moment, and it followed the valve in both
+  directions with a lag of 1,470 to 1,758 ms — this device's own polling period. `M4-E134` recorded
+  those trailing bytes as never moving, which was an artefact of the valve staying shut for that
+  whole run rather than a property of the frame; the row is corrected. This is why the legacy calls
+  it a multi function switch, and it fits an entrance panel carrying batch-off and gas together.
+
+  The `1B` pair has no tested set frame and was not derived: the legacy builds only the `19`
+  variant, and gas is already controllable through `0x1B` directly.
+
 - Measure gas closing without touching the valve, with evidence row `M4-E145`. Phase seven carries
   one frame, and stage A of the gas scenario sends it while the valve is already shut, so nothing
   could change. It answered in 127 ms, and the reply is byte-identical to the single one in
