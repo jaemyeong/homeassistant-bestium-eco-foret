@@ -68,6 +68,32 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- **`0x2A` does have a set command**, with evidence rows `M4-E143` and `M4-E144`. This project's
+  own claim that it had none is falsified. The legacy implementation carries the frames, read under
+  the AGENTS.md clause that permits the legacy source for protocol specification, and both work:
+  `f70c012a0240110119009bee` engages and `f70c012a02401102190098ee` releases, each answered
+  directly in 133 and 130 ms.
+
+  Sending it reproduces the entrance switch's whole chain. After the engage the device answers at
+  +133 ms, the wallpad's routine poll reads the new state at +1,473 ms, and the wallpad emits the
+  light group-off frame at +1,546 ms — 73 ms after that poll. That is the causal model `M4-E134`
+  built from watching the switch, with us pulling the first link.
+
+  The derived candidates of `M4-E142` failed because a set frame need not use the address its query
+  uses. The rule was already visible in the lights, where `10` is the group and `11` to `13` the
+  lamps, and heating repeats it; `0x2A` is queried at `10` and set at `11`. Two further errors rode
+  along: the length came from the light frame rather than this device's own shape, and the `19 00`
+  payload was dropped. A device's set frame is built from its **own** reply.
+
+  `M4-E140` still stands and is a different direction: commanding `0x2A` moves the lights,
+  commanding the lights does not move `0x2A`.
+
+  What the run cannot show is whether the other rooms actually went dark. The wallpad reports only
+  its three lamps and no other light device appears on this line, so only a person in the house can
+  say. That matters because the operator says the wallpad cannot reach those rooms at all, which
+  makes this device the only path to a whole-house off — and means the `0x19` group frame was never
+  one, whatever an earlier summary in this session said.
+
 - Measure the per-zone heating target and test the batch-off device, with evidence rows `M4-E141`
   and `M4-E142`. Phase five opens `0x45` for zones 2 to 4 at the two values zone 1 used, and two
   derived `0x2A` set candidates. Eleven armed sends, 1,362 frames over 214 s, zero corrupt bytes.
