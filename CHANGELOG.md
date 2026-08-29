@@ -58,6 +58,16 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Confirm all eight light frames through the gate rather than the two the earlier result rested
+  on, with evidence row `M4-E133`. Counting what had actually been sent showed the 40/40 was Light 1
+  on and off alone: Light 2 had never been sent, Light 3 only its on frame, and each group frame
+  once or twice under the old quiet window. Twenty further sends, ordered so every command demanded
+  a real state change, were answered 20/20 and reached the state 20/20 with zero corrupt bytes.
+  Across every gated run: 109 sends, 109 answered, zero corrupt bytes in 2,320 frames, against 138
+  of 183 answered and 1,033 corrupt bytes for the quiet-window runs of the same tool. `0x2A`, the
+  batch-off device, remains untouched: it is separate from the `0x19` group address and no set frame
+  for it exists in either capture.
+
 - Find that the lost sends are collisions after all, and gate the write on the moment the
   wallpad reserves for a query nobody answers, with evidence rows `M4-E131` and `M4-E132`. Pooling
   every write ever sent shows it: 62 % of unanswered writes had corruption on the bus within
