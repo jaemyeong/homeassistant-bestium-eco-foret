@@ -149,3 +149,104 @@ test("E4 RED: phase two does not become a blanket bypass", () => {
     assert.equal(checkOutgoing({ hex, armed: true, phase: 2 }).ok, false, hex);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase three: heating.
+//
+// Heating arrives with better evidence than the lights ever had. Four zone-on frames sit in
+// `capture-1788009200284` byte for byte, and `.agent/analysis-0.2.8-field-report.md` records
+// zone 1's off frame and a zone 1 target frame from an earlier capture. What is inferred is
+// zones 2 to 4 off, from the same rule that produced all four on frames correctly.
+//
+// Heating differs from a light in one way that matters here: the unsafe direction costs money
+// and burns gas. Every allowed target value is below every room temperature measured on the
+// bus, so nothing on this list can create heating demand.
+
+const PHASE3_EXPECTED_ADDITIONS = [
+  // zone 1..4 on: `02 46 1<zone> 01`, all four watched on the bus
+  "f70b01180246110100b1ee", "f70b01180246120100b2ee",
+  "f70b01180246130100b3ee", "f70b01180246140100b4ee",
+  // zone 1..4 off: `02 46 1<zone> 04`, zone 1 watched, the rest from the same rule
+  "f70b01180246110400b4ee", "f70b01180246120400b7ee",
+  "f70b01180246130400b6ee", "f70b01180246140400b1ee",
+  // zone 1 target 21 C and 23 C: `02 45 11 <celsius>`. 23 is what every zone already holds, so
+  // the pair moves the target down and puts it back; neither value can call for heat.
+  "f70b01180245111500a6ee", "f70b01180245111700a4ee",
+];
+
+test("E5 RED: phase three adds the heating frames and nothing else", async () => {
+  const { PHASE3_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE3_ALLOWED.filter((hex) => !PHASE2_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, [...PHASE3_EXPECTED_ADDITIONS].sort());
+  assert.equal(PHASE3_ALLOWED.length, 18, "eight light frames plus ten heating frames");
+});
+
+test("E5 RED: every frame on the heating list carries its own correct checksum", () => {
+  // The list is hand-written hex. A transposed digit would produce a frame the wallpad ignores,
+  // and a silence recorded as "no response" is a false finding on the very first send. Recompute
+  // rather than trust the typing.
+  for (const hex of PHASE3_EXPECTED_ADDITIONS) {
+    const b = bytes(hex);
+    let x = 0;
+    for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+    assert.equal(x, b[b.length - 2], `${hex} has the wrong XOR`);
+    assert.equal(b[b.length - 1], 0xee, `${hex} does not end in EE`);
+    assert.equal(b[1], b.length, `${hex} declares the wrong length`);
+  }
+});
+
+test("E5 RED: the earlier phases still refuse every heating frame", () => {
+  for (const hex of PHASE3_EXPECTED_ADDITIONS) {
+    for (const phase of [1, 2] as const) {
+      assert.equal(checkOutgoing({ hex, armed: true, phase }).ok, false, `${hex} at phase ${phase}`);
+    }
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 3 }).ok, true, `phase three permits ${hex}`);
+  }
+});
+
+test("E5 RED: phase three is a list, not a bypass", () => {
+  for (const hex of [
+    "f70b01180246100400b5ee",  // heating group off: watched twice, but not asked for yet
+    "f70b01180246100100b0ee",  // heating group on: never observed anywhere
+    "f70b01180245121500a5ee",  // zone 2 target: the temperature frame is scoped to zone 1
+    "f70b013402411006009cee",  // the elevator
+    "f70b01190240110300b4ee",  // an invented light value
+  ]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 3 }).ok, false, hex);
+  }
+});
+
+test("E5 RED: no phase opens the refusal list, phase three included", () => {
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee"]) {
+    for (const phase of [1, 2, 3] as const) {
+      assert.equal(checkOutgoing({ hex, armed: true, phase }).ok, false, `${hex} at phase ${phase}`);
+    }
+  }
+});
+
+test("E5 RED: raising a heating target is refused outright, not merely left off a list", () => {
+  // The allowlist already blocks these, but `allowAll` exists for trying a hypothetical later
+  // phase and would otherwise let a frame through that makes a room hotter and burns gas for as
+  // long as nobody notices. This is the gas precedent: refuse the unsafe direction by name.
+  // The ceiling is 23 C because that is the target every zone already holds, so nothing this
+  // tool sends can leave a room warmer than the household itself chose. Revisit the constant if
+  // that ever needs to change; it is a deliberate limit, not a fact about the protocol.
+  for (const hex of [
+    "f70b01180245111800abee",  // zone 1 target 24 C, one degree above
+    "f70b01180245111e00adee",  // zone 1 target 30 C
+    "f70b01180245142800bcee",  // zone 4 target 40 C
+  ]) {
+    for (const opts of [{ phase: 3 }, { allowAll: true }] as const) {
+      const verdict = checkOutgoing({ hex, armed: true, ...opts });
+      assert.equal(verdict.ok, false, `${hex} with ${JSON.stringify(opts)}`);
+      assert.match(String(verdict.reason), /target|heat/i, hex);
+    }
+  }
+});
+
+test("E5 RED: a target at or below the ceiling is not refused by that rule", () => {
+  // The refusal must not swallow the two frames the measurement actually needs.
+  for (const hex of ["f70b01180245111500a6ee", "f70b01180245111700a4ee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true, allowAll: true }).ok, true, hex);
+  }
+});

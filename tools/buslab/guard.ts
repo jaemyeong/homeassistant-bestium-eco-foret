@@ -31,7 +31,36 @@ export const PHASE2_ALLOWED: readonly string[] = [
   "f70b01190240100100b7ee",
 ];
 
-const PHASES: Record<number, readonly string[]> = { 1: PHASE1_ALLOWED, 2: PHASE2_ALLOWED };
+/**
+ * Phase three adds heating, which arrives with better evidence than the lights ever had. All four
+ * zone-on frames sit in `capture-1788009200284` byte for byte, and the 0.2.8 field report records
+ * zone 1's off frame and a zone 1 target frame from an earlier capture. Zones 2 to 4 off are
+ * inferred, from the rule that produced all four on frames correctly.
+ *
+ * The two target frames move zone 1 down to 21 °C and put it back to 23 °C, which is what every
+ * zone already holds. Every room on this bus reads 24 °C or warmer, so no frame on this list can
+ * call for heat. The heating group frames are deliberately absent: the off frame was watched
+ * twice but nobody has asked for it, and the on frame has never been observed anywhere.
+ */
+export const PHASE3_ALLOWED: readonly string[] = [
+  ...PHASE2_ALLOWED,
+  "f70b01180246110100b1ee",
+  "f70b01180246120100b2ee",
+  "f70b01180246130100b3ee",
+  "f70b01180246140100b4ee",
+  "f70b01180246110400b4ee",
+  "f70b01180246120400b7ee",
+  "f70b01180246130400b6ee",
+  "f70b01180246140400b1ee",
+  "f70b01180245111500a6ee",
+  "f70b01180245111700a4ee",
+];
+
+const PHASES: Record<number, readonly string[]> = {
+  1: PHASE1_ALLOWED,
+  2: PHASE2_ALLOWED,
+  3: PHASE3_ALLOWED,
+};
 
 export type Verdict =
   | { ok: true; write: boolean; bytes: Uint8Array; hex: string }
@@ -49,6 +78,9 @@ function checksumOk(frame: Uint8Array): boolean {
   return x === frame[frame.length - 2] && frame[frame.length - 1] === 0xee;
 }
 
+/** The warmest heating target this tool will ever send. See the refusal below for why. */
+const HEATING_TARGET_CEILING_C = 23;
+
 /** Refusals no flag opens. Each names why, because a refusal without a reason invites a retry. */
 function refusalReason(b: Uint8Array): string | null {
   if (b[0] === 0x7f) {
@@ -64,6 +96,16 @@ function refusalReason(b: Uint8Array): string | null {
     // 03 locks the valve. Anything else on this device is an opening, or an unknown, and gas
     // is the one device where the unsafe direction is not recoverable by pressing again.
     if (b[7] !== 0x03) return "gas may be closed and never opened";
+  }
+  if (device === 0x18 && kind === 0x02 && b[5] === 0x45 && b[7] > HEATING_TARGET_CEILING_C) {
+    // The allowlist blocks these already; this refusal is here for `allowAll`, which exists so a
+    // later phase can be tried and would otherwise let through a frame that makes a room hotter
+    // and burns gas for as long as nobody notices. Same shape as the gas rule: name the unsafe
+    // direction rather than rely on a list. The ceiling is what every zone already holds, so this
+    // tool cannot leave a room warmer than the household chose. It is a deliberate limit and not
+    // a fact about the protocol; raising it is a decision, and it needs the same approval that
+    // widening a phase does.
+    return `this tool never raises a heating target above ${HEATING_TARGET_CEILING_C} C`;
   }
   return null;
 }

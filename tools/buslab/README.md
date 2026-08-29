@@ -139,14 +139,22 @@ the add-on sends four per-zone frames and the wallpad sends one.
 
 ## Safety
 
-The first phase allows only the six light on/off frames, by exact byte match rather than by
-pattern: a mistyped XOR that satisfied a pattern would leave the wallpad ignoring the frame, and
-recording that silence as "no response" is a false finding.
+A phase is a list, matched by exact bytes rather than by pattern: a mistyped XOR that satisfied
+a pattern would leave the wallpad ignoring the frame, and recording that silence as "no
+response" is a false finding. Phase one is the six light on/off frames. Phase two adds the two
+light group frames. Phase three adds heating: eight zone on/off frames, and two zone 1 target
+frames that move it to 21 °C and back to 23 °C. Every allowed target is below every room
+temperature on this bus, so nothing on the list can call for heat. The heating group frames are
+not on it; the off frame was watched twice but has not been asked for, and the on frame has
+never been observed anywhere.
 
-Three refusals are not a phase and no flag opens them. The `0x7F` subphone macros open a door.
-The `0x1E 02` frame's meaning is undecided and may be a door-open command. Gas may be closed and
-never opened. The elevator is outside phase one but is not on that list, because it waits for
-its own approval rather than being forbidden for ever.
+Refusals are not a phase and no flag opens them, `--allow-all` included. The `0x7F` subphone
+macros open a door. The `0x1E 02` frame's meaning is undecided and may be a door-open command.
+Gas may be closed and never opened. And a heating target above 23 °C is refused by name rather
+than merely left off a list: that is the warmest any zone already holds, so the tool cannot
+leave a room warmer than the household chose, and unlike a light the unsafe direction here burns
+gas for as long as nobody notices. The elevator is outside every phase but is not on that list,
+because it waits for its own approval rather than being forbidden for ever.
 
 Home Assistant must stay switched off while a run is measuring. It reaches the same RS485 bus
 through the same gateway, and a second writer on a half-duplex line makes every collision
