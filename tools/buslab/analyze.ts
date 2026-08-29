@@ -254,6 +254,7 @@ export function around(opts: {
   const shapeOf = (frame: BusFrame): string => `${frameKey(frame)}#${frame.bytes.length}`;
   const baseline = new Map<string, BusFrame>();
   const inWindow = new Map<string, BusFrame>();
+  const firstDifferent = new Map<string, BusFrame>();
   let framesInWindow = 0;
 
   for (const frame of opts.frames) {
@@ -264,20 +265,29 @@ export function around(opts: {
     }
     if (frame.monoNs > windowEnd) continue;
     framesInWindow += 1;
+    // Keep the first frame of each shape, and also the first that differs from the baseline.
+    // The wallpad polls every couple of seconds, so the poll immediately after a write often
+    // still carries the old state and the change appears one poll later. Comparing only the
+    // first frame in the window misses every change slower than one polling period.
     if (!inWindow.has(shape)) inWindow.set(shape, frame);
+    if (!firstDifferent.has(shape)) {
+      const before = baseline.get(shape);
+      if (before && before.hex !== frame.hex) firstDifferent.set(shape, frame);
+    }
   }
 
   const changed: Change[] = [];
   const appeared: Appearance[] = [];
-  for (const [shape, frame] of inWindow) {
-    const key = frameKey(frame);
-    const length = frame.bytes.length;
+  for (const [shape, first] of inWindow) {
+    const key = frameKey(first);
+    const length = first.bytes.length;
     const before = baseline.get(shape);
     if (!before) {
-      appeared.push({ key, length, hex: frame.hex, atWallMs: frame.wallMs });
+      appeared.push({ key, length, hex: first.hex, atWallMs: first.wallMs });
       continue;
     }
-    if (before.hex === frame.hex) continue;
+    const frame = firstDifferent.get(shape);
+    if (!frame) continue;
     const diff = differingIndexes(before.bytes, frame.bytes);
     changed.push({
       key,

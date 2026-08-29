@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Two `tools/buslab` defects that only a live run could expose, with evidence row `M4-E128`. The
+  control socket sat beside the run inside the repository, whose path is 105 bytes for an ordinary
+  run name against the 104 macOS allows in a unix socket address, so `listen` failed with `EINVAL`;
+  the unit tests never saw it because `mkdtemp` gives short paths. It now lives under a digest of
+  the run's path in the per-user temporary directory. And `around` compared the baseline against
+  only the first frame in its window, while the wallpad's status poll runs every 2.2 s so the poll
+  immediately after a write still carries the old state; the first live change was reported as no
+  change. It now reports the first frame that actually differs.
+
 ### Added
 
 - A guarded send path for `tools/buslab`, `M4.12` Epic E3, with evidence row `M4-E127`. Without

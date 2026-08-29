@@ -13,6 +13,8 @@ import { createConnection } from "node:net";
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { createRedactor, parseBuslabConfig, type BuslabConfig } from "./config.ts";
@@ -26,6 +28,18 @@ import { around, frameKey, gapSummary, inventory, loadRecords } from "./analyze.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = join(HERE, "config.json");
 const RUNS_DIR = join(HERE, "runs");
+
+/**
+ * A unix socket address holds 104 bytes on macOS, terminator included, and the natural place
+ * for this file — beside the run inside the repository — is already over that for an ordinary
+ * run name. The socket therefore lives in the per-user temporary directory under a digest of
+ * the run's own path, which is short, deterministic so `status` and `stop` find it, and not
+ * shared with another checkout of this repository.
+ */
+export function controlSocketPath(runName: string): string {
+  const digest = createHash("sha256").update(join(RUNS_DIR, runName)).digest("hex").slice(0, 12);
+  return join(tmpdir(), `buslab-${digest}.sock`);
+}
 
 export function parseArgs(argv: string[]): { command: string; flags: Record<string, string | true> } {
   const [command = "", ...rest] = argv;
@@ -66,7 +80,7 @@ async function loadConfig(): Promise<BuslabConfig> {
 async function commandStart(flags: Record<string, string | true>): Promise<void> {
   const runName = requireRun(flags);
   const runDir = join(RUNS_DIR, runName);
-  const socketPath = join(runDir, "control.sock");
+  const socketPath = controlSocketPath(runName);
   const config = await loadConfig();
   const redact = createRedactor(config);
 
@@ -243,7 +257,7 @@ async function commandAround(flags: Record<string, string | true>): Promise<void
 
 async function commandControl(command: string, flags: Record<string, string | true>): Promise<void> {
   const runName = requireRun(flags);
-  const socketPath = join(RUNS_DIR, runName, "control.sock");
+  const socketPath = controlSocketPath(runName);
   const request: Record<string, unknown> = { cmd: command };
   if (typeof flags.label === "string") request.label = flags.label;
   if (typeof flags.hex === "string") request.hex = flags.hex;

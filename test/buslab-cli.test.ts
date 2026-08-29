@@ -6,7 +6,7 @@ import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseArgs } from "../tools/buslab/cli.ts";
+import { parseArgs, controlSocketPath } from "../tools/buslab/cli.ts";
 import { createSession } from "../tools/buslab/session.ts";
 import { createLink } from "../tools/buslab/link.ts";
 import { createDaemon } from "../tools/buslab/daemon.ts";
@@ -248,4 +248,19 @@ test("E3 RED: an armed send really reaches the gateway, and a refused one really
   } finally {
     await w.stopAll();
   }
+});
+
+test("E4 RED: the control socket path fits in a unix socket address", () => {
+  // macOS holds 104 bytes in sun_path, terminator included. The obvious place for the socket —
+  // beside the run inside the repository — is 105 bytes for a run named `light1-discovery`, and
+  // `listen` fails with EINVAL. The unit tests never saw it because `mkdtemp` gives short paths.
+  const long = controlSocketPath("light1-discovery");
+  assert.ok(Buffer.byteLength(long) <= 103, `${long} is ${Buffer.byteLength(long)} bytes`);
+
+  const longest = controlSocketPath("a".repeat(64));
+  assert.ok(Buffer.byteLength(longest) <= 103, `${longest} is ${Buffer.byteLength(longest)} bytes`);
+
+  // Deterministic, so `status` and `stop` reach the daemon `start` created.
+  assert.equal(controlSocketPath("light1-discovery"), long);
+  assert.notEqual(controlSocketPath("light1-tx"), long, "two runs do not share one socket");
 });

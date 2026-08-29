@@ -188,3 +188,32 @@ test("E2 RED: a byte position that takes many values is summarised rather than l
   assert.ok(position.length <= 16, `a value list must stay readable, got ${position.length}`);
   assert.equal(row.byLength[0].byteValueCounts[7], 40, "the true count is kept even when the list is trimmed");
 });
+
+test("E4 RED: a change that takes more than one poll to appear is still found", () => {
+  // Measured on the real bus. The wallpad polls the light group about every 2.2 s, and the poll
+  // that fires just after a write still carries the old state; the change shows up in the next
+  // one. Comparing the baseline against only the first frame in the window misses it entirely,
+  // which is exactly what happened on the first live send.
+  const frames = framesOf([
+    { seq: 0, ms: 0, hex: "f70d011904401000020202b4ee" },
+    { seq: 1, ms: 4_085, hex: "f70d011904401000020202b4ee" },   // the poll that beat the change
+    { seq: 2, ms: 6_289, hex: "f70d011904401000010202b7ee" },   // the change, one poll later
+    { seq: 3, ms: 8_485, hex: "f70d011904401000010202b7ee" },
+  ]);
+  const found = around({ frames, atMonoNs: 4_000n * 1_000_000n, windowMs: 6_000, baselineMs: 10_000 });
+  assert.equal(found.changed.length, 1, JSON.stringify(found));
+  assert.equal(found.changed[0].before, "f70d011904401000020202b4ee");
+  assert.equal(found.changed[0].after, "f70d011904401000010202b7ee");
+  assert.equal(found.changed[0].atWallMs, 6_289, "the moment it changed, not the moment the window opened");
+  assert.deepEqual(found.changed[0].changedByteIndexes, [8]);
+});
+
+test("E4 RED: a tuple that never differs across the window is still not a finding", () => {
+  const frames = framesOf([
+    { seq: 0, ms: 0, hex: "f70b011b0143110000b5ee" },
+    { seq: 1, ms: 4_100, hex: "f70b011b0143110000b5ee" },
+    { seq: 2, ms: 6_200, hex: "f70b011b0143110000b5ee" },
+  ]);
+  const found = around({ frames, atMonoNs: 4_000n * 1_000_000n, windowMs: 6_000, baselineMs: 10_000 });
+  assert.deepEqual(found.changed, []);
+});
