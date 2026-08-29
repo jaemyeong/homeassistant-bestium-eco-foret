@@ -58,6 +58,26 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Decode the batch-off device `0x2A`, with evidence row `M4-E134`. The specification left it
+  `ambiguous`; the operator pressed the wallpad's own button four times while the tool listened.
+  **`0x2A` has no command of its own.** It reports a state — byte 9 of its reply, `01` engaged and
+  `02` released — and the button acts entirely through the light device. Engaging sends the group-off
+  frame we already had; releasing sends light 1 on. Byte 9 always moves *before* the light command —
+  84, 186, 192 and 200 ms — so the button sets this device and the light frame follows as a
+  consequence. Those figures are TCP arrival differences rather than wire intervals, since the
+  gateway holds each frame until the line falls quiet; the ordering, which is what the claim rests
+  on, is exact because TCP preserves it.
+
+  The release is not a restore. It looked like one that had lost part of its memory, and the guess
+  was that a group frame fails to update what the wallpad remembers. Rebuilding the state with
+  individual frames only falsified it: with all three lit beforehand the release gave light 1 alone,
+  and with light 1 dark and the others lit it gave light 1 alone again. Light 1's prior state was
+  opposite in the two cases and the outcome identical. The concern recorded minutes earlier — that
+  group frames could desynchronise the wall button — is therefore withdrawn.
+
+  The wallpad still has never been seen sending the group-**on** frame. That one remains ours,
+  derived from the address rule and confirmed only by our own sends, and the two are graded apart.
+
 - Confirm all eight light frames through the gate rather than the two the earlier result rested
   on, with evidence row `M4-E133`. Counting what had actually been sent showed the 40/40 was Light 1
   on and off alone: Light 2 had never been sent, Light 3 only its on frame, and each group frame
