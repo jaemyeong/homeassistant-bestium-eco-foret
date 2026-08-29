@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { checkOutgoing, parseMask, matchesMask, PHASE1_ALLOWED } from "../tools/buslab/guard.ts";
+import { checkOutgoing, parseMask, matchesMask, PHASE1_ALLOWED, PHASE2_ALLOWED } from "../tools/buslab/guard.ts";
 
 // This is the only place in the tool where bytes can reach a real bus. Two lists govern it.
 //
@@ -117,5 +117,35 @@ test("E3 RED: a mask is byte pairs, ?? is any byte, and it anchors at the start"
 
   for (const bad of ["", "f", "f7 0b", "gg"]) {
     assert.equal(parseMask(bad).ok, false, JSON.stringify(bad));
+  }
+});
+
+test("E4 RED: phase two adds the two light group frames and nothing else", () => {
+  // The off frame was watched on the bus twice. The on frame has never been seen anywhere and is
+  // an inferred candidate, allowed here only because a light is reversible and harmless.
+  const added = PHASE2_ALLOWED.filter((hex) => !PHASE1_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, ["f70b01190240100100b7ee", "f70b01190240100200b4ee"].sort());
+  assert.equal(PHASE2_ALLOWED.length, 8);
+});
+
+test("E4 RED: a phase is asked for explicitly; phase one still refuses the group frames", () => {
+  for (const hex of ["f70b01190240100200b4ee", "f70b01190240100100b7ee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true }).ok, false, `phase one must refuse ${hex}`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 2 }).ok, true, `phase two permits ${hex}`);
+  }
+});
+
+test("E4 RED: no phase opens the refusal list", () => {
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee"]) {
+    for (const phase of [1, 2] as const) {
+      assert.equal(checkOutgoing({ hex, armed: true, phase }).ok, false, `${hex} at phase ${phase}`);
+    }
+  }
+});
+
+test("E4 RED: phase two does not become a blanket bypass", () => {
+  // Heating, the elevator and an invented light value stay outside it.
+  for (const hex of ["f70b01180246110100b1ee", "f70b013402411006009cee", "f70b01190240110300b4ee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 2 }).ok, false, hex);
   }
 });

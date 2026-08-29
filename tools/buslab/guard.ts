@@ -19,6 +19,20 @@ export const PHASE1_ALLOWED: readonly string[] = [
   "f70b01190240130200b7ee",
 ];
 
+/**
+ * Phase two adds the two light group frames. The off frame was watched on the bus twice in
+ * `capture-1788009200284`; the on frame has never been observed anywhere and is an inferred
+ * candidate, permitted only because a light is reversible and harmless. A phase is a list, never
+ * a bypass: heating, the elevator and an invented light value stay outside it.
+ */
+export const PHASE2_ALLOWED: readonly string[] = [
+  ...PHASE1_ALLOWED,
+  "f70b01190240100200b4ee",
+  "f70b01190240100100b7ee",
+];
+
+const PHASES: Record<number, readonly string[]> = { 1: PHASE1_ALLOWED, 2: PHASE2_ALLOWED };
+
 export type Verdict =
   | { ok: true; write: boolean; bytes: Uint8Array; hex: string }
   | { ok: false; reason: string; bytes?: Uint8Array; hex?: string; write?: false };
@@ -57,7 +71,9 @@ function refusalReason(b: Uint8Array): string | null {
 export function checkOutgoing(opts: {
   hex: string;
   armed: boolean;
-  /** Widens the allowlist for a phase that has its own approval. It does not touch the refusals. */
+  /** Which allowlist applies. A phase widens what is permitted; it never touches the refusals. */
+  phase?: number;
+  /** Escape hatch for tests of a hypothetical later phase. It never touches the refusals either. */
   allowAll?: boolean;
 }): Verdict {
   const hex = typeof opts.hex === "string" ? opts.hex.trim().toLowerCase() : "";
@@ -76,13 +92,18 @@ export function checkOutgoing(opts: {
     }
   }
 
-  if (!opts.allowAll && !PHASE1_ALLOWED.includes(hex)) {
-    return {
-      ok: false,
-      reason: "not on the phase-one allowlist, which is the six light frames matched exactly",
-      bytes,
-      hex,
-    };
+  const phase = Number(opts.phase ?? 1);
+  const allowed = PHASES[phase];
+  if (!opts.allowAll) {
+    if (!allowed) return { ok: false, reason: `there is no phase ${phase}`, bytes, hex };
+    if (!allowed.includes(hex)) {
+      return {
+        ok: false,
+        reason: `not on the phase-${phase} allowlist, which is ${allowed.length} frames matched exactly`,
+        bytes,
+        hex,
+      };
+    }
   }
 
   return { ok: true, write: opts.armed === true, bytes, hex };

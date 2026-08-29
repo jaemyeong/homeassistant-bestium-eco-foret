@@ -264,7 +264,8 @@ async function commandControl(command: string, flags: Record<string, string | tr
   if (flags.arm === true) request.arm = true;
   if (typeof flags.expect === "string") request.expect = flags.expect;
   for (const [flag, key] of [["quiet-ms", "quietMs"], ["quiet-wait-ms", "quietWaitMs"],
-                             ["direct-ms", "directMs"], ["polling-ms", "pollingMs"]] as const) {
+                             ["direct-ms", "directMs"], ["polling-ms", "pollingMs"],
+                             ["phase", "phase"]] as const) {
     if (typeof flags[flag] === "string") request[key] = Number(flags[flag]);
   }
   // A send waits for a quiet window and then for a reply, so it outlives the default deadline.

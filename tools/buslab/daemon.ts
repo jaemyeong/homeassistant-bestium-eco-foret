@@ -153,7 +153,7 @@ export function createDaemon(opts: {
   const send = async (request: ControlRequest): Promise<ControlReply> => {
     const hex = typeof request.hex === "string" ? request.hex.trim().toLowerCase() : "";
     const armed = request.arm === true;
-    const verdict = checkOutgoing({ hex, armed, allowAll: request.allowAll === true });
+    const verdict = checkOutgoing({ hex, armed, phase: Number(request.phase ?? 1), allowAll: request.allowAll === true });
     if (!verdict.ok) {
       opts.session.record("tx_refused", { hex, reason: verdict.reason });
       return { ok: false, outcome: "refused", hex, reason: verdict.reason };

@@ -58,6 +58,31 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Record the first live measurement in `.agent/analysis-live-light-measurement.md`, with evidence
+  rows `M4-E129` and `M4-E130`, and add an explicit phase-two allowlist to `tools/buslab` for the
+  two light group frames. Sixty-five frames reached the wallpad, all of them lights.
+
+  The question `M4-E117` left open is answered: **the residual failure is not the quiet window.**
+  Across forty writes the failure rate does not follow the silence achieved — 1 of 5 below 60 ms,
+  3 of 15 at 60-100, 2 of 12 at 100-200, 3 of 8 above 200 — and the unanswered writes had a
+  *higher* median quiet window than the answered ones. Widening `tx_quiet_ms` cannot fix it.
+
+  What the quiet window does change is the damage. Observation alone produced zero corrupt bytes
+  in 253 reads; sending produced 31 at `quiet_ms` 60 and 160 at 30, and nearly all of it lands
+  within -20 to +300 ms of one of our writes, so our transmission is what destroys the wallpad's
+  own frames. `tx_quiet_ms` stays at 60 for that reason and not for ours.
+
+  The direct reply is a reliable confirmation: in twenty judged commands every answered one took
+  effect, including three no-ops, and every unanswered state-changing one failed. That is the
+  design `0.3.0` already ships — a match rather than a change, and bounded retry — and this
+  measurement is what supports it.
+
+  `F7 0B 01 19 02 40 10 01 00 B7 EE` turns all three lights on. It appears in no capture and was
+  derived from the group-address rule; the wallpad answered it and the status went `020202` to
+  `010101`. The all-off frame was confirmed from a genuinely on state. No frame encoding a subset
+  was sent, because none has been observed; a subset is built from individual frames instead, which
+  is how Lights 1 and 3 were left on with Light 2 off.
+
 - Record what the EW11's own settings page and a fresh 54.6-minute capture establish, in
   `.agent/analysis-ew11-timing-and-group-frames.md`, with evidence row `M4-E124`. `Gap Time`
   is 50 ms, so the gateway forwards serial bytes only after the line has been quiet that long;
