@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- `tools/buslab`, the local measurement tool of `M4.12` Epic E1, with evidence row `M4-E125`.
+  A daemon holds one TCP connection to the gateway from this machine, records every read
+  verbatim with a wall clock and a monotonic clock, and takes `status`, `mark` and `stop` over
+  a unix control socket so a session can drive it one command at a time. It has no dependency
+  and imports nothing from the add-on. Three properties are deliberate: a read is recorded as
+  it arrived rather than reassembled, because a TCP boundary is not a frame boundary; nothing
+  pauses the socket to let the writer keep up, because that distorts the timing being measured,
+  so a `backlog` record says so instead; and every timestamp is taken in the daemon, because
+  `process.hrtime.bigint()` counts from a per-process origin. Sending is not implemented and
+  cannot be: that is Epic E3. The gateway address stays out of the repository and out of every
+  artifact.
+
 ### Documentation
 
 - Record what the EW11's own settings page and a fresh 54.6-minute capture establish, in

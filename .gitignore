@@ -15,3 +15,7 @@ secrets*.yaml
 .codegraph/
 graphify-out/
 .serena/logs/
+
+# Local measurement tool: gateway address and run artifacts
+tools/buslab/config.json
+tools/buslab/runs/
