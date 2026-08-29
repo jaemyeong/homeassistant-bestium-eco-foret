@@ -84,8 +84,8 @@ All notable changes to this project are documented here.
   under a second and both follow these sends, while the same run's four light sends produce none.
   A confirmation window has to treat group and per-zone differently.
 
-  **`0x2A` did not move.** The light group-off frame is the one the wallpad emits when its own
-  batch-off button engages, and sending it ourselves left byte 9 at `02` in all 91 replies. That is
+  **`0x2A` did not move.** The light group-off frame is the one that flows when the entrance
+  batch-off switch engages, and sending it ourselves left byte 9 at `02` in all 91 replies. That is
   what the `M4-E134` decode predicted, so the desynchronisation concern withdrawn there is now
   actively falsified rather than merely retracted. It cuts both ways: turning every light off over
   the bus leaves the wallpad's batch-off indicator released, so the two states can diverge.
@@ -130,7 +130,7 @@ All notable changes to this project are documented here.
   password nor the WiFi key from the EW11 backup is anywhere in the repository.
 
 - Decode the batch-off device `0x2A`, with evidence row `M4-E134`. The specification left it
-  `ambiguous`; the operator pressed the wallpad's own button four times while the tool listened.
+  `ambiguous`; the operator pressed the entrance switch four times while the tool listened.
   **`0x2A` has no command of its own.** It reports a state — byte 9 of its reply, `01` engaged and
   `02` released — and the button acts entirely through the light device. Engaging sends the group-off
   frame we already had; releasing sends light 1 on. The reply carrying the new state always arrives

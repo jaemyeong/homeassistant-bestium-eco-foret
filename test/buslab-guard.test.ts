@@ -312,3 +312,79 @@ test("E6 RED: phase four is still a list, and the refusals are still shut", () =
     assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, false, `${hex} at phase four`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase five: the remaining zone targets, and the batch-off device.
+//
+// The targets extend `0x45` to zones 2, 3 and 4 at the same two values zone 1 used. 23 is what
+// every zone already holds and 21 is below it, and every room on this bus reads 24 °C or warmer,
+// so no frame here can call for heat. The ceiling refusal still stands above them.
+//
+// `0x2A` is different in kind: **nothing has ever been seen commanding it.** Two captures and
+// every run, 34,686 records, carry no set frame addressed to it. That is absence and not proof,
+// and this project has a counter-example against itself — the heating group-on frame was equally
+// absent and worked when we sent it. These two candidates come from the device's own reply,
+// `F7 0E 01 2A 04 40 10 00 19 <state> 1B 03 <XOR> EE`, whose sub-command and address are dropped
+// into the same set-frame skeleton the lights use. Engaging turns the lights off and releasing
+// turns light 1 on, which the operator has already done four times from the wall switch.
+
+const PHASE5_EXPECTED_ADDITIONS = [
+  "f70b01180245121500a5ee", "f70b01180245121700a7ee",  // zone 2 target 21 and 23
+  "f70b01180245131500a4ee", "f70b01180245131700a6ee",  // zone 3
+  "f70b01180245141500a3ee", "f70b01180245141700a1ee",  // zone 4
+  "f70b012a024010010084ee",  // batch-off engage, candidate
+  "f70b012a024010020087ee",  // batch-off release, candidate
+];
+
+test("E7 RED: phase five adds the three zone targets and the two batch-off candidates", async () => {
+  const { PHASE4_ALLOWED, PHASE5_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE5_ALLOWED.filter((hex) => !PHASE4_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, [...PHASE5_EXPECTED_ADDITIONS].sort());
+  assert.equal(PHASE5_ALLOWED.length, 28, "twenty from phase four plus eight");
+});
+
+test("E7 RED: every phase-five frame carries its own correct checksum", () => {
+  for (const hex of PHASE5_EXPECTED_ADDITIONS) {
+    const b = bytes(hex);
+    let x = 0;
+    for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+    assert.equal(x, b[b.length - 2], `${hex} has the wrong XOR`);
+    assert.equal(b[b.length - 1], 0xee, `${hex} does not end in EE`);
+    assert.equal(b[1], b.length, `${hex} declares the wrong length`);
+  }
+});
+
+test("E7 RED: phase four still refuses them all, and phase five permits them", async () => {
+  for (const hex of PHASE5_EXPECTED_ADDITIONS) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, false, `phase four must refuse ${hex}`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, true, `phase five permits ${hex}`);
+  }
+});
+
+test("E7 RED: the target ceiling still governs the zones phase five opened", () => {
+  // Widening `0x45` to three more zones must not let the ceiling be walked around by address.
+  for (const hex of [
+    "f70b01180245121800aaee",  // zone 2 target 24 C
+    "f70b01180245131e00adee",  // zone 3 target 30 C
+    "f70b01180245142800bcee",  // zone 4 target 40 C
+  ]) {
+    for (const opts of [{ phase: 5 }, { allowAll: true }] as const) {
+      const verdict = checkOutgoing({ hex, armed: true, ...opts });
+      assert.equal(verdict.ok, false, `${hex} with ${JSON.stringify(opts)}`);
+      assert.match(String(verdict.reason), /target|heat/i, hex);
+    }
+  }
+});
+
+test("E7 RED: phase five is still a list, and the refusals are still shut", () => {
+  for (const hex of [
+    "f70b012a024010030085ee",  // a batch-off value nobody has seen in the reply
+    "f70b012a024011010085ee",  // a batch-off address nobody has seen
+    "f70b013402411006009cee",  // the elevator
+  ]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, false, hex);
+  }
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 5 }).ok, false, `${hex} at phase five`);
+  }
+});

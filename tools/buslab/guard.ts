@@ -75,11 +75,42 @@ export const PHASE4_ALLOWED: readonly string[] = [
   "f70b01180246100100b0ee",
 ];
 
+/**
+ * Phase five finishes the heating targets and opens the batch-off device.
+ *
+ * The targets extend `0x45` to zones 2, 3 and 4 at the two values zone 1 used. 23 is what every
+ * zone already holds and 21 is below it, and every room on this bus reads 24 °C or warmer, so
+ * nothing here can call for heat. The ceiling refusal still governs them by value, not by address.
+ *
+ * `0x2A` is a different kind of entry. **Nothing has ever been seen commanding it**: two captures
+ * and every run, 34,686 records, carry no set frame addressed to that device. Absence is not
+ * proof, and this project holds a counter-example against itself — the heating group-on frame was
+ * equally absent and worked the first time we sent it. These two come from the device's own reply,
+ * `F7 0E 01 2A 04 40 10 00 19 <state> 1B 03 <XOR> EE`, whose sub-command and address drop into the
+ * same set-frame skeleton the lights use, with the reply's own state byte as the value.
+ *
+ * The device is the entrance batch-off switch, which is a separate unit by the front door rather
+ * than part of the wallpad. Engaging it turns the lights off and releasing turns light 1 on; the
+ * operator has worked it by hand four times, so the effect is known and reversible.
+ */
+export const PHASE5_ALLOWED: readonly string[] = [
+  ...PHASE4_ALLOWED,
+  "f70b01180245121500a5ee",
+  "f70b01180245121700a7ee",
+  "f70b01180245131500a4ee",
+  "f70b01180245131700a6ee",
+  "f70b01180245141500a3ee",
+  "f70b01180245141700a1ee",
+  "f70b012a024010010084ee",
+  "f70b012a024010020087ee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
   3: PHASE3_ALLOWED,
   4: PHASE4_ALLOWED,
+  5: PHASE5_ALLOWED,
 };
 
 export type Verdict =
