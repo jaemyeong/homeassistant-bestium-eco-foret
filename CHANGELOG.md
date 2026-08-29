@@ -60,8 +60,11 @@ All notable changes to this project are documented here.
 
 - Measure heating on the live bus, with evidence rows `M4-E136` and `M4-E137`. Phase three of the
   `buslab` allowlist opens the eight zone on/off frames and two zone 1 target frames; 22 armed
-  sends went out through the silent-query gate, 22 were answered, and 1,825 frames over 285 s carry
-  zero corrupt bytes. Every one of the eleven sends in the second pass is confirmed by the wallpad's
+  sends went out through the silent-query gate with no `no_gate_window`, and 1,825 frames over
+  285 s carry zero corrupt bytes. The tool matched 20 of the 22 replies: the two it missed are the
+  first pass's target sends, whose answers arrived 100 ms later and are in the frame record, but
+  the mask put `00` where the reply carries its state. 20 of 22 is what the tool can claim for
+  itself; 22 of 22 is what happened on the wire. Every one of the eleven sends in the second pass is confirmed by the wallpad's
   own poll rather than only by its reply. **Zones 2 to 4 off rise from rule-derived to observed.**
 
   The gate is therefore not a light-only result. `quietWaitedMs` was 0 on all 22, so it removes the
