@@ -6,6 +6,19 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Record the `M4.12` design for a local measurement tool in `.agent/plan-buslab.md`, with
+  evidence row `M4-E122`. The add-on's capture can never pair a command with its reply, because
+  our own writes are not echoed on this line; a tool that holds its own connection from the
+  development machine records both in one log on one clock and can. The EW11 accepts five
+  simultaneous clients and Home Assistant is switched off, so the tool is the only writer on the
+  bus. The tool carries its own framer that reads only length, XOR and `EE`, and prints the
+  product encoder's bytes beside its own, so the self-confirming loop `.agent/spec-device-protocol.md`
+  §3.1 names is broken rather than repeated. Recording the idle gap achieved on every write is what
+  closes the residual-failure question `M4-E117` left open. Transmission is limited to the six light
+  frames by exact byte match; the `0x7F` macros, the `0x1E` `0x02` frame and gas open are refused by a
+  list no flag opens. An adversarial self-reading of the plan found and repaired five defects,
+  including monotonic timestamps compared across two processes. No product code, test or
+  configuration changed in this unit, and the plan's live phase is gated on a separate instruction.
 - Record the field analysis of the two `0.2.8` captures in
   `.agent/analysis-0.2.8-field-report.md`, with evidence rows `M4-E115` and `M4-E116`.
   The heating encoder reproduces the wallpad's own frames byte for byte, so the reported
