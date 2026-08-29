@@ -61,6 +61,38 @@ record says so rather than the tool hiding it by slowing the read.
 origin per process, so a stamp taken in the CLI and a stamp taken in the daemon cannot be
 subtracted. The CLI only carries requests.
 
+## Reading a finished run
+
+Three commands read a run, or any add-on capture, and touch no network:
+
+    node tools/buslab/cli.ts frames    --run <name> | --file <path>
+    node tools/buslab/cli.ts inventory --run <name> | --file <path>
+    node tools/buslab/cli.ts around    --run <name> --label "..." [--window 2000] [--baseline 10000]
+
+`frames` reports how many frames the bytes contained, how many bytes were left over, how many
+frames straddled a read, and the gap distribution a write has to fit into. `inventory` groups
+frames by the tuple that says what they are about — device, kind, sub-command, address — and
+lists which byte positions ever moved. `around` answers "what changed when I pressed that", by
+comparing the state a tuple held before the window against the first one inside it.
+
+Two things the analysis deliberately does **not** do. It assigns no meaning: a tuple is
+`19/04/40/11`, not "light 1", because the discovery has to work before any name exists. And it
+compares frames only within one length, because a tuple can arrive in several shapes — the light
+group is both an eleven-byte direct reply and a thirteen-byte status frame, and lining those up
+by position puts a payload byte against a checksum byte.
+
+## The framer's external standard
+
+The framer's only check that is not self-confirmation is a capture the add-on took, not this
+tool. On `capture-1788009200284.ndjson` — 54.6 minutes, 17,561 reads, 350,203 bytes — it must
+find 21,095 frames and leave zero bytes unexplained, with exactly one frame straddling two
+reads and 20.1 % of reads carrying several. That capture is the operator's own household
+traffic and is not committed; point at it to run the check:
+
+    BUSLAB_CAPTURE=~/Downloads/capture-1788009200284.ndjson npm test
+
+Without the variable those three tests skip rather than quietly pass.
+
 ## Safety
 
 Sending is not implemented yet; that is Epic E3 of the plan. When it lands, the first phase

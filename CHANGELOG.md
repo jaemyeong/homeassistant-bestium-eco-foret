@@ -6,6 +6,19 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- An independent framer and offline analysis for `tools/buslab`, `M4.12` Epic E2, with evidence
+  row `M4-E126`. The framer knows a length byte, an XOR over all but the last two bytes, and the
+  terminator `EE`, and imports nothing from the add-on, so when the two agree the agreement is
+  evidence rather than a tautology. Against the 54.6-minute capture the add-on took it finds
+  21,095 frames and leaves zero of 350,203 bytes unexplained. Carrying across reads is what makes
+  that possible: the fourteen bytes an earlier per-read count called garbage are one frame split
+  between two reads. `buslab frames`, `inventory` and `around` read a finished run or any add-on
+  capture and touch no network. They group frames by the tuple that says what a frame is about
+  and give it no name, because discovery has to work before a name exists, and they compare
+  frames only within one length, because a tuple arrives in several shapes and lining those up by
+  position puts a payload byte against a checksum byte. `around` recovered the all-lights-off
+  frame from the capture with no hint beyond a timestamp.
+
 - `tools/buslab`, the local measurement tool of `M4.12` Epic E1, with evidence row `M4-E125`.
   A daemon holds one TCP connection to the gateway from this machine, records every read
   verbatim with a wall clock and a monotonic clock, and takes `status`, `mark` and `stop` over

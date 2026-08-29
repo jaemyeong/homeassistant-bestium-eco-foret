@@ -20,6 +20,8 @@ import { createSafeRecorder, createSession } from "./session.ts";
 import { createLink } from "./link.ts";
 import { createDaemon } from "./daemon.ts";
 import { isRunAlive, requestControl, serveControl } from "./control.ts";
+import { createFramer, type BusFrame } from "./framer.ts";
+import { around, frameKey, gapSummary, inventory, loadRecords } from "./analyze.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = join(HERE, "config.json");
@@ -147,6 +149,97 @@ async function commandStart(flags: Record<string, string | true>): Promise<void>
   await new Promise<void>(() => {});
 }
 
+/** Read a finished run, or any add-on capture, and frame it. Nothing here touches the network. */
+async function readFrames(flags: Record<string, string | true>): Promise<{
+  frames: BusFrame[];
+  run: ReturnType<typeof loadRecords>;
+  unparsedBytes: number;
+  spanning: number;
+  source: string;
+}> {
+  const file = typeof flags.file === "string"
+    ? flags.file
+    : join(RUNS_DIR, requireRun(flags), "run.ndjson");
+  const run = loadRecords(await readFile(file, "utf8"));
+  const framer = createFramer();
+  const frames: BusFrame[] = [];
+  for (const read of run.reads) {
+    frames.push(...framer.push(Uint8Array.from(Buffer.from(read.hex, "hex")), read).frames);
+  }
+  // `flush` can still complete a frame when a forced resync left one whole in the buffer.
+  frames.push(...framer.flush().frames);
+  const stats = framer.stats();
+  return { frames, run, unparsedBytes: stats.unparsedBytes, spanning: stats.spanning, source: file };
+}
+
+async function commandFrames(flags: Record<string, string | true>): Promise<void> {
+  const { frames, run, unparsedBytes, spanning, source } = await readFrames(flags);
+  const gaps = gapSummary(run.reads);
+  // Count the reads that carried more than one frame, not the surplus frames: the two differ
+  // whenever a read carries three or more, and the first is the property of the gateway's
+  // 50 ms flush that we actually want to report.
+  const perRead = new Map<number, number>();
+  for (const frame of frames) perRead.set(frame.endSeq, (perRead.get(frame.endSeq) ?? 0) + 1);
+  let readsWithSeveral = 0;
+  for (const count of perRead.values()) if (count > 1) readsWithSeveral += 1;
+  process.stdout.write(JSON.stringify({
+    source,
+    reads: run.reads.length,
+    bytes: run.reads.reduce((sum, read) => sum + read.byteLength, 0),
+    frames: frames.length,
+    unparsedBytes,
+    framesSpanningReads: spanning,
+    readsCarryingSeveralFrames: readsWithSeveral,
+    readsCarryingSeveralFramesPercent: run.reads.length
+      ? Math.round((1000 * readsWithSeveral) / run.reads.length) / 10
+      : 0,
+    marks: run.marks.map((mark) => mark.label),
+    gapMs: {
+      count: gaps.count, min: gaps.minMs, median: gaps.medianMs, max: gaps.maxMs,
+      atLeast50: gaps.atLeast(50), atLeast100: gaps.atLeast(100),
+    },
+  }, null, 2) + "\n");
+}
+
+async function commandInventory(flags: Record<string, string | true>): Promise<void> {
+  const { frames } = await readFrames(flags);
+  const rows = inventory(frames).map((row) => ({
+    key: row.key,
+    count: row.count,
+    periodMedianMs: row.periodMedianMs,
+    lengths: row.lengths,
+    sampleHex: row.sampleHex,
+    byLength: row.byLength.map((group) => ({
+      length: group.length,
+      count: group.count,
+      sampleHex: group.sampleHex,
+      movingBytes: group.byteValues
+        .map((values, index) => ({ index, values, distinct: group.byteValueCounts[index] }))
+        .filter((entry) => entry.distinct > 1),
+    })),
+  }));
+  process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+}
+
+async function commandAround(flags: Record<string, string | true>): Promise<void> {
+  const { frames, run } = await readFrames(flags);
+  const label = typeof flags.label === "string" ? flags.label : "";
+  const mark = run.marks.find((entry) => entry.label === label);
+  if (!mark) {
+    throw new Error(
+      `no mark named ${JSON.stringify(label)} in this run. Marks present: ` +
+      (run.marks.map((entry) => entry.label).join(", ") || "none"),
+    );
+  }
+  const found = around({
+    frames,
+    atMonoNs: mark.monoNs,
+    windowMs: Number(flags.window ?? 2_000),
+    baselineMs: Number(flags.baseline ?? 10_000),
+  });
+  process.stdout.write(JSON.stringify({ label, ...found }, null, 2) + "\n");
+}
+
 async function commandControl(command: string, flags: Record<string, string | true>): Promise<void> {
   const runName = requireRun(flags);
   const socketPath = join(RUNS_DIR, runName, "control.sock");
@@ -164,6 +257,12 @@ const USAGE = `buslab — local RS485 measurement over the EW11 gateway
   buslab mark   --run <name> --label "what just happened"
   buslab stop   --run <name>
 
+  buslab frames    --run <name> | --file <path>
+  buslab inventory --run <name> | --file <path>
+  buslab around    --run <name> --label "..." [--window 2000] [--baseline 10000]
+
+The three analysis commands read a finished run, or any add-on capture, and touch no network.
+
 The gateway address comes from BUSLAB_HOST / BUSLAB_PORT or from tools/buslab/config.json,
 neither of which is committed. It is never written into a run's artifacts.
 `;
@@ -172,6 +271,9 @@ export async function main(argv: string[]): Promise<void> {
   const { command, flags } = parseArgs(argv);
   if (command === "start") return commandStart(flags);
   if (command === "status" || command === "mark" || command === "stop") return commandControl(command, flags);
+  if (command === "frames") return commandFrames(flags);
+  if (command === "inventory") return commandInventory(flags);
+  if (command === "around") return commandAround(flags);
   process.stderr.write(USAGE);
   process.exitCode = command === "" || command === "help" || command === "--help" ? 0 : 1;
 }
