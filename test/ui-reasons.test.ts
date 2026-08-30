@@ -54,111 +54,165 @@ test("M4.9 RED: an unmapped reason still reaches the operator instead of vanishi
   assert.match(source, /if \(!text\) return ""/, "an empty reason must not render an empty parenthesis");
 });
 
-test("M4.9 RED: the blocked-send paths word their reason rather than passing English through", () => {
+test("M5 RED: every path that refuses a send words its reason in Korean", () => {
+  // Two ways a send can come back without reaching the bus: the server refuses it, or the
+  // request itself fails. Both have to say why in the operator's language, because a silent
+  // control is the defect this page exists to remove. The exact call sites changed with the
+  // rewrite; what has to hold is that neither path leaves the reason unworded.
   const html = renderAppHtml();
+  const run = html.slice(html.indexOf("var run = function"), html.indexOf("var TEMP_MIN"));
+  assert.ok(run.length > 0, "the send path must exist");
+  const refusals = run.match(/reasonsKo\([^)]*\)/g) ?? [];
+  assert.ok(refusals.length >= 2, `both refusal paths must word their reason, found ${refusals.length}`);
+  assert.match(run, /"준비되지 않음"/, "and fall back to a Korean phrase rather than an empty line");
+  assert.match(run, /보내지 못했습니다/, "the operator is told the write never left");
+});
+
+test("M5 RED: a control's tint is its own background, not a layer over the label", () => {
+  // 0.2.5 painted the tint with an absolutely positioned `button::before`. `button` sets
+  // position:relative with z-index:0, so it makes a stacking context and the pseudo-element
+  // painted above the inline label: six buttons rendered as blank orange rectangles until
+  // someone opened the page in a real browser. The page no longer has that shape — an active
+  // control sets its own `background`, so there is nothing that can cover its text.
+  const html = renderAppHtml();
+  assert.doesNotMatch(html, /\.btn::before/, "a control must not paint through a pseudo-element");
+  assert.match(html, /\.btn\[aria-pressed="true"\]\{background:/, "an active control tints its own surface");
+});
+
+test("M5 RED: a control group holds controls and nothing else", () => {
+  // The explanatory notice was once placed inside the flex row and became a third item,
+  // which squeezed both elevator buttons down to one character per line.
+  const html = renderAppHtml();
+  const groups = html.match(/<div class="pair" role="group"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g) ?? [];
+  assert.ok(groups.length >= 4, "the light, zone and elevator groups are all pairs");
+  const elevator = /<div class="pair" role="group" aria-label="승강기 호출">([\s\S]*?)<\/div>/.exec(html);
+  assert.ok(elevator, "the elevator control group must exist");
+  assert.equal((elevator![1].match(/<button/g) ?? []).length, 2, "two buttons");
+  assert.doesNotMatch(elevator![1], /<p[ >]/, "no paragraph may share the flex row");
+});
+
+test("M5 RED: a sentence-length notice wraps instead of being clipped", () => {
+  // Three of this page's notices are full sentences. A fixed-height badge would cut them.
+  const html = renderAppHtml();
+  assert.match(html, /\.hint\{[^}]*text-wrap:pretty/, "notices wrap");
+  assert.doesNotMatch(html, /\.hint\{[^}]*height:\s*\d/, "and are never given a fixed height");
   for (const marker of [
-    'const why = reasonsKo(preview.reasons) || "준비되지 않음"',
-    'const why = reasonsKo(result.reasons) || reasonKo(result.reason)',
-    '"보내지 못했습니다 · " + (reasonKo(challenge?.reason)',
+    "월패드가 제어하지 못하는 다른 방 조명까지 끕니다",
+    "여는 명령은 없습니다. 잠그면 현장에서 손으로 열어야 합니다",
+    "분석이 필요할 때 캡처를 떠서 내려받습니다",
   ]) {
-    assert.ok(html.includes(marker), `blocked-send path must word its reason: ${marker}`);
-  }
-});
-
-test("0.2.7 RED: a button's tinted surface sits behind its label, never over it", () => {
-  // `button` sets position:relative with z-index:0, so it makes a stacking context and an
-  // absolutely positioned ::before inside it paints above the inline label. At opacity .16
-  // the label showed through; the .warning buttons run the tint at opacity 1, so all six of
-  // them — the three entrance macros, both elevator calls and the candidate challenge —
-  // rendered as blank orange rectangles from 0.2.5 until this was found in a real browser.
-  const html = renderAppHtml();
-  const rule = /button::before \{[^}]*\}/.exec(html);
-  assert.ok(rule, "the button surface rule must exist");
-  assert.match(rule![0], /z-index:\s*-1/, "the tint must sit behind the label");
-  assert.match(rule![0], /position:absolute/, "and still cover the button box");
-});
-
-test("0.2.7 RED: the elevator call buttons are the only children of their group", () => {
-  // The explanatory notice was placed inside the flex row and became a third item, which
-  // squeezed both buttons down to one character per line.
-  const html = renderAppHtml();
-  const group = /<div class="seg" role="group" aria-label="승강기 호출">(.*?)<\/div>/s.exec(html);
-  assert.ok(group, "the elevator control group must exist");
-  assert.equal((group![1].match(/<button/g) ?? []).length, 2, "two buttons");
-  assert.doesNotMatch(group![1], /<p[ >]/, "no paragraph may share the flex row");
-});
-
-test("0.2.7 RED: a sentence-length notice is allowed to wrap", () => {
-  // .pill is a 32px fixed-height badge. Three notices in this release are sentences.
-  const html = renderAppHtml();
-  assert.match(html, /\.pill\.block \{[^}]*height:auto/, "the wrapping variant must exist");
-  for (const marker of ["네 구역 모두 observed", "서버의 0x7F 증적 게이트는", "월패드의 호출 버튼을 누른 캡처에서"]) {
     const at = html.indexOf(marker);
     assert.ok(at > 0, marker);
-    assert.match(html.slice(Math.max(0, at - 60), at), /class="pill(?: warn)? block"/, `${marker} must use the wrapping variant`);
+    assert.match(html.slice(Math.max(0, at - 120), at), /class="hint"/, marker + " must use the wrapping notice");
   }
 });
 
-test("0.2.7 RED: the entrance buttons say that they open a door", () => {
-  // They send the legacy door-open macro. The old labels named a state instead, so a
-  // reader had no way to know that pressing one unlocks the entrance.
+test("M5 RED: a busy line does not disable a control", () => {
+  // The server waits for the quiet window instead of refusing, so the page has no reason to
+  // grey a button out for a wait that ends in about 20 ms.
   const html = renderAppHtml();
-  for (const [id, label] of [
-    ["household-inactive", "세대 현관문 열기"],
-    ["household-ringing", "세대 현관문 열기"],
-    ["communal-ringing", "공동 현관문 열기"],
-  ] as const) {
-    const button = new RegExp(`<button id="${id}"[^>]*>([^<]*)`).exec(html);
-    assert.ok(button, id);
-    assert.match(button![1], new RegExp(label), `${id} must name the door it opens`);
-  }
-});
-
-test("0.2.8 RED: a busy line does not disable a control", () => {
-  // The server now waits for the quiet window instead of refusing, so the page has no
-  // reason to grey a button out for a wait that ends in about 20 ms.
-  const html = renderAppHtml();
-  const ready = /const readyForAction = \(preview\) => \{[\s\S]*?return true; \};/.exec(html);
-  assert.ok(ready, "readyForAction must exist");
-  assert.doesNotMatch(ready![0], /tx\.quiet/, "a momentarily busy line must not disable the control");
   const start = html.indexOf("const gateBlockers");
   assert.ok(start > 0, "gateBlockers must exist");
   const blockers = html.slice(start, html.indexOf("return out;", start));
-  assert.doesNotMatch(blockers, /tx\.quiet/, "and it must not be announced as a blocker");
+  assert.doesNotMatch(blockers, /tx\.quiet/, "a momentarily busy line must not be announced as a blocker");
+  const locked = html.slice(html.indexOf("var locked = function"), html.indexOf("var applyLock"));
+  assert.doesNotMatch(locked, /tx\.quiet/, "nor may it disable the control");
 });
 
-test("0.2.8 RED: an indeterminate write can be acknowledged and released", () => {
-  // The lock is correct — after a partial write the device state is genuinely unknown —
-  // but nothing could ever clear it, so one failure killed the page until a reload.
+test("M5 RED: a capture that is not running disables nothing but the capture card", () => {
+  // This is the requirement the milestone exists for. Control and observation ride on the
+  // link; a recording is something the operator starts on top of them.
   const html = renderAppHtml();
-  assert.match(html, /id="tx-unlock"/, "the release panel must exist");
-  assert.match(html, /id="tx-unlock-ack"/, "with an operator acknowledgement");
-  assert.match(html, /clearIndeterminate\(\)/, "wired to a handler");
-  const clear = /const clearIndeterminate = \(\) => \{[\s\S]*?\};/.exec(html);
-  assert.ok(clear, "the handler must exist");
-  assert.match(clear![0], /txRetryLocked = false/, "and it must actually release the lock");
-  // It must stay an acknowledgement: nothing may clear the lock on its own.
-  assert.equal((html.match(/txRetryLocked = false/g) ?? []).length, 2, "declaration and the acknowledgement only");
+  const locked = html.slice(html.indexOf("var locked = function"), html.indexOf("var applyLock"));
+  assert.doesNotMatch(locked, /recording/, "no control may be gated on a recording");
+  assert.doesNotMatch(locked, /capture/i, "nor on a capture by any other name");
+  const applyLock = html.slice(html.indexOf("var applyLock"), html.indexOf("var postAction"));
+  for (const id of ["capture-start", "capture-stop", "capture-download"]) {
+    assert.doesNotMatch(applyLock, new RegExp(id), id + " is the capture card's own, not a gated control");
+  }
 });
 
-test("0.2.8 RED: the confirmation phrase field can show the whole phrase", () => {
+test("M5 RED: the banner opens on a link that is down, not a capture that is off", () => {
   const html = renderAppHtml();
-  assert.match(html, /\.actions > label \{[^}]*flex:1 1 100%/, "the field takes its own row");
-  assert.match(html, /\.actions > label input \{[^}]*width:100%/, "and fills it");
+  const banner = /<section class="banner" id="banner-state" data-state="([a-z]+)"/.exec(html);
+  assert.ok(banner, "the banner must exist");
+  assert.equal(banner![1], "disconnected", "the first state is a link that is not up");
+  assert.match(html, /게이트웨이에 연결되지 않았습니다/);
+  assert.doesNotMatch(html, /수집이 실행 중이 아닙니다|수집 꺼짐/, "no state may say the collection is off");
+  // Six states, and no seventh: `doorbell` left with the observation that the bell never
+  // appears on this line.
+  const states = html.slice(html.indexOf("var BANNER = {"), html.indexOf("var bannerStateNow"));
+  for (const state of ["disconnected", "quiet", "ready", "sending", "confirmed", "unconfirmed"]) {
+    assert.match(states, new RegExp(state + ":"), state + " must be a banner state");
+  }
+  assert.doesNotMatch(states, /doorbell/, "the bell is not on this line");
 });
 
-test("0.2.8 RED: the candidate warning describes the risk instead of naming a detection", () => {
-  // "wrong-device/collision warning" is fixed boilerplate on every candidate, not something
-  // that was detected, and it reads like a collision the add-on observed.
+test("M5 RED: the page counts the eight write paths measurement confirmed", () => {
   const html = renderAppHtml();
-  assert.doesNotMatch(html, /wrong-device\/collision warning/, "no invented detection");
-  assert.match(html, /관측으로 확인하지 않은 제어입니다/, "say what is actually true");
+  assert.match(html, /var OBSERVED_WRITES = 8;/, "eight write paths, not six devices");
+  assert.match(html, /관측 확인 " \+ OBSERVED_WRITES \+ " \/ " \+ OBSERVED_WRITES/);
 });
 
-test("0.3.0 RED: the page shows what is waiting to be sent", () => {
-  // One frame can be on the line at a time. Before the queue a second press was refused
-  // outright, and the operator had no way to see that anything was pending.
+// The requirements below survived the rewrite even though the tests that carried them did
+// not: they were written against a screen with a review flow, a challenge dialog and a
+// capture lease, and all three are gone. What each one was protecting is still true of the
+// page that replaced it, so it is restated here against the new shape.
+
+test("M5 RED: a send ends at confirmed or unconfirmed, never silently", () => {
+  // A control that goes quiet after a press is the defect this whole round exists to remove.
+  // Both arms of the request settle the banner, and a refusal settles it too.
   const html = renderAppHtml();
-  assert.match(html, /id="tx-queue"/, "a queue line must exist");
-  assert.match(html, /전송 대기 없음/, "and it must read as empty rather than blank");
+  const run = html.slice(html.indexOf("var run = function"), html.indexOf("var TEMP_MIN"));
+  // Three arms: the server refuses, the write resolves, or the request itself fails.
+  const settles = run.match(/settle\(/g) ?? [];
+  assert.equal(settles.length, 3, `every arm must settle, found ${settles.length}`);
+  assert.match(run, /settle\(ok \? "confirmed" : "unconfirmed"\)/, "the resolved arm reports what was observed");
+  assert.match(run, /postAction\(action, "live"\)\.then\(function \(result\) \{[\s\S]*?\}, function \(error\)/,
+    "the request's failure arm exists and is not empty");
+});
+
+test("M5 RED: a send in flight locks the controls and nothing else", () => {
+  // One write at a time is the server's rule; the page has to make it visible rather than
+  // queue presses the operator cannot see. The capture card is deliberately outside it.
+  const html = renderAppHtml();
+  const locked = html.slice(html.indexOf("var locked = function"), html.indexOf("var applyLock"));
+  assert.match(locked, /send\.state === "sending"/, "a write in flight locks the controls");
+  const applyLock = html.slice(html.indexOf("var applyLock"), html.indexOf("var postAction"));
+  assert.match(applyLock, /light-1-on/, "the light controls are locked");
+  assert.match(applyLock, /heat-zone-/, "and the zones");
+  assert.match(applyLock, /gas-close/, "and the gas valve");
+  assert.doesNotMatch(applyLock, /capture-/, "the capture card is never locked by a send");
+});
+
+test("M5 RED: the page starts fail-closed and opens only on what the status says", () => {
+  // Before the first poll answers there is no evidence of anything, so nothing may look
+  // ready and no state may be presented as observed.
+  const html = renderAppHtml();
+  assert.match(html, /data-state="disconnected"/, "the banner starts disconnected");
+  assert.match(html, /data-link="down"/, "and the link chip starts down");
+  assert.equal((html.match(/아직 관측되지 않았습니다/g) ?? []).length >= 8, true,
+    "every device reads as unobserved until a frame arrives");
+  const locked = html.slice(html.indexOf("var locked = function"), html.indexOf("var applyLock"));
+  assert.match(locked, /tx\.link !== "up"/, "a link that is not up locks every control");
+  assert.match(locked, /tx\.enabled !== true/, "so does transmission being off");
+  assert.match(locked, /tx\.authorized !== true/, "so does an unauthorized user");
+});
+
+test("M5 RED: a poll that fails leaves the last state standing rather than inventing one", () => {
+  // Redrawing from a failed poll would show fabricated state; the page keeps what it last
+  // saw and tries again a second later.
+  const html = renderAppHtml();
+  const poll = html.slice(html.indexOf("var poll = function"), html.indexOf("var capture = function"));
+  assert.match(poll, /function \(payload\) \{ window\.clearTimeout\(deadline\); draw\(payload\); \}, function \(\) \{ window\.clearTimeout\(deadline\); \}/,
+    "the failure arm draws nothing");
+  assert.match(poll, /window\.setTimeout\(function \(\) \{ poll\(false\); \}, 1000\)/, "and it retries");
+});
+
+test("M5 RED: the capture card drives only the capture", () => {
+  const html = renderAppHtml();
+  const capture = html.slice(html.indexOf("var capture = function"), html.indexOf("var on = function"));
+  assert.match(capture, /\.\/api\/capture|endpoint/, "it posts to the capture endpoints");
+  assert.match(capture, /poll\(true\)/, "and re-reads the status either way");
+  assert.doesNotMatch(capture, /send\./, "it never touches the send state");
 });

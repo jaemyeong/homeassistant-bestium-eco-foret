@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 
+import { renderAppHtml } from "../bestium-eco-foret/src/ui.ts";
+
 import {
   createProtocolDebugMonitor,
   encodeSemanticAction,
@@ -431,82 +433,72 @@ test("RED-final: protocol-debug has no Buffer or runtime crypto dependency", () 
   assert.doesNotMatch(source, /\bBuffer\b/);
 });
 
-test("RED: debug UI is bilingual, explicit about TX gates, and uses safe accessible rendering", () => {
-  const ui = readFileSync(new URL("../bestium-eco-foret/src/ui.ts", import.meta.url), "utf8");
-  const initialCctv = ui.match(/<p id=["']cctv-observation["']>([\s\S]*?)<\/p>/i)?.[1] ?? "";
-  assert.match(initialCctv, /^CCTV unknown · stale/i, "initial CCTV state must be unknown/stale");
+test("M5: the page offers the measured controls and nothing else", () => {
+  // The rendered page, not the source: the ids are assembled from a loop, so a source scan
+  // would miss the very controls it is checking for.
+  const ui = renderAppHtml();
+
+  // The eight write paths measurement confirmed, each with a control that can reach it.
   for (const marker of [
-    "Protocol Debug", "프로토콜", "TX disabled", "authorized", "connected",
-    "light-1-on", "light-2-on", "light-3-on", "gas-close", "heat-zone-1", "heat-zone-2", "heat-zone-3", "heat-zone-4",
-    "elevator-up", "elevator-down", "current floor", "direction", "household entrance", "common entrance",
-    "outlet", "ventilation", "batch/unknown", "vehicle unidentified", "CCTV not observed in the inspected current protocol frame/generation",
-    "current F7 transport unverified", "inferred_candidate", "unsafe_candidate", "preview", "single-burst", "age", "stale",
-    "/api/action", "/api/capture", "/api/stop", "/api/download", "csrfToken", "payload.debug.devices", "payload.debug.frames",
-  ]) assert.equal(ui.includes(marker), true, "missing UI contract: " + marker);
-  assert.match(ui, /kind\s*:\s*["']light["']/);
-  assert.match(ui, /kind\s*:\s*["']gas["']/);
-  assert.match(ui, /kind\s*:\s*["']heat["']/);
-  assert.match(ui, /kind\s*:\s*["']elevator["']/);
-  assert.match(ui, /kind\s*:\s*["']outlet["']/);
-  assert.match(ui, /kind\s*:\s*["']ventilation["']/);
-  assert.match(ui, /household:(?:inactive|ringing)|household.*ringing/);
-  assert.match(ui, /communal:ringing|communal.*ringing/);
-  assert.match(ui, /type=["']number["'][^>]*min=["']5["'][^>]*max=["']40["']/i);
-  assert.match(ui, /temperatureC|value/);
-  assert.match(ui, /raw-burst/);
-  assert.match(ui, /mode\s*[=:]\s*["']preview["']/);
-  assert.match(ui, /mode\s*[=:]\s*["'](?:challenge|issue_challenge)["']/);
-  assert.match(ui, /mode\s*[=:]\s*["'](?:commit|live)["']/);
-  assert.match(ui, /challengeId/);
-  assert.match(ui, /confirmationPhrase/);
-  assert.match(ui, /(?:cancel|clear)/i);
-  assert.match(ui, /socket_written_unconfirmed/);
-  assert.match(ui, /deviceConfirmed|device-not-confirmed/);
-  assert.match(ui, /aria-invalid/);
-  assert.match(ui, /raw-error/);
-  assert.match(ui, /\.value/);
-  assert.match(ui, /unsafe_candidate/);
-  assert.match(ui, /fixed macro|door.*macro|macro.*door/i);
-  assert.match(ui, /200\s*ms|200ms/);
-  assert.match(ui, /role=["'](?:status|alert)["']/);
-  // The CSRF token is an in-memory closure value; it must never be copied into
-  // a meta tag or DOM attribute that a page script can read back.
-  assert.doesNotMatch(ui, /<meta[^>]+name=["']csrf-token["'][^>]+content=/i);
-  assert.doesNotMatch(ui, /setAttribute\(["']content["']/);
-  assert.match(ui, /csrfToken/);
-  assert.match(ui, /setTimeout\([^)]*poll|poll[^\n]*setTimeout/i);
-  assert.doesNotMatch(ui, /setInterval/);
-  assert.match(ui, /poll.*(?:failed|stale)|(?:failed|stale).*poll/i);
-  assert.match(ui, /payload\.debug\.(?:devices|queries|frames|unknown)/);
-  assert.match(ui, /idle-timeout/);
-  assert.match(ui, /focus-visible/);
-  assert.match(ui, /--(?:input|focus)[^:]*:/);
-  assert.match(ui, /prefers-reduced-motion/);
-  assert.doesNotMatch(ui, /gas-open|door-(?:open|unlock)|vehicle-(?:start|drive)|cctv-(?:start|stop)/i);
-  assert.doesNotMatch(ui, /\{\s*control\s*:/);
-  assert.doesNotMatch(ui, /\.innerHTML\s*=/);
-  assert.doesNotMatch(ui, /class="sr-only"[^>]*>Idle timeout/);
+    "light-1-on", "light-2-on", "light-3-on", "lights-all-on", "lights-all-off",
+    "heat-zone-1-on", "heat-zone-2-on", "heat-zone-3-on", "heat-zone-4-on",
+    "heat-temp-1-up", "heat-temp-4-down", "heat-all-on", "heat-all-off",
+    "batchoff-toggle", "gas-close", "elevator-up", "elevator-down",
+  ]) assert.equal(ui.includes(marker), true, `missing control: ${marker}`);
+
+  for (const kind of ["light", "gas", "heat", "elevator", "batchoff"]) {
+    assert.match(ui, new RegExp(`kind:\\s*["']${kind}["']`), `${kind} must be sendable`);
+  }
+
+  // What measurement removed, and what the decision removed with it. A control for any of
+  // these would be a button that does nothing, or one this line cannot honour. The reason
+  // table is excluded: the server can still emit `speculative TX disabled`, and wording that
+  // in Korean is not the page offering a candidate.
+  const body = ui.slice(0, ui.indexOf("const REASON_KO")) + ui.slice(ui.indexOf("const reasonKo"));
+  for (const gone of [
+    "outlet-query", "ventilation-query", 'kind: "outlet"', 'kind: "ventilation"',
+    'kind: "entrance"', 'kind: "raw"', "single-burst", "raw-burst",
+    "inferred_candidate", "unsafe_candidate", "추측 후보",
+    "cctv-observation", "vehicle-unidentified", "unknown-clusters",
+    "tab-control", "tab-debug", "Protocol Debug", "프로토콜 디버그",
+    "doorbell",
+  ]) assert.equal(body.includes(gone), false, `the page must no longer carry: ${gone}`);
+
+  // The server contract is unchanged.
+  for (const marker of ["/api/status", "/api/action", "/api/capture", "/api/stop", "/api/download", "csrfToken"]) {
+    assert.equal(ui.includes(marker), true, `missing endpoint: ${marker}`);
+  }
+
+  // No emoji: the design system forbids them, and every glyph here is an MDI path.
+  assert.doesNotMatch(ui, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, "the page must carry no emoji");
+  // The gateway's address belongs in the add-on options, never on the page.
+  assert.doesNotMatch(ui, /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, "no host or IP on the page");
 });
 
-test("RED-final: UI uses a two-activation review flow and renders current-generation monitor rows", () => {
-  const ui = readFileSync(new URL("../bestium-eco-foret/src/ui.ts", import.meta.url), "utf8");
-  const script = ui.match(/<script>([\s\S]*?)<\/script>/i)?.[1] ?? ui;
+test("M5: the page reads the state it draws from, and stays accessible while it waits", () => {
+  const ui = renderAppHtml();
+  const script = ui.slice(ui.indexOf("<script>"), ui.indexOf("</script>"));
+
+  // Where the page reads its state from. These live in the script.
   for (const marker of [
-    "light-state-1", "light-state-2", "light-state-3", "gas-state",
-    "heat-state-1", "heat-state-2", "heat-state-3", "heat-state-4",
-    "heating-current-1", "heating-target-1", "elevator-floor", "elevator-direction",
-    "household-entrance", "common-entrance", "outlet-query", "ventilation-query",
-    "vehicle-unidentified", "unknown-clusters", "CCTV not observed in the inspected current protocol frame/generation",
-    "pendingAppend", "quiet", "currentGenerationRx", "fresh", "sevenFProof",
-  ]) assert.match(ui, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `missing dynamic monitor/gate row: ${marker}`);
-  assert.match(script, /aria-busy/);
-  assert.match(script, /clearTimeout\([^)]*poll/);
-  assert.match(script, /expiresAtMs|countdown/);
-  assert.match(script, /reviewed|challenged|committing/);
-  assert.match(script, /focus\(\)/);
-  assert.doesNotMatch(script, /postAction\(reviewedAction,\s*["'](?:challenge|issue_challenge)["'][\s\S]{0,500}postAction\(reviewedAction,\s*["'](?:commit|live)["']/);
-  assert.doesNotMatch(ui, /id=["']raw-error["'][^>]*role=["']alert["']/i);
-  assert.match(ui, /id=["']heat-temp-[1-4]["'][^>]*aria-invalid/i);
+    "payload.debug.devices", "payload.tx", "devices.lights", "devices.heating",
+    "devices.gas", "devices.batchOff", "devices.elevator", "devices.entrances",
+  ]) assert.ok(script.includes(marker), `missing source of state: ${marker}`);
+
+  // And what it writes it into. These are element ids, so the whole page is where to look.
+  for (const marker of [
+    "light-state-1", "light-state-3", "heat-state-4", "heating-target-1", "gas-state",
+    "elevator-call", "door-open-at", "batchoff-state", "link-state", "capture-status",
+  ]) assert.ok(ui.includes(marker), `missing observation: ${marker}`);
+
+  // The floor byte is a character encoding: a car in the basement reports 0xB1, and the page
+  // renders 지하 1층 rather than the 177 that shipped in 0.2.6.
+  assert.match(script, /지하 " \+ floor\.slice\(1\) \+ "층"/);
+
+  assert.match(script, /aria-busy/, "the banner announces that it is waiting");
+  assert.match(script, /aria-pressed/, "a control announces the state it is in");
+  assert.match(script, /clearTimeout\([^)]*pollTimer/, "the poll cleans up after itself");
+  assert.match(script, /AbortController/, "and a poll that outlives its deadline is abandoned");
 });
 
 test("RED-exception: 7F proof requires one complete ordered contiguous sequence in one generation", () => {
