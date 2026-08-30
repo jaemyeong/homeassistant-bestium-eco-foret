@@ -676,3 +676,44 @@ test("M5 RED: the monitor counts the bytes it could not parse", () => {
   clean.resetGeneration();
   assert.equal(clean.snapshot().unparsedByteCount, 0);
 });
+
+test("M5 RED: a read that ends on an unanswered query opens the send window", () => {
+  // Four devices are queried on every sweep and answer on none: entrance, elevator, ventilation
+  // and outlet. The wallpad waits about 270 ms before moving on, and that wait is the only place
+  // on this line where an eleven-byte frame fits every time — 7,019 such queries in
+  // `capture-1788009200284` fitted 100% of the time, against 42% for a 60 ms quiet window.
+  // Writing there took buslab's light sends from 138 of 183 to 109 of 109 with no damaged byte.
+  const bytes = (hex: string): Uint8Array =>
+    Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+  const ENTRANCE_QUERY = "f70b011e016211000091ee";
+  const ELEVATOR_QUERY = "f70d0134014110000000009fee";
+  const LIGHT_REPLY = "f70b01190440110101b1ee";
+
+  let now = 1_000;
+  const monitor = createProtocolDebugMonitor({ nowMs: () => now });
+  assert.equal(monitor.snapshot().lastSilentQueryAtMs, 0);
+
+  monitor.push(bytes(ENTRANCE_QUERY));
+  assert.equal(monitor.snapshot().lastSilentQueryAtMs, 1_000);
+
+  // A read ending on anything else leaves it alone: the wallpad is mid-exchange there.
+  now = 2_000;
+  monitor.push(bytes(LIGHT_REPLY));
+  assert.equal(monitor.snapshot().lastSilentQueryAtMs, 1_000);
+
+  // Nor does a query answered inside the same read. That exchange is over, and what follows is
+  // the next question rather than a gap.
+  now = 3_000;
+  monitor.push(bytes(ENTRANCE_QUERY + LIGHT_REPLY));
+  assert.equal(monitor.snapshot().lastSilentQueryAtMs, 1_000);
+
+  // Any of the four opens it.
+  now = 4_000;
+  monitor.push(bytes(LIGHT_REPLY + ELEVATOR_QUERY));
+  assert.equal(monitor.snapshot().lastSilentQueryAtMs, 4_000);
+
+  // A new link generation starts over: a window observed before the socket dropped says
+  // nothing about the line we are on now.
+  monitor.resetGeneration();
+  assert.equal(monitor.snapshot().lastSilentQueryAtMs, 0);
+});

@@ -18,6 +18,10 @@ function createBus(overrides: AnyRecord = {}) {
   // store pauses the socket while it appends, resuming after the write lands.
   let lastRxByteAtMs = now - 500;
   let lastResumeAtMs = now - 500;
+  // When a read last ended on a query nobody answers. That is the window the send gate takes.
+  // Open by default because that is the line these tests describe: the wallpad asks four devices
+  // that never answer, and across the 34 measured runs a window opens every 345 ms.
+  let lastSilentQueryAtMs = now;
   const transport = {
     on() {}, off() {}, removeAllListeners() {}, destroy() {},
     write(chunk: Uint8Array, cb?: (e?: Error | null) => void) {
@@ -47,16 +51,20 @@ function createBus(overrides: AnyRecord = {}) {
     getRxState: () => ({
       connected: true, pendingAppend: false,
       rxByteEpoch: 1, validFrameEpoch: 1, validFrameGeneration: 1, readEpoch: 1, txByteEpoch: 0,
-      lastRxByteAtMs, lastValidFrameAtMs: now - 100, lastResumeAtMs,
+      lastRxByteAtMs, lastValidFrameAtMs: now - 100, lastResumeAtMs, lastSilentQueryAtMs,
     }),
   } as AnyRecord);
-  const advance = (ms: number) => {
+  // Async because the send path now polls for its window in five-millisecond steps: a
+  // synchronous sweep fires one timer and returns before the continuation has registered the
+  // next, so the chain stops after a single tick.
+  const advance = async (ms: number) => {
     const target = now + ms;
     for (;;) {
       let due: { id: number; at: number; fn: () => void } | undefined;
       for (const [id, t] of timers) if (t.at <= target && (!due || t.at < due.at)) due = { id, ...t };
       if (!due) break;
       now = due.at; timers.delete(due.id); due.fn();
+      await Promise.resolve();
     }
     now = target;
   };
@@ -65,6 +73,7 @@ function createBus(overrides: AnyRecord = {}) {
     setNow: (v: number) => { now = v; },
     nowMs: () => now,
     rxAt: (v: number) => { lastRxByteAtMs = v; },
+    silentQueryAt: (v: number) => { lastSilentQueryAtMs = v; },
     resumeAt: (v: number) => { lastResumeAtMs = v; },
   };
 }
@@ -99,7 +108,7 @@ test("0.2.8 RED: a busy line makes the send wait, it does not refuse", async () 
   assert.equal(preview.ready, true, "a line that is momentarily busy must not block the preview");
 
   const pending = bus.coordinator.send(action, { ...request, mode: "live" }) as Promise<AnyRecord>;
-  bus.advance(60);
+  await bus.advance(60);
   const result = await pending;
   assert.equal(result.outcome, "socket_written_unconfirmed", JSON.stringify(result));
   assert.equal(bus.writes.length, 1, "the frame must go out once the window opens");
@@ -111,11 +120,12 @@ test("0.2.8 RED: a line that never goes quiet still fails closed", async () => {
   const bus = createBus({ tx_write_timeout_ms: 200 });
   const action = { kind: "light", target: 1, state: "on" };
   bus.rxAt(bus.nowMs());                      // busy at the moment the send starts
+  bus.silentQueryAt(0);                       // and no window to take instead
   const pending = bus.coordinator.send(action, { ...request, mode: "live" }) as Promise<AnyRecord>;
   // Hold the line busy by restamping the last received byte on every step of the clock.
   for (let step = 0; step < 60; step += 1) {
     bus.rxAt(bus.nowMs());
-    bus.advance(10);
+    await bus.advance(10);
     await Promise.resolve();
   }
   const result = await pending as AnyRecord;
@@ -160,6 +170,8 @@ test("0.2.8 RED: a multi-frame send survives the bus talking between frames", as
       connected: true, pendingAppend: false,
       rxByteEpoch, validFrameEpoch: 1, validFrameGeneration: 1, readEpoch, txByteEpoch: 0,
       lastRxByteAtMs: now - 200, lastValidFrameAtMs: now - 100, lastResumeAtMs: now - 200,
+      // A window is open: the read 200 ms ago ended on a query nobody answers.
+      lastSilentQueryAtMs: now,
     }),
   } as AnyRecord);
   // All-zones off is observed since the operator drove every zone live, so it commits in
@@ -187,4 +199,38 @@ test("0.2.8 RED: a multi-frame send survives the bus talking between frames", as
   assert.equal(writes.length, 1, `the group is one frame, got ${writes.length}: ${JSON.stringify(result)}`);
   assert.equal(result.outcome, "socket_written_unconfirmed", JSON.stringify(result));
   assert.deepEqual(writes, ["f70b01180246100400b5ee"]);
+});
+
+test("M5 RED: a send takes the silent-query window rather than waiting for quiet", async () => {
+  // The wallpad queries four devices that never answer and waits about 270 ms before moving on.
+  // That wait is the only place on this line where an eleven-byte frame fits every time, and
+  // writing there is what took buslab's light sends from 138 of 183 to 109 of 109 with no
+  // damaged byte. Waiting for the line to look quiet cannot match it: the gateway holds bytes
+  // until the serial line has been silent for its own 50 ms gap timer, so that judgement is
+  // always 50 ms out of date, and the failures it produced were collisions.
+  const bus = createBus();
+  bus.rxAt(bus.nowMs());              // the line spoke this instant, so no quiet interval exists
+  bus.silentQueryAt(bus.nowMs());     // but what it said was a query nobody answers
+
+  const pending = bus.coordinator.send({ kind: "light", target: 1, state: "on" }, { ...request, mode: "live" }) as Promise<AnyRecord>;
+  assert.equal((await pending).outcome, "socket_written_unconfirmed");
+  assert.equal(bus.writes.length, 1, "the window is open, so the frame goes out into it");
+});
+
+test("M5 RED: with no window in a second the send falls back to the quiet interval", async () => {
+  // 13,656 gaps between windows across the 34 runs: median 345 ms, 99.8% inside one second.
+  // Past that the line is behaving unlike anything measured, and refusing to send would be
+  // worse for the operator than the quiet interval that shipped before this.
+  const bus = createBus();
+  bus.rxAt(bus.nowMs() - 5_000);      // long silent
+  bus.silentQueryAt(bus.nowMs() - 5_000);   // a window was seen once, but it closed long ago
+
+  const pending = bus.coordinator.send({ kind: "light", target: 1, state: "on" }, { ...request, mode: "live" }) as Promise<AnyRecord>;
+  await Promise.resolve();
+  assert.equal(bus.writes.length, 0, "nothing goes out while the gate is still looking");
+
+  await bus.advance(1_000);
+  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  assert.equal(bus.writes.length, 1, "and then the quiet interval carries it");
+  assert.equal((await pending).outcome, "socket_written_unconfirmed");
 });

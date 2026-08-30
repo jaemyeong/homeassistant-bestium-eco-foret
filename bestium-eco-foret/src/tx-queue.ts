@@ -181,6 +181,9 @@ export function isConfirmed(
 const RETRYABLE_REFUSALS = [
   "line busy: quiet interval not met",
   "transport/RX race before write",
+  // The window the wallpad leaves after an unanswered query is about 270 ms wide. Missing one
+  // costs the median 345 ms until the next, which is a wait rather than a failure.
+  "silent-query window closed before write",
 ];
 
 export function isRetryableRefusal(reason: unknown): boolean {

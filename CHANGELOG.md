@@ -25,6 +25,26 @@ All notable changes to this project are documented here.
   it and logs that it is not in the schema. The parser is what makes it inert, and
   `addon-defaults.test.ts` proves it with the operator's own 3,000 ms as the case.
 
+### Fixed
+
+- A send now waits for the wallpad to query a device that never answers, and writes into the gap
+  that leaves. That gap is the only place on this line where an eleven-byte frame fits every
+  time: 7,019 such queries in `capture-1788009200284` fitted 100% of the time, against 42% for a
+  60 ms quiet window. Across the 34 measured runs, 194 transmits through that gate were answered
+  94.4% of the time with no damaged byte, while 183 that waited for a quiet interval were
+  answered 75.4% of the time and damaged 959 bytes. On light 1, which carries the largest sample,
+  it is 91 of 91 against 135 of 178.
+
+  Waiting for the line to look quiet is not merely weaker, it is structurally late: the gateway
+  holds bytes until the serial line has been silent for its own 50 ms gap timer, so that
+  judgement is always 50 ms out of date, and writing on it is what produced the collisions. A
+  query to a device that never answers is different in kind, because it guarantees a window ahead
+  rather than reporting one behind.
+
+  The quiet interval stays as the fallback. Windows are a median 345 ms apart and 99.8% of gaps
+  are under a second, so a send waits up to a second for one; past that, and on a link that has
+  not yet seen such a query at all, it sends on the rule that shipped before this.
+
 ### Added
 
 - The status response and the send banner carry `unparsedByteCount`: the bytes the decoder threw

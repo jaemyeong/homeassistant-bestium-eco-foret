@@ -46,6 +46,21 @@ function makeF7(payload: number[]): Uint8Array {
   return value;
 }
 
+/**
+ * The devices the wallpad queries on every sweep and hears back from on none: entrance,
+ * elevator, ventilation and outlet. It waits about 270 ms before moving on, and that wait is
+ * the only place on this line where an eleven-byte frame fits every time — 7,019 such queries
+ * in `capture-1788009200284` fitted 100% of the time, against 42% for a 60 ms quiet window.
+ *
+ * Waiting for the line to *look* quiet cannot reach that, and not for want of a longer wait:
+ * the gateway holds bytes until the serial line has been silent for its 50 ms gap timer, so
+ * "the line is quiet" is always 50 ms out of date. Writing on that judgement is what produced
+ * the collisions. Across the 34 measured runs, 194 transmits through this gate damaged nothing
+ * and 183 that waited for a quiet interval damaged 959 bytes, with every ungated run damaging
+ * something.
+ */
+const SILENT_QUERY_DEVICES = new Set([0x1e, 0x34, 0x2b, 0x1f]);
+
 function cloneBytes(value: Uint8Array): Uint8Array {
   return new Uint8Array(value);
 }
@@ -430,6 +445,8 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
   let validFrameCount = 0;
   /** Bytes the parser threw away. Zero is what a line carrying only the wallpad's own traffic reads. */
   let unparsedByteCount = 0;
+  /** When a read last ended on an unanswered query, which is when the send window opened. */
+  let lastSilentQueryAtMs = 0;
   let journal: JournalEntry[] = [];
   let devices = createDevices();
   let queries: Record<string, number> = { outlet: 0, ventilation: 0 };
@@ -450,6 +467,13 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
     frames = trim(frames.concat(parsed.frames));
     validFrameCount += parsed.frames.length;
     unparsedByteCount += parsed.unparsedBytes;
+    // A read that *ends* on one of those queries opens the window. One answered inside the same
+    // read does not: that exchange is over, and what follows it is the next question rather
+    // than a gap. This is the condition buslab's daemon gates on, byte for byte.
+    const lastFrame = parsed.frames.at(-1);
+    if (lastFrame && lastFrame.raw[0] === 0xf7 && lastFrame.raw[4] === 0x01 && SILENT_QUERY_DEVICES.has(lastFrame.raw[3])) {
+      lastSilentQueryAtMs = lastFrame.atMs;
+    }
     journal = trim(journal.concat(events));
     let frameIndex = 0;
     for (const event of events) {
@@ -505,6 +529,7 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
       frames: frames.map((entry) => ({ rawHex: hexOf(entry.raw), atMs: entry.atMs, generation: entry.generation })),
       validFrameCount,
       unparsedByteCount,
+      lastSilentQueryAtMs,
       journal: [...journal],
       devices: clone,
       queries: { ...queries },
@@ -521,7 +546,7 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
     // must carry `lastSeenAtMs` and `generation` unmodified. Read only.
     deviceState(): AnyDevices { return devices; },
     currentGeneration(): number { return generation; },
-    resetGeneration(): void { generation += 1; validFrameCount = 0; unparsedByteCount = 0; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
+    resetGeneration(): void { generation += 1; validFrameCount = 0; unparsedByteCount = 0; lastSilentQueryAtMs = 0; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
     stop(): void { stopped = true; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
     start(): void { stopped = false; },
   };

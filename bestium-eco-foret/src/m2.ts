@@ -95,6 +95,23 @@ type RuntimeCoordinator = {
   };
 };
 
+/**
+ * How long a send waits for the silent-query window before falling back to the quiet interval.
+ * Across the 34 runs under `tools/buslab/runs` the windows are 13,656 gaps apart: median 345 ms,
+ * p95 855 ms, 99.8% inside one second. Past that the line is behaving unlike anything measured,
+ * and making the operator wait longer buys less than sending on the older rule does.
+ */
+const TX_GATE_WAIT_MS = 1_000;
+/**
+ * How long the window is assumed to last once seen. The wallpad waits about 270 ms for an answer
+ * that never comes, and the gateway's own 50 ms gap timer has already spent part of it by the
+ * time the query reaches us. Detection to write is a few milliseconds; this is the ceiling past
+ * which the window is treated as gone rather than written into.
+ */
+const TX_GATE_WINDOW_MS = 150;
+/** Well under one frame time, so a window is not missed by the polling itself. */
+const TX_GATE_POLL_MS = 5;
+
 const INGRESS_PEER_ALLOWED = "172.30.32.2";
 const PROGRESS_INTERVAL_MS = 3_600_000;
 /** How long to wait before each relink attempt. The last value repeats from then on. */
@@ -1011,6 +1028,7 @@ export function createBoundedCaptureCoordinator(opts: {
       return {
         connected: phase === "running" && connected && transport !== null,
         unparsedByteCount: protocolState.unparsedByteCount ?? 0,
+        lastSilentQueryAtMs: protocolState.lastSilentQueryAtMs ?? 0,
         link: phase === "running" ? "up" : phase === "starting" ? "connecting" : "down",
         recording,
         pendingAppend: pendingAppend !== null,
@@ -1244,7 +1262,12 @@ export function createTxCoordinator(opts: {
     };
     // Outside `result`, so it stays out of the readiness hash: a byte of line noise does not
     // change whether a send is allowed, and folding it in would churn the revision on every read.
-    return { ...result, readinessRevision: readinessRevisionFor(result), unparsedByteCount: state.unparsedByteCount ?? 0 };
+    return {
+      ...result,
+      readinessRevision: readinessRevisionFor(result),
+      unparsedByteCount: state.unparsedByteCount ?? 0,
+      lastSilentQueryAtMs: state.lastSilentQueryAtMs ?? 0,
+    };
   };
   const hasCurrentSevenFProof = (
     state: ReturnType<typeof currentState>,
@@ -1618,13 +1641,42 @@ export function createTxCoordinator(opts: {
     // block would make every field below equal to itself, which is what an earlier cut of
     // this repair did: it left a check that could only ever fire on `pendingAppend`.
     const beforeWaitState = currentState();
-    const quietDeadline = opts.nowMs() + Math.max(settings.tx_quiet_ms, settings.tx_write_timeout_ms);
+    // Wait for a read to end on a query nobody answers, and write into the gap the wallpad
+    // leaves after it. That is the only place on this line where an eleven-byte frame fits every
+    // time — 7,019 such queries in `capture-1788009200284` fitted 100% of the time, against 42%
+    // for a 60 ms quiet window — and in the 34 measured runs 194 transmits through it damaged
+    // nothing while 183 that waited for a quiet interval damaged 959 bytes.
+    //
+    // The quiet interval is not merely weaker, it is structurally late: the gateway holds bytes
+    // until the serial line has been silent for its own 50 ms gap timer, so "the line is quiet"
+    // is always 50 ms out of date and writing on it is what produced the collisions. It stays as
+    // the fallback because 0.2% of windows are more than a second apart and refusing to send at
+    // all would serve the operator worse than the rule that shipped before this.
+    // A link that has not yet seen one of those queries has nothing to wait for. The gate is a
+    // window in a rhythm, and until the rhythm has been observed once the quiet interval is all
+    // there is — which is also the state a link is in for its first seconds, before the wallpad
+    // has come round to the entrance or the elevator.
+    const gateDeadline = opts.nowMs() + ((beforeWaitState.lastSilentQueryAtMs ?? 0) > 0 ? TX_GATE_WAIT_MS : 0);
+    let gateOpenedAt = 0;
     for (;;) {
-      const waitState = currentState();
-      const openAt = waitState.lastRxByteAtMs + settings.tx_quiet_ms;
-      if (opts.nowMs() >= openAt) break;
-      if (opts.nowMs() >= quietDeadline) return txReject("line busy: quiet interval not met", currentGeneration, journal);
-      await waitUntil(Math.max(1, Math.min(openAt - opts.nowMs(), quietDeadline - opts.nowMs())));
+      // Whether a window is open right now, not whether one arrived since the wait began: a
+      // query that landed a moment before the operator pressed leaves the same gap as one that
+      // lands a moment after, and treating only the second as usable would throw away the case
+      // where the line was already where we want it.
+      const seenAt = currentState().lastSilentQueryAtMs ?? 0;
+      if (seenAt > 0 && opts.nowMs() - seenAt <= TX_GATE_WINDOW_MS) { gateOpenedAt = seenAt; break; }
+      if (opts.nowMs() >= gateDeadline) break;
+      await waitUntil(TX_GATE_POLL_MS);
+    }
+    if (gateOpenedAt === 0) {
+      const quietDeadline = opts.nowMs() + Math.max(settings.tx_quiet_ms, settings.tx_write_timeout_ms);
+      for (;;) {
+        const waitState = currentState();
+        const openAt = waitState.lastRxByteAtMs + settings.tx_quiet_ms;
+        if (opts.nowMs() >= openAt) break;
+        if (opts.nowMs() >= quietDeadline) return txReject("line busy: quiet interval not met", currentGeneration, journal);
+        await waitUntil(Math.max(1, Math.min(openAt - opts.nowMs(), quietDeadline - opts.nowMs())));
+      }
     }
     const state2 = currentState();
     if (!state2.connected || !opts.getTransport()) return txReject("transport not connected", currentGeneration, journal);
@@ -1650,9 +1702,19 @@ export function createTxCoordinator(opts: {
       !beforeWriteState.connected ||
       beforeWriteState.pendingAppend ||
       beforeWriteState.externalTxByteEpoch !== initialState.externalTxByteEpoch ||
-      beforeWriteState.externalTailHash !== initialState.externalTailHash ||
-      opts.nowMs() - quietBeforeWrite < settings.tx_quiet_ms
+      beforeWriteState.externalTailHash !== initialState.externalTailHash
     ) return txReject("transport/RX race before write", currentGeneration, journal);
+    // Which question this is depends on the path. Through the gate, the query that opened the
+    // window is itself the last thing on the line, so demanding 60 ms of silence would reject
+    // every send the measurement says works; what matters is that the window has not aged out.
+    // On the fallback, the interval is all there is.
+    if (gateOpenedAt > 0) {
+      if (opts.nowMs() - gateOpenedAt > TX_GATE_WINDOW_MS) {
+        return txReject("silent-query window closed before write", currentGeneration, journal);
+      }
+    } else if (opts.nowMs() - quietBeforeWrite < settings.tx_quiet_ms) {
+      return txReject("transport/RX race before write", currentGeneration, journal);
+    }
     inFlight = true;
     if (unsafeAction) lastUnsafeAttempt = opts.nowMs(); else if (inferredAction) lastSpeculativeAttempt = opts.nowMs(); else lastNormalAttempt = opts.nowMs();
     const macro = frames.length > 1;
@@ -1732,12 +1794,19 @@ export function createTxCoordinator(opts: {
           outboundEpoch - initialOutboundEpoch === framesWritten &&
           beforeFrameState.txByteEpoch === initialState.externalTxByteEpoch + outboundEpoch &&
           beforeFrameState.tailHash === expectedTailHash;
+        // Per frame, the same question the pre-write check asks, put to whichever path this send
+        // took. Through the gate the query that opened the window is the last thing on the line
+        // by design, so a quiet-interval test here would reject every send the measurement says
+        // works; what has to hold is that the window has not aged out.
+        const windowIntact = gateOpenedAt > 0
+          ? opts.nowMs() - gateOpenedAt <= TX_GATE_WINDOW_MS
+          : opts.nowMs() - beforeFrameQuiet >= settings.tx_quiet_ms;
         if (
           opts.getGeneration() !== currentGeneration ||
           !beforeFrameState.connected ||
           beforeFrameState.pendingAppend ||
           !stableOperation ||
-          opts.nowMs() - beforeFrameQuiet < settings.tx_quiet_ms
+          !windowIntact
         ) {
           outcome = { outcome: macro && framesWritten > 0 ? "partial_indeterminate" : "rejected", reason: "transport/RX race before frame", confirmed: false, deviceConfirmed: false, framesWritten };
           if (macro && framesWritten > 0) {
