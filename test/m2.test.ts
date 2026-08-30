@@ -908,7 +908,7 @@ test("RED: config strictness and exact static contract", () => {
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,
     tx_write_timeout_ms: 1_000,
-    tx_observation_timeout_ms: 3_000,
+    tx_observation_timeout_ms: 4_600,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 60,
     tx_max_attempts: 3,
@@ -1087,7 +1087,7 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,
     tx_write_timeout_ms: 1_000,
-    tx_observation_timeout_ms: 3_000,
+    tx_observation_timeout_ms: 4_600,
     tx_cooldown_ms: 250,
     tx_quiet_ms: 60,
     tx_max_attempts: 3,
@@ -6688,17 +6688,17 @@ test("M4.8 RED: an observed entrance call takes over the banner and offers no op
 });
 
 
-test("M4.9 RED: the observation window is short enough to work between frames", async () => {
+test("M5 RED: the observation window is sized to the poll it waits for", async () => {
+  // This used to cap the window at 4,000 ms on the reasoning that state frames arrive about
+  // every 1.6 s. That is the interval between frames on the whole bus, not between polls of
+  // one device: measurement put the heating at 2.0–2.3 s, the lights at 2.2 s and batch-off
+  // at 1.86 s. A window that fits one heating poll with 700 ms to spare closes early whenever
+  // a poll runs late, which is a resend on a half-duplex line — and for batch-off, lights
+  // going out in rooms the wallpad cannot reach. It is two polls wide now, which survives one
+  // late poll and still bounds three attempts inside about fourteen seconds.
   const config = JSON.parse(readFileSync(new URL("../bestium-eco-foret/config.json", import.meta.url), "utf8")) as AnyRecord;
   const timeout = (config.options as AnyRecord).tx_observation_timeout_ms;
-  assert.equal(
-    typeof timeout === "number" && timeout <= 4_000,
-    true,
-    "state frames arrive about every 1.6 s, so a default longer than a few seconds only stalls the operator",
-  );
-  assert.equal(
-    typeof timeout === "number" && timeout >= 1_000,
-    true,
-    "the window must still outlast one frame interval",
-  );
+  assert.equal(typeof timeout, "number");
+  assert.ok((timeout as number) >= 4_600, "two polls of the slowest device, which is the heating");
+  assert.ok((timeout as number) <= 6_900, "and not so wide that three attempts strand the operator");
 });

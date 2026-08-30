@@ -24,7 +24,7 @@
     "speculative_transmit_enabled": false,
     "unsafe_transmit_enabled": false,
     "tx_write_timeout_ms": 1000,
-    "tx_observation_timeout_ms": 3000,
+    "tx_observation_timeout_ms": 4600,
     "tx_cooldown_ms": 250,
     "tx_quiet_ms": 60,
     "tx_max_attempts": 3,

@@ -1,3 +1,5 @@
+import { OBSERVATION_TIMEOUT_MS } from "./tx-queue.ts";
+
 export const DEFAULT_OPTIONS_PATH = "/data/options.json";
 
 export type ParsedSettings = {
@@ -47,7 +49,7 @@ type ParseNumericResult = {
   >;
 };
 
-const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_id"> = {
+export const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_id"> = {
   connect_timeout_ms: 3000,
   idle_timeout_ms: 30_000,
   capture_duration_ms: 5000,
@@ -57,7 +59,9 @@ const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_
   speculative_transmit_enabled: false,
   unsafe_transmit_enabled: false,
   tx_write_timeout_ms: 1_000,
-  tx_observation_timeout_ms: 3_000,
+  // Three polls of the slowest device. 3,000 ms held exactly one 2,300 ms heating poll, so a
+  // late one closed the window and the frame went out again. See `DEVICE_POLL_MS`.
+  tx_observation_timeout_ms: OBSERVATION_TIMEOUT_MS,
   tx_cooldown_ms: 250,
   // 20 ms was shorter than the ~12 ms an eleven-byte frame occupies at 9600 baud plus any
   // margin, so a send could start into the wallpad's next frame. 60 ms was measured on the

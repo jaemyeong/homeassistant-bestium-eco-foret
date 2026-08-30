@@ -5,6 +5,44 @@
 
 type AnyRecord = Record<string, any>;
 
+/**
+ * How often the wallpad polls each device, measured over one capture and thirty runs.
+ *
+ * These matter because a command's effect is only visible on the next poll of the device it
+ * addressed. For most controls a direct reply also comes back, but measurement showed a direct
+ * reply says nothing about the effect: the gas valve answered byte-identically whether or not
+ * the state changed, and a heating zone echoed a target temperature it did not adopt. For a
+ * group command there is no direct reply at all — the group's own poll is the only evidence
+ * (M4-E139, M4-E145, M4-E147, M4-E151).
+ */
+export const DEVICE_POLL_MS = {
+  /** 2.0–2.3 s. The slowest, so it sets the window. */
+  heating: 2_300,
+  lights: 2_200,
+  gas: 2_100,
+  batchOff: 1_860,
+  /** 1.2–2.0 s, faster while a call is standing. */
+  elevator: 2_000,
+} as const;
+
+/**
+ * How long to watch for a command's effect before calling the attempt unconfirmed.
+ *
+ * Two polls of the slowest device, which is a compromise between two real costs.
+ *
+ * Too short and a poll arriving late closes the window: the attempt is called unconfirmed and
+ * the frame goes out again. On a half-duplex bus a needless repeat is a collision waiting to
+ * happen, and for batch-off it switches off lights in rooms the wallpad cannot reach. The
+ * previous 3,000 ms held exactly one 2,300 ms heating poll, with 700 ms to spare.
+ *
+ * Too long and a genuine miss keeps the operator waiting. Confirmation returns the moment it
+ * arrives, so the window is only ever spent on a failure — but `tx_max_attempts` multiplies
+ * it, and three attempts at three polls each is over twenty seconds of a button that has not
+ * answered. Two polls costs about fourteen seconds in the worst case and still survives one
+ * missed poll, which is the case that was causing the resends.
+ */
+export const OBSERVATION_TIMEOUT_MS = Math.max(...Object.values(DEVICE_POLL_MS)) * 2;
+
 export type QueueEntry = { key: string; value: AnyRecord; seq: number };
 
 const isZone = (value: unknown): value is number =>

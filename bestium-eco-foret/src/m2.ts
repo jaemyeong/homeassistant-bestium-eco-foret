@@ -1593,8 +1593,13 @@ export function createTxCoordinator(opts: {
   };
 
   const awaitConfirmation = async (action: AnyRecord, writeAtMs: number, before?: AnyRecord): Promise<boolean> => {
-    // The direct reply lands in the same read as the write, so this almost always returns on
-    // its first look. The window only matters for a device that answers on the poll.
+    // What is waited for is the device's next poll, not the reply to our frame.
+    //
+    // A direct reply usually does arrive in the same read as the write, and it used to look
+    // like the answer. Measurement showed it is not one: the gas valve answers byte-identically
+    // whether or not the state changed, a heating zone echoed a target it did not adopt, and a
+    // group command draws no direct reply at all. So the window has to be wide enough for a
+    // poll of the addressed device — three of them, at the slowest cadence measured.
     const deadline = opts.nowMs() + settings.tx_observation_timeout_ms;
     for (;;) {
       if (confirmedNow(action, writeAtMs, before)) return true;
