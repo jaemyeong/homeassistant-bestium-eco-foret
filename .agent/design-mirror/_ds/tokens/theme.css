@@ -1,0 +1,190 @@
+/* Theme aliases — the names components and dashboards actually consume.
+   From src/resources/theme/color/color.globals.ts (colorStyles + darkColorStyles).
+   Light is the default; dark switches on prefers-color-scheme because an Ingress
+   iframe does NOT inherit the HA theme variables from the parent frontend. */
+:root{
+/* text */
+--primary-text-color:var(--ha-color-text-primary);
+--secondary-text-color:var(--ha-color-text-secondary);
+--text-primary-color:#ffffff;
+--text-light-primary-color:#212121;
+--disabled-text-color:#bdbdbd;
+
+/* brand */
+--primary-color:var(--ha-color-primary-40);
+--dark-primary-color:#0288d1;
+--darker-primary-color:#016194;
+--light-primary-color:#b3e5fc;
+--accent-color:#ff9800;
+
+/* lines and shadows */
+--divider-color:rgba(0,0,0,0.12);
+--outline-color:rgba(0,0,0,0.12);
+--outline-hover-color:rgba(0,0,0,0.24);
+--shadow-color:rgba(0,0,0,0.16);
+--scrollbar-thumb-color:rgb(194,194,194);
+
+/* rgb channels, for rgba() composition */
+--rgb-primary-color:0,154,199;
+--rgb-accent-color:255,152,0;
+--rgb-primary-text-color:33,33,33;
+--rgb-secondary-text-color:114,114,114;
+--rgb-text-primary-color:255,255,255;
+--rgb-card-background-color:255,255,255;
+--rgb-warning-color:255,166,0;
+--rgb-error-color:219,68,55;
+--rgb-success-color:67,160,71;
+--rgb-info-color:3,155,229;
+
+/* status */
+--error-color:#db4437;
+--warning-color:#ffa600;
+--success-color:#43a047;
+--info-color:#039be5;
+
+/* backgrounds */
+--card-background-color:#ffffff;
+--primary-background-color:#fafafa;
+--secondary-background-color:#e5e5e5;
+--clear-background-color:#ffffff;
+
+/* palette */
+--disabled-color:#bdbdbd;
+--red-color:#f44336;
+--pink-color:#e91e63;
+--purple-color:#926bc7;
+--deep-purple-color:#6e41ab;
+--indigo-color:#3f51b5;
+--blue-color:#2196f3;
+--light-blue-color:#03a9f4;
+--cyan-color:#00bcd4;
+--teal-color:#009688;
+--green-color:#4caf50;
+--light-green-color:#8bc34a;
+--lime-color:#cddc39;
+--yellow-color:#ffeb3b;
+--amber-color:#ffc107;
+--orange-color:#ff9800;
+--deep-orange-color:#ff6f22;
+--brown-color:#795548;
+--light-grey-color:#bdbdbd;
+--grey-color:#9e9e9e;
+--dark-grey-color:#606060;
+--blue-grey-color:#607d8b;
+--black-color:#000000;
+--white-color:#ffffff;
+
+/* entity state colors */
+--state-icon-color:#44739e;
+--state-active-color:var(--amber-color);
+--state-inactive-color:var(--grey-color);
+--state-unavailable-color:var(--disabled-text-color);
+--state-light-active-color:var(--amber-color);
+--state-switch-active-color:var(--amber-color);
+--state-binary_sensor-active-color:var(--amber-color);
+--state-climate-heat-color:var(--deep-orange-color);
+--state-climate-cool-color:var(--blue-color);
+--state-climate-auto-color:var(--green-color);
+--state-climate-dry-color:var(--orange-color);
+--state-climate-fan_only-color:var(--cyan-color);
+--state-climate-heat-cool-color:var(--amber-color);
+--state-fan-active-color:var(--cyan-color);
+--state-cover-active-color:var(--purple-color);
+--state-lock-locked-color:var(--green-color);
+--state-lock-unlocked-color:var(--red-color);
+--state-lock-jammed-color:var(--red-color);
+--state-media_player-active-color:var(--light-blue-color);
+--state-person-home-color:var(--green-color);
+--state-vacuum-active-color:var(--teal-color);
+--state-update-active-color:var(--orange-color);
+--state-sun-above_horizon-color:var(--amber-color);
+--state-sun-below_horizon-color:var(--indigo-color);
+--state-alarm_control_panel-armed_home-color:var(--green-color);
+--state-alarm_control_panel-triggered-color:var(--red-color);
+--state-sensor-battery-high-color:var(--green-color);
+--state-sensor-battery-medium-color:var(--orange-color);
+--state-sensor-battery-low-color:var(--red-color);
+
+/* energy dashboard */
+--energy-grid-consumption-color:#488fc2;
+--energy-grid-return-color:#8353d1;
+--energy-solar-color:#ff9800;
+--energy-non-fossil-color:#0f9d58;
+--energy-battery-out-color:#4db6ac;
+--energy-battery-in-color:#f06292;
+--energy-gas-color:#8e021b;
+--energy-water-color:#00bcd4;
+
+/* graph series */
+--color-1:#4269d0;--color-2:#f4bd4a;--color-3:#ff725c;--color-4:#6cc5b0;--color-5:#a463f2;
+--color-6:#ff8ab7;--color-7:#9c6b4e;--color-8:#97bbf5;--color-9:#01ab63;--color-10:#094bad;
+
+/* inputs */
+--input-idle-line-color:rgba(0,0,0,0.42);
+--input-hover-line-color:rgba(0,0,0,0.87);
+--input-disabled-line-color:rgba(0,0,0,0.06);
+--input-outlined-idle-border-color:rgba(0,0,0,0.38);
+--input-outlined-hover-border-color:rgba(0,0,0,0.87);
+--input-fill-color:rgb(245,245,245);
+--input-disabled-fill-color:rgb(250,250,250);
+--input-ink-color:rgba(0,0,0,0.87);
+--input-label-ink-color:rgba(0,0,0,0.6);
+--input-disabled-ink-color:rgba(0,0,0,0.37);
+--input-dropdown-icon-color:rgba(0,0,0,0.54);
+
+/* derived surfaces */
+--sidebar-text-color:var(--primary-text-color);
+--sidebar-background-color:var(--card-background-color);
+--sidebar-selected-text-color:var(--primary-color);
+--sidebar-icon-color:rgba(var(--rgb-primary-text-color),0.6);
+--slider-color:var(--primary-color);
+--slider-secondary-color:var(--light-primary-color);
+--slider-track-color:var(--scrollbar-thumb-color);
+--table-header-background-color:var(--input-fill-color);
+--table-row-background-color:var(--primary-background-color);
+--table-row-alternative-background-color:var(--secondary-background-color);
+--markdown-code-background-color:var(--primary-background-color);
+--app-header-background-color:var(--sidebar-background-color);
+--app-header-text-color:var(--sidebar-text-color);
+--app-header-border-bottom:1px solid var(--divider-color);
+--chip-background-color:rgba(var(--rgb-primary-text-color),0.15);
+--ha-assist-chip-filled-container-color:rgba(var(--rgb-primary-text-color),0.15);
+--ha-assist-chip-active-container-color:rgba(var(--rgb-primary-color),0.15);
+
+/* ha-card defaults: flat surface, 1px border, 12px radius */
+--ha-card-background:var(--card-background-color);
+--ha-card-border-radius:var(--ha-border-radius-lg);
+--ha-card-border-width:1px;
+--ha-card-border-color:var(--divider-color);
+--ha-card-box-shadow:none;
+}
+@media (prefers-color-scheme:dark){:root{
+--primary-background-color:#111111;
+--card-background-color:#1c1c1c;
+--secondary-background-color:#282828;
+--clear-background-color:#111111;
+--primary-text-color:#e1e1e1;
+--secondary-text-color:#9b9b9b;
+--disabled-text-color:#6f6f6f;
+--divider-color:rgba(225,225,225,0.12);
+--outline-color:rgba(225,225,225,0.12);
+--outline-hover-color:rgba(225,225,225,0.24);
+--shadow-color:rgba(0,0,0,0.48);
+--scrollbar-thumb-color:rgb(110,110,110);
+--disabled-color:#464646;
+--rgb-primary-text-color:225,225,225;
+--rgb-card-background-color:28,28,28;
+--energy-grid-return-color:#a280db;
+--input-idle-line-color:rgba(255,255,255,0.42);
+--input-hover-line-color:rgba(255,255,255,0.87);
+--input-disabled-line-color:rgba(255,255,255,0.06);
+--input-outlined-idle-border-color:rgba(255,255,255,0.38);
+--input-outlined-hover-border-color:rgba(255,255,255,0.87);
+--input-fill-color:rgba(255,255,255,0.05);
+--input-disabled-fill-color:rgba(255,255,255,0.02);
+--input-ink-color:rgba(255,255,255,0.87);
+--input-label-ink-color:rgba(255,255,255,0.6);
+--input-disabled-ink-color:rgba(255,255,255,0.37);
+--input-dropdown-icon-color:rgba(255,255,255,0.54);
+--map-filter:invert(0.9) hue-rotate(170deg) brightness(1.5) contrast(1.2) saturate(0.3); /* @kind other */
+}}

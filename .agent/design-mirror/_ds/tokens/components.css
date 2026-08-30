@@ -1,0 +1,74 @@
+/* Component-level knobs. Every ha-* component reads these, so a consumer can
+   retheme a whole family without touching component CSS. Names match upstream
+   (--control-switch-on-color, --tile-color, …) so values set on any ancestor
+   in a Home Assistant dashboard keep working. */
+:root{
+/* tile card */
+--tile-color:var(--state-inactive-color);
+--tile-icon-size:36px;
+--tile-icon-opacity:0.2; /* @kind other */
+--tile-icon-hover-opacity:0.35; /* @kind other */
+--tile-badge-background-color:var(--primary-color);
+
+/* control button */
+--control-button-background-color:var(--disabled-color);
+--control-button-background-opacity:0.2; /* @kind other */
+--control-button-active-color:var(--primary-color);
+--control-button-icon-color:var(--primary-text-color);
+--control-button-focus-color:var(--secondary-text-color);
+--control-button-border-radius:var(--ha-border-radius-md);
+--control-button-padding:8px;
+--control-button-group-spacing:12px;
+--control-button-group-thickness:40px;
+
+/* control switch */
+--control-switch-on-color:var(--primary-color);
+--control-switch-off-color:var(--disabled-color);
+--control-switch-background-opacity:0.2; /* @kind other */
+--control-switch-hover-background-opacity:0.4; /* @kind other */
+--control-switch-thickness:40px;
+--control-switch-padding:4px;
+--control-switch-border-radius:var(--ha-border-radius-lg);
+
+/* control slider */
+--control-slider-color:var(--primary-color);
+--control-slider-background:var(--disabled-color);
+--control-slider-background-opacity:0.2; /* @kind other */
+--control-slider-thickness:40px;
+--control-slider-border-radius:var(--ha-border-radius-md);
+--ha-slider-handle-size:4px;
+--ha-slider-handle-margin:calc(var(--control-slider-thickness) / 8);
+
+/* circular slider */
+--control-circular-slider-color:var(--primary-color);
+--control-circular-slider-background:var(--disabled-color);
+--control-circular-slider-background-opacity:0.3; /* @kind other */
+
+/* number buttons */
+--control-number-buttons-background-color:var(--disabled-color);
+--control-number-buttons-background-opacity:0.2; /* @kind other */
+--control-number-buttons-border-radius:var(--ha-border-radius-md);
+--control-number-buttons-focus-color:var(--secondary-text-color);
+--feature-height:40px;
+
+/* control select */
+--control-select-color:var(--primary-color);
+--control-select-background:var(--disabled-color);
+--control-select-background-opacity:0.2; /* @kind other */
+--control-select-focused-opacity:0.2; /* @kind other */
+--control-select-thickness:40px;
+--control-select-stacked-thickness:56px;
+--control-select-border-radius:10px;
+--control-select-padding:4px;
+
+/* badge, gauge, bar, dialog */
+--badge-color:var(--secondary-text-color);
+--ha-badge-size:36px;
+--ha-alert-icon-size:24px;
+--gauge-color:var(--primary-color);
+--ha-bar-border-radius:var(--ha-border-radius-sm);
+--ha-assist-chip-container-shape:16px;
+--ha-dialog-border-radius:var(--ha-border-radius-4xl);
+--expansion-panel-summary-padding:0 var(--ha-space-2);
+--expansion-panel-content-padding:0 var(--ha-space-2);
+}

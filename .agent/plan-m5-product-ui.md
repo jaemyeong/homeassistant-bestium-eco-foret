@@ -167,17 +167,14 @@ M4.12에서 이 월패드의 읽기·쓰기 동작을 전수 실측했습니다.
   파일: `test/ha-design-system.test.ts`
 - `T1.1.5` 받은 원본 9개를 `.agent/design-mirror/_ds/` 아래 그대로 저장한다. 다음 사람이
   대조할 수 있어야 한다. 프로토타입이 만든 파일 넷도 같이 내린다(부록 C).
-- `T1.1.6` **`theme-scopes.css`를 먼저 읽는다.** 프로토타입의 자동 점검이 만든 파일이고,
-  우리가 풀어야 할 문제를 이미 같은 이유로 풀어 놓았다. 그 파일의 머리 주석이 이유를
-  적고 있다 — 디자인 시스템이 별칭을 `:root`에 선언하고, 사용자 지정 속성 선언 안의
-  `var()`는 그 자리에서 치환되므로, 테마를 스코프에 고정하려면 **토큰 전체를 다시
-  선언하는 수밖에 없다.** Ingress iframe이 HA 테마를 상속하지 못하는 것과 같은 구조다.
-  `semantic-colors` · `theme` · `elevation` · `components` · `core` 다섯을 라이트와
-  다크 두 벌로 펼쳐 놓았으니, 선택자를 `[data-om-theme="light"]`에서 `:root`로 바꾸면
-  그대로 쓸 수 있다. 다만 나머지 넷(`fonts` · `core-colors` · `typography` ·
-  `ha-components`)은 들어 있지 않다. `theme-scopes.css`가 참조하는 `--ha-color-*`
-  원시 팔레트가 `core-colors.css`에 있고, `.ha-tile__*`과 `.ha-control-*`은
-  `ha-components.css`에 있다. **합치는 일 자체가 없어지지는 않는다.**
+- `T1.1.6` **`theme-scopes.css`는 쓰지 않는다.** 프로토타입의 자동 점검이 만든
+  파일이고, 한 캔버스 안에서 아트보드마다 라이트와 다크를 **동시에** 보여 주려고
+  토큰을 스코프에 고정한 것이다. 우리 페이지는 한 번에 한 테마만 그리므로 그 문제가
+  없다. 원본 `tokens/theme.css`의 머리 주석이 이미 우리 사정을 적고 있다 — *"dark
+  switches on prefers-color-scheme because an Ingress iframe does NOT inherit the
+  HA theme variables from the parent frontend."* `semantic-colors` · `theme` ·
+  `elevation` 셋이 각각 `@media (prefers-color-scheme:dark)` 블록을 지니고 있고,
+  아홉을 순서대로 합치면 그대로 동작한다.
 
 **완료 기준**: 합친 CSS가 `--primary-color`, `--ha-card-*`, `.ha-tile__*`,
 `.ha-control-*`, `.ha-tab`, `.ha-button` 을 모두 담고 있고, 외부 URL 참조가 0개다.
@@ -923,6 +920,13 @@ BESTIUM 월패드 애드온의 웹 UI를 다시 만들어 주세요. 새 파일�
   덩어리가 사라지고 `data-om-theme="light|dark"` 한 줄로 바뀌었습니다.
 - **`theme-scopes.css`는 새 파일이므로 20행을 다시 걸었습니다.** 호스트도 IP도 포트도
   없고, 금지 어휘도 없습니다. 순수 토큰 선언입니다.
+
+  이 파일을 두고 처음에 **"E1의 일을 이미 해 놓았다"고 적었는데 틀렸습니다.** 원본
+  아홉 개를 받아 보니 `semantic-colors` · `theme` · `elevation`이 이미
+  `@media (prefers-color-scheme:dark)`로 다크를 처리하고 있고, `theme.css`의 머리
+  주석이 그 이유로 **Ingress iframe이 HA 테마를 상속하지 못한다는 것**을 그대로 적고
+  있습니다. `theme-scopes.css`는 한 캔버스에 라이트와 다크 아트보드를 나란히 놓기
+  위한 것이지 우리 문제의 답이 아닙니다. `T1.1.6`을 그에 맞게 고쳤습니다.
 - 아트보드 셋을 눈으로 확인했습니다. A1 라이트, A2 다크, A3 모바일 390px이 모두
   그려지고 카드 다섯이 다 나옵니다. 모바일에서 조명과 난방이 세로로 쌓이고 무너진
   자리가 없습니다.

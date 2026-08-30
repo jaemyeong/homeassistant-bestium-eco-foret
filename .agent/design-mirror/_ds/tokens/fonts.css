@@ -1,0 +1,8 @@
+/* Korean copy falls back to Noto Sans KR — Google Fonts is the only external
+   origin an Ingress add-on UI is allowed to reach. Must stay above @font-face. */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap");
+
+/* Roboto — Google's variable TTF, copied from google/fonts (ofl/roboto, SIL OFL 1.1).
+   HA ships per-weight woff2 for Roboto 100–900; one variable file covers the whole
+   axis, which suits an add-on that should not depend on the network. */
+@font-face{font-family:"Roboto";font-style:normal;font-weight:100 900;font-display:swap;src:local("Roboto"),url("../assets/fonts/Roboto[wdth,wght].ttf") format("truetype-variations")}
