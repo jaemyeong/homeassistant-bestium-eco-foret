@@ -1063,3 +1063,33 @@ BESTIUM 월패드 애드온의 웹 UI를 다시 만들어 주세요. 새 파일�
 - `실패`라는 낱말은 기기 조작 문맥에 쓰지 않는다. `미관측`이다
 - 방 이름을 붙이지 않는다. 주소를 그대로 쓴다 (`0x19 · 채널 1`)
 - **게이트웨이 주소는 화면 어디에도 없다.** 헤더는 연결 상태만
+
+### 시험 둘이 옛 화면을 고정하고 있습니다
+
+`test/protocol-debug.test.ts`의 두 시험이 `ui.ts`를 문자열로 읽어 표지를 대조합니다.
+그 표지 목록이 곧 옛 화면의 계약이고, **이번에 걷어낼 것들이 그 안에 들어 있습니다.**
+
+| 시험 | 무엇을 고정하나 |
+| --- | --- |
+| `RED: debug UI is bilingual…` | `Protocol Debug` · `프로토콜` · `inferred_candidate` · `unsafe_candidate` · `single-burst` · `kind: "outlet"` |
+| `RED-final: UI uses a two-activation review flow…` | `cctv-observation` · `outlet-query` · `ventilation-query` · `vehicle-unidentified` · `unknown-clusters` · `expiresAtMs` · `reviewed/challenged/committing` |
+
+그러므로 E3는 화면만 다시 쓰는 일이 아니라 **이 두 시험을 새 계약으로 다시 쓰는
+일**을 포함합니다. 새 표지 목록은 이렇습니다.
+
+| 남길 표지 | 왜 |
+| --- | --- |
+| `/api/status` · `/api/action` · `/api/capture` · `/api/stop` · `/api/download` | 서버 계약은 그대로다 |
+| `csrfToken` · `aria-busy` · `clearTimeout(...poll` | 접근성과 폴링 수명은 그대로다 |
+| `light-1-on` … `heat-zone-4` · `gas-close` · `elevator-up` · `elevator-down` | 제어 id |
+| `batchoff-toggle` · `lights-all-on` · `lights-all-off` · `heat-all-on` · `heat-all-off` | 새 제어 |
+| `link-state` · `banner-state` · `door-open-at` · `elevator-call` | 새 관측 |
+| `kind: "light"` · `"gas"` · `"heat"` · `"elevator"` · `"batchoff"` | 실측 여덟 종 |
+
+| 지울 표지 | 왜 |
+| --- | --- |
+| `Protocol Debug` · `프로토콜 디버그` | 디버그 화면이 아니다 |
+| `inferred_candidate` · `unsafe_candidate` | 화면에 후보가 없다 |
+| `outlet-query` · `ventilation-query` · `kind: "outlet"` | 기기가 없다 |
+| `cctv-observation` · `vehicle-unidentified` · `unknown-clusters` | 조회 전용 패널이 없어진다 |
+| `single-burst` · `expiresAtMs` · `reviewed/challenged/committing` | 임의 전송과 2단 승인이 없어진다 |
