@@ -287,7 +287,18 @@ export function createBoundedCaptureCoordinator(opts: {
     maximum_records: settings.maximum_records,
   };
 
+  // Two lifecycles, not one.
+  //
+  // `phase` is the link: the socket to the gateway, the decoder that reads it, and the
+  // generation counter that invalidates confirmations across a reconnect. The app opens it at
+  // startup and keeps it open, because control and observation are what the page is for.
+  //
+  // `recording` is the capture file, which the operator starts and stops. It rides on the
+  // link and nothing depends on it except the file itself. Until now one `start()` opened
+  // both, so nothing decoded and nothing sent until somebody started a capture — the send
+  // gate literally carried "capture is not running" as a reason.
   let phase: CapturePhase = "stopped";
+  let recording: "off" | "opening" | "open" = "off";
   let transport: Transport | null = null;
   let connectTimeoutId: TimerToken | null = null;
   let runningTimeoutId: TimerToken | null = null;
@@ -360,8 +371,10 @@ export function createBoundedCaptureCoordinator(opts: {
     };
   };
 
+  // `state` has always meant "is a capture running", and it still does. The link has its own
+  // field now rather than borrowing this one.
   const stateForPhase = (): "running" | "stopped" =>
-    phase === "running" ? "running" : "stopped";
+    recording === "open" ? "running" : "stopped";
 
   const detachTransport = (target: Transport | null): void => {
     if (!target) return;
@@ -427,6 +440,10 @@ export function createBoundedCaptureCoordinator(opts: {
   };
 
   const queueRecord = (record: CaptureRecord): void => {
+    // No recording open, nothing to write. The link decodes either way; this is the one place
+    // where the two lifecycles meet, and getting it wrong means every decoded frame throws
+    // against a store that was never begun.
+    if (recording !== "open" || !storeActive) return;
     const line = `${JSON.stringify(record)}\n`;
     const activeTransport = transport;
     if (!activeTransport || pendingAppend) return;
@@ -466,13 +483,29 @@ export function createBoundedCaptureCoordinator(opts: {
     ).catch(() => undefined);
   };
 
-  const finishCapture = (reason: string): Promise<CoordinatorResult> => {
+  /**
+   * Closes the capture file.
+   *
+   * `closeLink` says whether the socket goes with it. Stopping a recording leaves the link up
+   * — that is the whole point of the split — while a transport error or a shutdown takes both.
+   */
+  const finishCapture = (reason: string, closeLink = true): Promise<CoordinatorResult> => {
     if (finishPromise) return finishPromise;
 
-    phase = "finalizing";
     stoppedAtMs = opts.nowMs();
-    protocol.stop();
-    clearAll();
+    // The recording closes here, not when finalization resolves: from this moment no further
+    // record is queued, and every caller that asks whether a capture is running gets the
+    // answer the operator just gave. `storeActive` is what still has a file to finalize.
+    recording = "off";
+    if (closeLink) {
+      phase = "finalizing";
+      protocol.stop();
+      clearAll();
+    } else {
+      // Only the recording's own timers stop; the connect and idle timers belong to the link.
+      if (progressTimeoutId !== null) { opts.clearTimeout(progressTimeoutId); progressTimeoutId = null; }
+      if (runningTimeoutId !== null) { opts.clearTimeout(runningTimeoutId); runningTimeoutId = null; }
+    }
     const appendToAwait = pendingAppend;
     const summary: CoordinatorResult = {
       ...currentSummary(),
@@ -501,7 +534,13 @@ export function createBoundedCaptureCoordinator(opts: {
       }
 
       storeActive = false;
-      phase = "stopped";
+      if (closeLink) {
+        phase = "stopped";
+      } else {
+        // The link is still up, so a later recording must be able to start and finish. Only
+        // a link that closed keeps its finish promise as the terminal answer.
+        finishPromise = null;
+      }
       const result: CoordinatorResult = {
         ...summary,
         file,
@@ -527,7 +566,10 @@ export function createBoundedCaptureCoordinator(opts: {
 
   requestFinish = (reason: string): Promise<CoordinatorResult> => {
     if (finishPromise) return finishPromise;
-    if (phase === "starting") {
+    // A stop arriving while the store is still opening cannot finalize a file that does not
+    // exist yet, so it waits for `beginRecording` to hand it the newly opened one. This used
+    // to be keyed on the link's "starting", because the two lifecycles were one.
+    if (phase === "starting" || recording === "opening") {
       if (pendingStop) return pendingStop.promise;
       let resolvePending!: (result: CoordinatorResult) => void;
       let rejectPending!: (error: unknown) => void;
@@ -586,9 +628,11 @@ export function createBoundedCaptureCoordinator(opts: {
       onError(activeTransport, error);
       return;
     }
-    if (runningTimeoutId === null) {
+    if (runningTimeoutId === null && recording === "open") {
+      // The duration limit bounds the capture file, not the link. A link that closed itself
+      // after `capture_duration_ms` would take the page's control with it.
       runningTimeoutId = opts.setTimeout(() => {
-        if (phase === "running") void requestFinish("duration").catch(() => undefined);
+        if (recording === "open") void requestFinish("duration").catch(() => undefined);
       }, settings.capture_duration_ms);
     }
   };
@@ -699,10 +743,51 @@ export function createBoundedCaptureCoordinator(opts: {
     );
   }
 
-  const start = async (): Promise<void> => {
-    if (phase !== "stopped") throw new Error(`capture phase is ${phase}`);
-
+  /**
+   * Opens the socket to the gateway and starts decoding. No file is touched.
+   *
+   * Everything reset here belongs to the link: the connection itself, the byte and frame
+   * epochs a confirmation is judged against, and the generation counter that invalidates a
+   * pending confirmation when the transport is replaced. A capture starting must not bump the
+   * generation — that would discard confirmations for writes already on the bus.
+   */
+  const openLink = async (): Promise<void> => {
+    if (phase !== "stopped") throw new Error(`link phase is ${phase}`);
     phase = "starting";
+    lastFailure = null;
+    connected = false;
+    rxByteEpoch = 0;
+    lastRxByteAtMs = 0;
+    lastValidFrameAtMs = 0;
+    validFrameEpoch = 0;
+    validFrameGeneration = generation;
+    lastValidSevenFFrameAtMs = 0;
+    validSevenFFrameGeneration = generation;
+    readEpoch += 1;
+    lastResumeAtMs = opts.nowMs();
+    protocol.resetGeneration();
+    try {
+      attachTransport();
+    } catch (error) {
+      // A transport factory that throws leaves nothing attached, so the link is simply down
+      // again. The failure is recorded the same way any other start failure is, so a caller
+      // asking what happened gets an answer rather than an empty state.
+      phase = "stopped";
+      clearAll();
+      stoppedAtMs = opts.nowMs();
+      logFailure("start", error, "start");
+      lastResult = { ...currentSummary(), reason: "error", stoppedAtMs, phase: "stopped" };
+      throw error;
+    }
+    phase = "running";
+  };
+
+  /** Opens the capture file. The link is left alone; it may already be carrying frames. */
+  const beginRecording = async (): Promise<void> => {
+    if (recording !== "off") throw new Error(`a recording is already ${recording}`);
+    // `store.begin()` can take a while, and a second request arriving in that window used to
+    // queue behind it and open a second file. The intermediate state is what refuses it.
+    recording = "opening";
     startedAtMs = opts.nowMs();
     stoppedAtMs = 0;
     byteCount = 0;
@@ -713,40 +798,50 @@ export function createBoundedCaptureCoordinator(opts: {
     finishPromise = null;
     pendingAppend = null;
     storeActive = false;
-    lastFailure = null;
     pendingStop = null;
-    connected = false;
-    rxByteEpoch = 0;
-    lastRxByteAtMs = 0;
-    lastValidFrameAtMs = 0;
-    validFrameEpoch = 0;
-    validFrameGeneration = generation;
-    lastValidSevenFFrameAtMs = 0;
-    validSevenFFrameGeneration = generation;
-    readEpoch += 1;
-    lastResumeAtMs = startedAtMs;
-    protocol.resetGeneration();
     logger.info("start", summaryForLog(currentSummary()));
-
     try {
       await store.begin(startedAtMs);
-      storeActive = true;
-
-      const request = takePendingStop();
-      if (request) {
-        try {
-          const result = await finishCapture(request.reason);
-          request.resolve(result);
-          return;
-        } catch (error) {
-          request.reject(error);
-          throw error;
-        }
+    } catch (error) {
+      recording = "off";
+      throw error;
+    }
+    storeActive = true;
+    recording = "open";
+    const request = takePendingStop();
+    if (request) {
+      try {
+        request.resolve(await finishCapture(request.reason));
+      } catch (error) {
+        request.reject(error);
+        throw error;
       }
+      return;
+    }
+    scheduleProgress();
+  };
 
-      attachTransport();
-      scheduleProgress();
-      phase = "running";
+  /** Closes the capture file and returns its metadata. The link stays up. */
+  const stopRecording = async (): Promise<CoordinatorResult> => {
+    if (recording === "off") {
+      return lastResult ?? { ...currentSummary(), reason: "stopped", stoppedAtMs, phase };
+    }
+    return finishCapture("stopped", false);
+  };
+
+  // Kept for the tests and callers that predate the split: open the link, then the recording.
+  const start = async (): Promise<void> => {
+    // A link that will not open is not a recording that failed: there is no store to
+    // finalize and nothing in flight to unwind. Letting this fall into the recovery below
+    // made a refused `start()` await a finalize already running, which never returned.
+    if (phase === "stopped") await openLink();
+    else if (phase !== "running") throw new Error(`link phase is ${phase}`);
+    // A second request arriving while the first is still opening is refused, not recovered
+    // from: there is no half-built recording to unwind, and touching the state here would
+    // reject the pending stop that belongs to the request already in flight.
+    if (recording !== "off") throw new Error(`a recording is already ${recording}`);
+    try {
+      await beginRecording();
     } catch (error) {
       if (getPhase() !== "stopped" && storeActive) {
         try {
@@ -773,6 +868,9 @@ export function createBoundedCaptureCoordinator(opts: {
 
   return {
     start,
+    openLink,
+    beginRecording,
+    stopRecording,
     async stop(): Promise<CoordinatorResult> {
       if (phase === "starting") return requestFinish("stopped");
       if (phase === "running") return requestFinish("stopped");
@@ -792,8 +890,12 @@ export function createBoundedCaptureCoordinator(opts: {
       return lastResult;
     },
     getState() {
-      if (phase !== "stopped") return {
-        state: stateForPhase(),
+      // A recording in progress reports itself. Once it closes, the last result is the
+      // answer — including the file it produced — whether or not the link is still up. Before
+      // the split those were the same condition, so a stopped recording on a live link fell
+      // through to the live summary and the finished file went missing from `/api/download`.
+      if (recording === "open") return {
+        state: "running" as const,
         ...currentSummary(),
       };
       const result = lastResult ?? {
@@ -805,7 +907,9 @@ export function createBoundedCaptureCoordinator(opts: {
       return {
         state: "stopped" as const,
         ...result,
-        phase: "stopped" as const,
+        // The reported `phase` is the link's. A recording that has finished says so through
+        // `state`, and the link it ran on may well still be up — that is the split.
+        phase,
         lastResult: lastResult ?? undefined,
       };
     },
@@ -819,6 +923,8 @@ export function createBoundedCaptureCoordinator(opts: {
       const protocolState = protocol.snapshot();
       return {
         connected: phase === "running" && connected && transport !== null,
+        link: phase === "running" ? "up" : phase === "starting" ? "connecting" : "down",
+        recording,
         pendingAppend: pendingAppend !== null,
         generation,
         rxByteEpoch,
@@ -885,6 +991,8 @@ export function createTxCoordinator(opts: {
     validFrameGeneration?: number;
     lastValidSevenFFrameAtMs?: number;
     validSevenFFrameGeneration?: number;
+    link?: "down" | "connecting" | "up";
+    recording?: "off" | "open";
     readEpoch?: number;
     lastResumeAtMs?: number;
     phase?: CapturePhase | string;
@@ -1014,6 +1122,15 @@ export function createTxCoordinator(opts: {
     const quiet = quietAt > 0 && now - quietAt >= settings.tx_quiet_ms;
     const result = {
       generation: outboundGeneration,
+      // A caller that predates the split reports `phase`, where "running" meant the one
+      // combined lifecycle, or reports neither and speaks only of `connected`. Both said the
+      // same thing this field says: there is a socket, and frames are coming through it.
+      link: state.link
+        ?? (state.phase === "running" ? "up"
+          : state.phase === "starting" ? "connecting"
+          : state.phase !== undefined ? "down"
+          : state.connected === true ? "up" : "down"),
+      recording: state.recording ?? (state.phase === "running" ? "open" : "off"),
       connected: state.connected === true,
       pendingAppend: state.pendingAppend === true,
       rxByteEpoch: state.rxByteEpoch ?? 0,
@@ -1145,7 +1262,10 @@ export function createTxCoordinator(opts: {
     if (inferredAction && settings.speculative_transmit_enabled !== true) reasons.push("speculative TX disabled");
     if (unsafeAction && settings.unsafe_transmit_enabled !== true) reasons.push("unsafe TX disabled");
     if (userId.length === 0 || userId !== opts.getCurrentUserId() || userId !== settings.transmit_user_id) reasons.push("authorized user mismatch");
-    if (state.phase !== "running") reasons.push("capture is not running");
+    // Was "capture is not running", because one call opened the recording file and the socket
+    // together. They are separate now: what a send needs is a link, and a recording is a
+    // thing the operator starts on top of it.
+    if (state.link !== "up") reasons.push("gateway link is not up");
     if (inFlight) reasons.push("one in-flight write only");
     if (state.quarantined) reasons.push("transport generation quarantined");
     if (!state.connected || !opts.getTransport()?.write) reasons.push("transport not connected");
@@ -2331,22 +2451,20 @@ export async function startM2Runtime(opts: {
     getDevices: () => coordinator.getDevices(),
     getRxState: () => coordinator.getTxState(),
   });
+  // The link opens with the app and stays open. Control and observation are what the page is
+  // for; a capture is something the operator starts on top of them.
+  await coordinator.openLink();
   const secureIngress = settings.transmit_user_id !== undefined;
   const txStatus = (request?: FakeReq): Record<string, unknown> => tx.getTxStatus(request);
   const handler = createIngressHandler({
     getState: () => coordinator.getState(),
+    // Starting a recording must not abort a control the operator just pressed. `tx.stop()`
+    // purges challenges and in-flight writes; it belongs to the runtime's own shutdown, where
+    // the link is going away, not to a capture beginning on top of a link that stays up.
     startCapture: async () => {
-      tx.stop();
-      await coordinator.start();
+      await coordinator.beginRecording();
     },
-    stopCapture: async () => {
-      tx.stop();
-      try {
-        return await coordinator.stop();
-      } finally {
-        tx.stop();
-      }
-    },
+    stopCapture: async () => coordinator.stopRecording(),
     createDownloadStream: store.createReadStream ? () => store.createReadStream!() : undefined,
     getTxStatus: txStatus,
     csrfToken,

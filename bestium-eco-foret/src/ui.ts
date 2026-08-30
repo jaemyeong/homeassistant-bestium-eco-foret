@@ -281,7 +281,7 @@ export function renderAppHtml(): string {
         "speculative TX disabled": "추측 후보 전송이 꺼져 있습니다",
         "unsafe TX disabled": "위험 후보 전송이 꺼져 있습니다",
         "authorized user mismatch": "전송 권한이 없습니다",
-        "capture is not running": "수집이 실행 중이 아닙니다",
+        "gateway link is not up": "게이트웨이에 연결되지 않았습니다",
         "one in-flight write only": "다른 전송이 진행 중입니다",
         "transport generation quarantined": "직전 연결 세대가 격리되었습니다",
         "transport not connected": "통신 경로가 연결되어 있지 않습니다",

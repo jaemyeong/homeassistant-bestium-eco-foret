@@ -1885,7 +1885,9 @@ test("RED: runtime fails closed when all TX flags are enabled without a transmit
     assert.equal(tx.unsafeEnabled, false);
     assert.equal(tx.authorized, false);
     assert.deepStrictEqual(listenPorts, [8099]);
-    assert.equal(transportCreations, 0);
+    // The link opens with the app now. It used to wait for a capture, which is exactly what
+    // made the page dead until somebody started one.
+    assert.equal(transportCreations, 1);
   } finally {
     await app?.stop();
   }
@@ -1941,7 +1943,9 @@ test("RED: runtime preserves enabled TX flags with a valid transmit user", async
     assert.equal(tx.unsafeEnabled, true);
     assert.equal(tx.authorized, true);
     assert.deepStrictEqual(listenPorts, [8099]);
-    assert.equal(transportCreations, 0);
+    // The link opens with the app now. It used to wait for a capture, which is exactly what
+    // made the page dead until somebody started one.
+    assert.equal(transportCreations, 1);
   } finally {
     await app?.stop();
   }
@@ -1987,7 +1991,9 @@ test("RED: offline production wiring accepts defaults, uses 8099, and cleans tra
     pre,
   );
   assert.equal(pre.statusCode, 200);
-  assert.equal(connectorInputs.length, 0);
+  // The link opens with the app, so the connector has already been asked for a socket. It
+  // used to wait for a capture, which is what left the page unable to control anything.
+  assert.equal(connectorInputs.length, 1);
   const runtimeCsrf = parseJson<AnyRecord>(pre.body).csrfToken as string;
   const runtimeHeaders = { "x-remote-user-id": "operator-7", "x-csrf-token": runtimeCsrf };
 
@@ -2169,8 +2175,12 @@ test("RED: lifecycle phases serialize stop-during-start and start-during-finaliz
 
   const starting = coordinator.start();
   await Promise.resolve();
-  assert.equal(coordinator.getState().phase, "starting");
-  await assert.rejects(() => coordinator.start(), /phase|running|stopped/i);
+  // `phase` is the link's, and the link is up as soon as the socket is attached — it no
+  // longer waits for the store to open. What is still starting is the recording, which is
+  // blocked on `store.begin()`, and a second `start()` has to be refused because of it.
+  assert.equal(coordinator.getState().phase, "running");
+  assert.equal(coordinator.getState().state, "stopped", "no recording is open yet");
+  await assert.rejects(() => coordinator.start(), /recording|phase|running|stopped|already/i);
   const stopping = coordinator.stop();
   releaseBegin?.();
   await starting;
@@ -2179,7 +2189,9 @@ test("RED: lifecycle phases serialize stop-during-start and start-during-finaliz
   assert.equal(coordinator.getState().phase, "stopped");
   assert.equal(beginCalls, 1);
   assert.equal(finalizeCalls, 1);
-  assert.equal(transportCreates, 0, "stop during begin must not create a transport");
+  // The link opens first now, so one transport exists before any recording is asked for.
+  // What this still guards is that a stop during `begin` creates no second one.
+  assert.equal(transportCreates, 1, "stop during begin must not create another transport");
 
   let releaseFinalize: (() => void) | undefined;
   const heldStore: CaptureStore = {

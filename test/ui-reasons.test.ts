@@ -13,7 +13,7 @@ const SERVER_REASONS = [
   "speculative TX disabled",
   "unsafe TX disabled",
   "authorized user mismatch",
-  "capture is not running",
+  "gateway link is not up",
   "one in-flight write only",
   "transport generation quarantined",
   "transport not connected",
