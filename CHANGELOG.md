@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.3] - 2026-08-31
+
+### Changed
+
+- A capture no longer stops five seconds after it starts. `capture_duration_ms` shipped as
+  5,000 ms, which is two polls of a single device and closes the file before it holds enough
+  to read. It is now ten minutes, and the byte and record ceilings were raised to 1 MiB and
+  20,000 so that a capture ends on its duration rather than stopping early on a limit. The bus
+  measures 106.9 B/s and 5.37 reads/s across the 6,415 s of captures kept from the M4
+  campaign, so ten minutes is roughly 63 KiB in about 3,200 reads.
+
+### Fixed
+
+- `settings.ts` described the observation window as three polls of the slowest device; it has
+  been two since the constant was derived from `DEVICE_POLL_MS`. Two is the right number and
+  the reason is now stated: a write lands, the next poll may still carry the state from before
+  the command, and only the poll after it reports the effect.
+
+### Note for existing installations
+
+- Home Assistant merges an add-on's defaults *under* the options the operator has saved, and
+  the saved side wins (`App.options` in Supervisor's `apps/app.py`). Every value above is a
+  default, so updating to 0.3.3 changes nothing for an installation whose 구성 form has ever
+  been saved. Those installations have to be edited on the panel itself — in particular
+  `tx_observation_timeout_ms`, which is 4,600 ms here but stays at whatever was stored.
+
+### Internal
+
+- `test/addon-defaults.test.ts` checks the shipped defaults against something for the first
+  time: every default inside its own schema bounds, the observation window equal to the
+  constant that carries its reasoning, the three capture limits consistent at the bus rate
+  derived from `DEVICE_POLL_MS`, and `config.json` in agreement with the parser's fallbacks.
+  The suites all built their own settings objects, so none of this was covered.
+- The release version is now read from `bestium-eco-foret/config.json` rather than restated in
+  `test/m2.test.ts`.
+
 ## [0.3.2] - 2026-08-31
 
 ### Fixed

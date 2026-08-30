@@ -8,7 +8,11 @@ import { encodeSemanticAction } from "../bestium-eco-foret/src/protocol-debug.ts
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.3.2";
+// The add-on's own config is the single source: raising a release should touch one file,
+// not four, and every other version here is asserted to follow it.
+const EXPECTED_VERSION = (JSON.parse(
+  readFileSync(new URL(`${APP_FOLDER}/config.json`, root), "utf8"),
+) as { version: string }).version;
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -905,9 +909,9 @@ test("RED: config strictness and exact static contract", () => {
   assert.deepStrictEqual(options, {
     connect_timeout_ms: 3_000,
     idle_timeout_ms: 30_000,
-    capture_duration_ms: 5_000,
-    maximum_bytes: 65_536,
-    maximum_records: 1_000,
+    capture_duration_ms: 600_000,
+    maximum_bytes: 1_048_576,
+    maximum_records: 20_000,
     transmit_enabled: false,
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,
@@ -1084,9 +1088,9 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     ew11_port: 9001,
     connect_timeout_ms: 3_000,
     idle_timeout_ms: 30_000,
-    capture_duration_ms: 5_000,
-    maximum_bytes: 65_536,
-    maximum_records: 1_000,
+    capture_duration_ms: 600_000,
+    maximum_bytes: 1_048_576,
+    maximum_records: 20_000,
     transmit_enabled: false,
     speculative_transmit_enabled: false,
     unsafe_transmit_enabled: false,

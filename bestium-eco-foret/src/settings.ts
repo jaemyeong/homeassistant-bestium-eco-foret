@@ -52,15 +52,20 @@ type ParseNumericResult = {
 export const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_id"> = {
   connect_timeout_ms: 3000,
   idle_timeout_ms: 30_000,
-  capture_duration_ms: 5000,
-  maximum_bytes: 65_536,
-  maximum_records: 1_000,
+  // Ten minutes, with the byte and record ceilings sized to hold what the bus carries in that
+  // time so a capture ends on its duration rather than stopping early on a limit. 5,000 ms
+  // closed the file after two polls of any one device. See `addon-defaults.test.ts`.
+  capture_duration_ms: 600_000,
+  maximum_bytes: 1_048_576,
+  maximum_records: 20_000,
   transmit_enabled: false,
   speculative_transmit_enabled: false,
   unsafe_transmit_enabled: false,
   tx_write_timeout_ms: 1_000,
-  // Three polls of the slowest device. 3,000 ms held exactly one 2,300 ms heating poll, so a
-  // late one closed the window and the frame went out again. See `DEVICE_POLL_MS`.
+  // Two polls of the slowest device: a write lands, the next poll may still carry the old
+  // state, and only the one after it reports the effect. 3,000 ms held exactly one 2,300 ms
+  // heating poll, so that second poll fell outside and the frame went out again. See
+  // `DEVICE_POLL_MS`.
   tx_observation_timeout_ms: OBSERVATION_TIMEOUT_MS,
   tx_cooldown_ms: 250,
   // 20 ms was shorter than the ~12 ms an eleven-byte frame occupies at 9600 baud plus any
