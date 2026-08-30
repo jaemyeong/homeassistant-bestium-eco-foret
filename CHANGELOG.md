@@ -80,12 +80,21 @@ All notable changes to this project are documented here.
   going **or about to go**: actual motion while travelling, service direction while stopped at the
   destination. The legacy's "moving upside/downside" is right only for the travelling half.
 
-  Two things did not go as planned and are recorded as such. **The revoke was not tested** — it went
-  out eight seconds after the call had already completed, and the tool's own `matchingFrameAgoMs` of
-  1,550 ms marks its apparent reply as a false positive; whether a call can be cancelled is still
-  unknown. **And variant 1's down frame drew nothing**, though the operator's wallpad down call
-  works, so down is not blocked as such; one attempt each is too thin to conclude only up works.
-  Variant 0 drew nothing in either direction, against a legacy default of 0.
+  **The first round's "no response" verdicts were partly the mask's doing.**
+  `--expect f70d01340141100006` demands the state byte be exactly `06`, and a registering call skips
+  that: `a6` if the car is already moving, `01` if it is already on this floor. A prefix mask cannot
+  ask for "low nibble 6". Re-judged from the state stream, **variant 1 works in both directions** —
+  three registrations out of the four sends that can be judged, at 1,582, 1,588 and 1,838 ms — and
+  only one send genuinely drew nothing. Variant 0 drew nothing on either of its two sends, against
+  a legacy default of 0, which is a real contrast on thin numbers.
+
+  A later call caught the car in the basement: the floor field read **`b1`**, confirming the
+  legacy's string encoding for basements and closing that gap. That journey took 39.2 s.
+
+  **The revoke was sent three times and tested none of them**: twice the call had already finished,
+  once nothing was pending. With the car parked on this floor a call resolves inside two seconds
+  and leaves no gap to cancel in, and we cannot arrange for it to be far away. Stopped there rather
+  than keep calling a shared lift.
 
 - Measure the elevator by listening, with evidence rows `M4-E148` and `M4-E149`. **On this bus the
   elevator is read-only.** The operator pressed the hallway call button and nothing changed
