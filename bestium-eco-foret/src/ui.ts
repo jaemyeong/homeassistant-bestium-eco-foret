@@ -277,7 +277,12 @@ const CLIENT_SCRIPT = String.raw`
         ? Math.max(0, payload.serverNowMs - payload.lastValidFrameAtMs) : null;
       detail = "상태 프레임을 관측하고 있습니다"
         + (ageMs === null ? "" : " · 마지막 프레임 " + (ageMs / 1000).toFixed(1) + "초 전")
-        + " · 관측 확인 " + OBSERVED_WRITES + " / " + OBSERVED_WRITES + "개";
+        + " · 관측 확인 " + OBSERVED_WRITES + " / " + OBSERVED_WRITES + "개"
+        // Shown only when it is not zero, because zero is what a healthy line reads and a
+        // permanent "0개" teaches nothing. A rising count is the sign that our own writes are
+        // colliding with the wallpad's: in the measured runs every transmit that waited for a
+        // quiet interval damaged something, and every one through the silent-query gate did not.
+        + (tx.unparsedByteCount > 0 ? " · 해독하지 못한 바이트 " + tx.unparsedByteCount + "개" : "");
       var blocked = reasonsKo(gateBlockers(payload));
       if (blocked) detail = blocked + " · " + detail;
     } else if (state === "sending" || state === "confirmed" || state === "unconfirmed") {

@@ -1010,6 +1010,7 @@ export function createBoundedCaptureCoordinator(opts: {
       const protocolState = protocol.snapshot();
       return {
         connected: phase === "running" && connected && transport !== null,
+        unparsedByteCount: protocolState.unparsedByteCount ?? 0,
         link: phase === "running" ? "up" : phase === "starting" ? "connecting" : "down",
         recording,
         pendingAppend: pendingAppend !== null,
@@ -1241,7 +1242,9 @@ export function createTxCoordinator(opts: {
       txByteEpoch: (state.txByteEpoch ?? 0) + outboundEpoch,
       tailHash: `${state.tailHash ?? ""}:${hashTail(outboundTail)}`,
     };
-    return { ...result, readinessRevision: readinessRevisionFor(result) };
+    // Outside `result`, so it stays out of the readiness hash: a byte of line noise does not
+    // change whether a send is allowed, and folding it in would churn the revision on every read.
+    return { ...result, readinessRevision: readinessRevisionFor(result), unparsedByteCount: state.unparsedByteCount ?? 0 };
   };
   const hasCurrentSevenFProof = (
     state: ReturnType<typeof currentState>,
@@ -1971,6 +1974,11 @@ export function createTxCoordinator(opts: {
       sevenFProof,
       observationTimeoutMs: settings.tx_observation_timeout_ms,
       maxAttempts: settings.tx_max_attempts,
+      // Bytes the decoder threw away this link generation. buslab counts the same bytes as
+      // `unparsedBytes`, where 183 ungated transmits produced 959 and 194 gated ones produced
+      // none. This add-on transmits on a quiet interval and has no gate, and no run on disk was
+      // taken with it on the bus, so this is the number that says whether that matters here.
+      unparsedByteCount: state.unparsedByteCount ?? 0,
       queue: queueSummary(),
       readinessRevision: state.readinessRevision,
     };
@@ -2198,6 +2206,9 @@ export function createIngressHandler(deps: {
           && observationTimeoutMs <= 30_000
           ? observationTimeoutMs
           : 10_000,
+        unparsedByteCount: Number.isSafeInteger(rawTx.unparsedByteCount) && (rawTx.unparsedByteCount as number) >= 0
+          ? rawTx.unparsedByteCount
+          : 0,
         readinessRevision: typeof rawTx.readinessRevision === "string" && rawTx.readinessRevision.length <= 256
           ? rawTx.readinessRevision
           : undefined,

@@ -264,6 +264,12 @@ test("E2B RED: the runtime controls without a capture, from the first frame", as
     const payload = JSON.parse(status.body) as AnyRecord;
     assert.equal(payload.tx.link, "up", `the link must be up: ${JSON.stringify(payload.tx)}`);
     assert.equal(payload.tx.recording, "off", "and no capture was ever started");
+    // Damage this add-on causes can only be measured in the field if it reaches the page. All 34
+    // runs on disk came from buslab: 194 transmits through its silent-query gate damaged nothing,
+    // 183 that waited for a quiet interval damaged 959 bytes, and the add-on waits for a quiet
+    // interval. Nothing has ever run it on the bus and counted, so this is the figure that turns
+    // one deployment into an answer. A line carrying only the wallpad's own traffic reads zero.
+    assert.equal(payload.tx.unparsedByteCount, 0, "a clean line has nothing unparsed");
     assert.equal(payload.state, "stopped");
 
     const preview = await request(app, {

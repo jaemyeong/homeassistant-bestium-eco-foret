@@ -330,9 +330,23 @@ function createDevices(): AnyDevices {
   };
 }
 
-function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journal: JournalEntry[], pending: Uint8Array): { frames: ParsedFrame[]; carry: Uint8Array } {
+function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journal: JournalEntry[], pending: Uint8Array): { frames: ParsedFrame[]; carry: Uint8Array; unparsedBytes: number } {
   let data = concatBytes(pending, chunk);
+  const inputBytes = data.length;
   const frames: ParsedFrame[] = [];
+  /**
+   * What arrived, less what became a frame and what is still waiting for its tail. Counting the
+   * difference rather than each discard keeps the two in step: every branch below that drops a
+   * byte and resynchronises is covered without naming it, and a frame split across two reads
+   * costs nothing because its head is carried rather than dropped. buslab's framer counts the
+   * same bytes as `unparsedBytes`, which is where the 959 in the ungated runs came from, so the
+   * two figures answer the same question.
+   */
+  const done = (carry: Uint8Array): { frames: ParsedFrame[]; carry: Uint8Array; unparsedBytes: number } => ({
+    frames,
+    carry,
+    unparsedBytes: inputBytes - frames.reduce((sum, frame) => sum + frame.raw.length, 0) - carry.length,
+  });
   while (data.length > 0) {
     const start = data.findIndex((byte) => byte === 0xf7 || byte === 0x7f);
     if (start < 0) {
@@ -350,7 +364,7 @@ function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journ
       if (end !== 4) {
         if (end < 0) {
           journal.push({ kind: "partial", atMs: nowMs, generation, rawHex: hexOf(data) });
-          return { frames, carry: data.slice(0, 4) };
+          return done(data.slice(0, 4));
         }
         journal.push({ kind: "invalid", atMs: nowMs, generation, rawHex: hexOf(data.slice(0, Math.min(data.length, 5))) });
         data = data.slice(1);
@@ -365,7 +379,7 @@ function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journ
     }
     if (data.length === 1) {
       journal.push({ kind: "partial", atMs: nowMs, generation, rawHex: hexOf(data) });
-      return { frames, carry: data };
+      return done(data);
     }
     const declared = data[1];
     if (!Number.isSafeInteger(declared) || declared < 5 || declared > 257) {
@@ -379,7 +393,7 @@ function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journ
       const hasAmbiguousExtendedLength = candidates.length > 1;
       if (data.length < declared || (hasAmbiguousExtendedLength && data.length === declared)) {
         journal.push({ kind: "partial", atMs: nowMs, generation, rawHex: hexOf(data) });
-        return { frames, carry: data };
+        return done(data);
       }
       journal.push({ kind: "invalid", atMs: nowMs, generation, rawHex: hexOf(data.slice(0, Math.min(data.length, declared))) });
       data = data.slice(1);
@@ -395,7 +409,7 @@ function parseFrames(chunk: Uint8Array, nowMs: number, generation: number, journ
     journal.push({ kind: "frame", atMs: nowMs, generation, rawHex: hexOf(raw) });
     data = data.slice(complete);
   }
-  return { frames, carry: data };
+  return done(data);
 }
 
 function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
@@ -414,6 +428,8 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array();
   let frames: ParsedFrame[] = [];
   let validFrameCount = 0;
+  /** Bytes the parser threw away. Zero is what a line carrying only the wallpad's own traffic reads. */
+  let unparsedByteCount = 0;
   let journal: JournalEntry[] = [];
   let devices = createDevices();
   let queries: Record<string, number> = { outlet: 0, ventilation: 0 };
@@ -433,6 +449,7 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
     carry = parsed.carry;
     frames = trim(frames.concat(parsed.frames));
     validFrameCount += parsed.frames.length;
+    unparsedByteCount += parsed.unparsedBytes;
     journal = trim(journal.concat(events));
     let frameIndex = 0;
     for (const event of events) {
@@ -487,6 +504,7 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
       parser: { pendingHex: hexOf(carry) },
       frames: frames.map((entry) => ({ rawHex: hexOf(entry.raw), atMs: entry.atMs, generation: entry.generation })),
       validFrameCount,
+      unparsedByteCount,
       journal: [...journal],
       devices: clone,
       queries: { ...queries },
@@ -503,7 +521,7 @@ export function createProtocolDebugMonitor(opts: { journalLimit?: number; staleA
     // must carry `lastSeenAtMs` and `generation` unmodified. Read only.
     deviceState(): AnyDevices { return devices; },
     currentGeneration(): number { return generation; },
-    resetGeneration(): void { generation += 1; validFrameCount = 0; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
+    resetGeneration(): void { generation += 1; validFrameCount = 0; unparsedByteCount = 0; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
     stop(): void { stopped = true; carry = new Uint8Array(); sevenFProof = undefined; sevenFNext = undefined; },
     start(): void { stopped = false; },
   };

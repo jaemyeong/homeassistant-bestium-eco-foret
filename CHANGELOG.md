@@ -25,6 +25,16 @@ All notable changes to this project are documented here.
   it and logs that it is not in the schema. The parser is what makes it inert, and
   `addon-defaults.test.ts` proves it with the operator's own 3,000 ms as the case.
 
+### Added
+
+- The status response and the send banner carry `unparsedByteCount`: the bytes the decoder threw
+  away since the link came up. Across the 34 measured runs, 194 transmits through buslab's
+  silent-query gate damaged nothing while 183 that waited for a quiet interval damaged 959
+  bytes — and the add-on waits for a quiet interval. Every one of those runs was buslab's;
+  nothing has ever run the add-on on the bus and counted, so this figure is what turns one
+  deployment into an answer. A line carrying only the wallpad's own traffic reads zero, so the
+  banner shows the count only when it is not.
+
 ### Removed
 
 - `speculative_transmit_enabled` and `speculative_tx_cooldown_ms`. The flag gated actions graded

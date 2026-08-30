@@ -636,3 +636,43 @@ test("M5: every control the page offers is measured, and no candidates remain", 
   assert.notEqual(unknown.devices.gas.state, "closed");
   assert.notEqual(unknown.devices.elevator.direction, "arrival");
 });
+
+test("M5 RED: the monitor counts the bytes it could not parse", () => {
+  // The 34 measured runs split cleanly: 194 transmits through buslab's silent-query gate
+  // damaged nothing, 183 that waited for a quiet interval damaged 959 bytes — and every run
+  // that waited damaged something. The add-on transmits on a quiet interval and has no gate,
+  // and no run on disk was taken with the add-on on the bus, so whether it damages anything
+  // in a real installation is unmeasured. buslab's framer counts this as `unparsedBytes`;
+  // this is the same figure from the add-on's own decoder, so one deployment answers it.
+  const bytes = (hex: string): Uint8Array =>
+    Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+  const good = "f70b01190440110101b1ee";
+
+  const monitor = createProtocolDebugMonitor({ nowMs: () => 1_000 });
+  assert.equal(monitor.snapshot().unparsedByteCount, 0);
+
+  // Two bytes that begin no frame, then a frame, then one more.
+  monitor.push(bytes(`aabb${good}cc`));
+  const after = monitor.snapshot();
+  assert.equal(after.validFrameCount, 1);
+  assert.equal(after.unparsedByteCount, 3);
+
+  // A frame whose checksum is wrong costs one byte and the parser resynchronises from the
+  // next one, which is what buslab's framer does too. The `cc` above is still pending, so
+  // the leading `f7` here completes nothing and the count rises by the bytes actually dropped.
+  monitor.push(bytes("f70b01190440110101ffee"));
+  assert.ok(monitor.snapshot().unparsedByteCount > after.unparsedByteCount);
+
+  // A frame split across two reads is not damage: the tail is carried, not dropped.
+  const clean = createProtocolDebugMonitor({ nowMs: () => 1_000 });
+  clean.push(bytes(good.slice(0, 8)));
+  clean.push(bytes(good.slice(8)));
+  assert.equal(clean.snapshot().validFrameCount, 1);
+  assert.equal(clean.snapshot().unparsedByteCount, 0);
+
+  // A new link generation starts the count over, the same way the frame count does.
+  clean.push(bytes("aabb"));
+  assert.equal(clean.snapshot().unparsedByteCount, 2);
+  clean.resetGeneration();
+  assert.equal(clean.snapshot().unparsedByteCount, 0);
+});
