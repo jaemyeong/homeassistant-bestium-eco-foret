@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.1] - 2026-08-31
+
+### Fixed
+
+- The add-on could not start. 0.3.0's image was missing `src/ha-design-system.ts` and
+  `src/tx-queue.ts`, so `node src/m2.ts` died at import with `Cannot find module`. The
+  Dockerfile named each module it copied, and a list has to be edited every time a module is
+  added — twice it was not. `tx-queue.ts` had been absent from the image since the day it was
+  written; nothing noticed because that version was never deployed. The image copies the whole
+  source directory now, and three tests hold it: every module reachable from the entry point is
+  in the image, every module in the source is reachable from the entry point, and the image's
+  version label matches the add-on's own.
+
+  The tests run against the repository and the add-on runs from an image, and nothing had ever
+  compared the two. A green suite and an add-on that will not start were possible at the same
+  time.
+
 ## [0.3.0] - 2026-08-30
 
 ### Changed

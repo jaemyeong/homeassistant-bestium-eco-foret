@@ -6,4 +6,6 @@
 !src/settings.ts
 !src/m2.ts
 !src/protocol-debug.ts
+!src/tx-queue.ts
+!src/ha-design-system.ts
 !src/ui.ts

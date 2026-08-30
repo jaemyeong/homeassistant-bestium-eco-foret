@@ -8,7 +8,7 @@ import { encodeSemanticAction } from "../bestium-eco-foret/src/protocol-debug.ts
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.3.0";
+const EXPECTED_VERSION = "0.3.1";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -105,6 +105,8 @@ const DOCKERFILE_COPY_ALLOWLIST = [
   "src/settings.ts",
   "src/m2.ts",
   "src/protocol-debug.ts",
+  "src/tx-queue.ts",
+  "src/ha-design-system.ts",
   "src/ui.ts",
 ] as const;
 const DOCKERIGNORE_INCLUDES = [
@@ -115,6 +117,8 @@ const DOCKERIGNORE_INCLUDES = [
   "!src/settings.ts",
   "!src/m2.ts",
   "!src/protocol-debug.ts",
+  "!src/tx-queue.ts",
+  "!src/ha-design-system.ts",
   "!src/ui.ts",
 ] as const;
 const DOCKERIGNORE_FORBIDDEN = [".env", ".env*", ".git", ".agent", ".codex", ".serena", ".codegraph", "graphify-out"] as const;
