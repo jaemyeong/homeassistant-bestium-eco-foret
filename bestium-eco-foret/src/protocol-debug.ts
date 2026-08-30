@@ -248,7 +248,30 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     return;
   }
   if (command === 0x2a) {
-    ambiguous.push({ cluster: "0x2a", rawHex: hexOf(raw), atMs: at, generation });
+    // `F7 0E 01 2A 04 40 10 00 19 <batch> 1B <gas> <XOR> EE`. One reply, two devices, each
+    // named by the address that precedes its value: 0x19 for the lights this switch kills,
+    // 0x1B for the gas valve.
+    //
+    // The gas byte agreed with 0x1B's own replies on all 268 observations, but 0x1B answers
+    // about a second and a half sooner and is the valve's own device, so it stays the source
+    // of truth. What is kept here is whether the two agree — a disagreement would mean one of
+    // them is being misread, and it should be visible rather than silently resolved.
+    if (payload[2] !== 0x04 || payload.length < 10 || payload[6] !== 0x19 || payload[8] !== 0x1b) {
+      ambiguous.push({ cluster: "0x2a", rawHex: hexOf(raw), atMs: at, generation });
+      return;
+    }
+    const batch = payload[7];
+    const valve = payload[9];
+    if ((batch !== 1 && batch !== 2) || (valve !== 3 && valve !== 4)) {
+      markUnknown("0x2a");
+      return;
+    }
+    const known = (devices.gas as DeviceState).state;
+    mark("batchOff", {
+      state: batch === 1 ? "on" : "off",
+      evidence: "observed",
+      ...(known === undefined ? {} : { gasAgrees: known === (valve === 4 ? "open" : "closed") }),
+    });
     return;
   }
   unknown.push({ cluster: `0x${command.toString(16).padStart(2, "0")}`, rawHex: hexOf(raw), atMs: at, generation });
@@ -261,6 +284,7 @@ type AnyDevices = {
   heating: Record<number, DeviceState>;
   elevator: DeviceState;
   entrances: { household: DeviceState; communal: DeviceState };
+  batchOff: DeviceState;
   outlet: DeviceState;
   ventilation: DeviceState;
   vehicle: DeviceState;
@@ -275,6 +299,7 @@ function createDevices(): AnyDevices {
     heating: { 1: { ...base }, 2: { ...base }, 3: { ...base }, 4: { ...base } },
     elevator: { ...base },
     entrances: { household: { ...base }, communal: { ...base, evidence: "not_decoded" } },
+    batchOff: { ...base },
     outlet: { ...base },
     ventilation: { ...base },
     vehicle: { ...base, evidence: "unidentified" },
@@ -473,30 +498,6 @@ function observed(frame: Uint8Array, context: AnyRecord): AnyRecord {
 function inferred(frame: Uint8Array, transportEvidence = "unverified"): AnyRecord {
   const copy = cloneBytes(frame);
   return { frame: copy, frameHex: hexOf(copy), framesHex: [hexOf(copy)], evidence: "inferred_candidate", transportEvidence, sendable: false, confirmed: false, requiresSpeculativeConfirmation: true };
-}
-
-const knownObserved = new Set([
-  "f70d011904401000020102b5ee",
-  "f70b01190240110100b6ee", "f70b01190240110200b5ee",
-  "f70b01190240120100b5ee", "f70b01190240120200b6ee",
-  "f70b01190240130100b4ee", "f70b01190240130200b7ee",
-  "f70b011b0243110300b5ee", "f70b011f0140100000b3ee", "f70b012b014011000086ee",
-  "f70d01340141100001040b91ee",
-]);
-
-const knownDoorFrames = new Set([
-  "7fb90000ee", "7fb40000ee", "7fba0000ee", "7fb70000ee", "7fb80000ee",
-  "7f5f0000ee", "7f610000ee", "7f600000ee",
-]);
-
-function isRecognizedFrame(value: string): boolean {
-  if (value.startsWith("7f") && value.length === 10 && value.endsWith("ee")) return true;
-  if (knownObserved.has(value) || knownDoorFrames.has(value)) return true;
-  if (!value.startsWith("f7") || value.length < 10 || !value.endsWith("ee")) return false;
-  const bytes = Uint8Array.from(value.match(/../g) ?? [], (entry) => Number.parseInt(entry, 16));
-  // These command families are recognized even when a new state/temperature
-  // variant has not yet been catalogued; RAW must not bypass semantic safety.
-  return [0x18, 0x19, 0x1b, 0x1e, 0x1f, 0x2a, 0x2b, 0x34, 0x7e].includes(bytes[3] ?? -1);
 }
 
 export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRecord {

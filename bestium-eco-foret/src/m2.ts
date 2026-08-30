@@ -1137,6 +1137,11 @@ export function createTxCoordinator(opts: {
     const unsafeAction = encoded.evidence === "unsafe_candidate";
     if (encoded.evidence === "rejected") reasons.push(encoded.reason ?? "action rejected");
     if (settings.transmit_enabled !== true) reasons.push("master TX disabled");
+    // No action produces `inferred_candidate` any more: the elevator was the last one and
+    // measurement promoted it. The door macros are `unsafe_candidate` and answer to
+    // `unsafe_transmit_enabled` instead. This branch and its setting stay because the
+    // subphone line — where the bell, the intercom and the video live — is not captured yet,
+    // and whatever it turns out to carry will start as an inferred candidate.
     if (inferredAction && settings.speculative_transmit_enabled !== true) reasons.push("speculative TX disabled");
     if (unsafeAction && settings.unsafe_transmit_enabled !== true) reasons.push("unsafe TX disabled");
     if (userId.length === 0 || userId !== opts.getCurrentUserId() || userId !== settings.transmit_user_id) reasons.push("authorized user mismatch");

@@ -243,3 +243,39 @@ test("0.2.7 RED: the entrance poll frame is kept rather than dropped", () => {
     "a frame we recognise must not be filed as unknown",
   );
 });
+
+test("M5 RED: the 0x2A reply is decoded, and it carries two devices at once", () => {
+  // `F7 0E 01 2A 04 40 10 00 19 <batch> 1B <gas> <XOR> EE`. The frame names each device it
+  // reports by address: 0x19 for the lights it switches off, 0x1B for the gas valve. 268
+  // observations agreed with 0x1B's own replies every time, 1,470–1,758 ms behind them.
+  //
+  // Until now this went to `ambiguous`, which meant `batchoff` could be sent but never
+  // confirmed: the queue would retry it to the end of its budget and the page would report
+  // 미관측 for a write that worked. On a switch that kills lights the wallpad cannot reach,
+  // repeating the frame is the wrong failure.
+  const m = fresh();
+  push(m, "f70e012a0440100019011b0386ee", 1_000);
+  const batchOff = devices(m).batchOff as AnyRecord;
+  assert.equal(batchOff.state, "on", "0x01 in the ninth byte is the batch held on");
+  assert.equal(batchOff.stale, false);
+
+  push(m, "f70e012a0440100019021b0385ee", 2_000);
+  assert.equal((devices(m).batchOff as AnyRecord).state, "off", "0x02 is released");
+
+  // The gas byte is cross-checked, never displayed: 0x1B is the source of truth for the
+  // valve and answers about a second and a half sooner.
+  const gas = devices(m).gas as AnyRecord;
+  assert.equal(gas.state, undefined, "0x2A must not be a source of gas state");
+  assert.equal((devices(m).batchOff as AnyRecord).gasAgrees, undefined, "and it says nothing until 0x1B has spoken");
+
+  const withGas = fresh();
+  push(withGas, "f70d011b04431100030000b5ee", 1_000);
+  push(withGas, "f70e012a0440100019011b0386ee", 2_000);
+  assert.equal((devices(withGas).gas as AnyRecord).state, "closed", "0x1B still owns the valve");
+  assert.equal((devices(withGas).batchOff as AnyRecord).gasAgrees, true, "and the cross-check agrees");
+
+  // A frame that is not the reply shape leaves the state alone.
+  const other = fresh();
+  push(other, "f70c012a0240110119009bee", 1_000);
+  assert.equal((devices(other).batchOff as AnyRecord).state, undefined, "a command is not a source of state");
+});
