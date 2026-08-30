@@ -295,4 +295,3 @@ class Component extends DCLogic {
     };
   }
 }
-
