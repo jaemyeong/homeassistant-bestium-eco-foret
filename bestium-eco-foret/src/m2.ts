@@ -1871,6 +1871,10 @@ export function createTxCoordinator(opts: {
       unsafeEnabled: settings.unsafe_transmit_enabled === true,
       authorized,
       connected: state.connected,
+      // The banner's first state is a link that is not up, not a capture that is not
+      // running. Those were the same thing until E2B; they are not any more.
+      link: state.link,
+      recording: state.recording,
       inFlight,
       quarantined: state.quarantined,
       pendingAppend: state.pendingAppend,
@@ -2092,6 +2096,8 @@ export function createIngressHandler(deps: {
         unsafeEnabled: rawTx.unsafeEnabled === true,
         authorized: secure && typeof req.headers?.["x-remote-user-id"] === "string" && req.headers["x-remote-user-id"] === authenticatedUser,
         connected: rawTx.connected === true,
+        link: typeof rawTx.link === "string" ? rawTx.link : "down",
+        recording: typeof rawTx.recording === "string" ? rawTx.recording : "off",
         inFlight: rawTx.inFlight === true,
         quarantined: rawTx.quarantined === true,
         pendingAppend: rawTx.pendingAppend === true,

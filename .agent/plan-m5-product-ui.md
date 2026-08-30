@@ -1013,3 +1013,53 @@ BESTIUM 월패드 애드온의 웹 UI를 다시 만들어 주세요. 새 파일�
 - **`tx-queue.ts`**: `expandAction`의 네 갈래 확장 제거, `intentKey`에 그룹과
   `batchoff` 추가, `isConfirmed`에 같은 것. **인코더만 고치고 여기를 두면 화면은 한
   프레임을 미리 보여 주고 전송 경로는 네 개를 큐에 넣습니다.**
+
+---
+
+## 부록 E — E3 실행 노트 (작업 중)
+
+`ui.ts`는 887줄 한 덩어리입니다. `renderAppHtml()`이 `<style>`(9~239),
+`<main>`(242~261), `<script>`(262~884)을 통째로 담고 있습니다.
+
+### 서버 계약 — 바뀌지 않습니다
+
+| 경로 | 무엇 |
+| --- | --- |
+| `GET ./api/status` | 상태 폴링. `tx` 객체에 게이트 상태가 들어 있다 |
+| `POST ./api/action` | 액션. 본문은 `{ ...action, mode }` |
+| `POST ./api/capture` | **기록 시작** (E2B 이후 링크는 건드리지 않는다) |
+| `POST ./api/stop` | 기록 중지 |
+| `./api/download` | 내려받기 |
+
+`/api/action`의 필드 화이트리스트는 `kind` · `target` · `state` · `zone` ·
+`temperatureC` · `direction` · `action` · `hex`와 제어 키 넷입니다. `batchoff`는
+`kind`와 `state`만 쓰므로 그대로 통과합니다.
+
+**`tx.link`와 `tx.recording`을 상태 응답에 추가했습니다.** 배너의 첫 상태가 이제
+"수집 꺼짐"이 아니라 "연결 안 됨"이므로 화면이 이 값을 읽어야 합니다.
+
+### 새 화면이 그려야 할 것
+
+프로토타입 정본은 원격의 `WallpadScreen.dc.html`과 `SendBanner.dc.html`입니다.
+카드 다섯을 탭 없이 한 줄로 세로 스크롤합니다.
+
+1. 전송 배너 6상태 — `disconnected` · `quiet` · `ready` · `sending` · `confirmed` ·
+   `unconfirmed`. `ready` 줄은 `관측 확인 8 / 8개`
+2. 조명 — 등 1·2·3 스위치, 전체 켜기·끄기, 일괄소등 걸기·풀기(위험 조작)
+3. 난방 — 존 1~4, 5~40 °C 스테퍼, 존별 켜기·끄기, 전체 켜기·끄기
+4. 공용부·안전 — 가스 배지와 차단, 승강기 상·하행 호출, 현관 문열림 이벤트
+5. 패킷 수집 — 구분선 아래, 시작·중지·내려받기
+
+### 걷어낼 것
+
+탭 두 개와 `surface` 전환, 수신 프레임 로그, 조회 전용 패널, 미확인·모호 패널,
+임의 전송 실험실, 초인종 배너, `showGuessCandidates` 계열 표기.
+
+### 주의
+
+- **이모지 금지.** 아이콘은 MDI 단일 path 인라인 SVG
+- 다크는 `prefers-color-scheme`만. Ingress iframe은 HA 테마를 상속하지 않는다
+- 루트 글꼴 14 px (`1rem = 14px`)
+- `실패`라는 낱말은 기기 조작 문맥에 쓰지 않는다. `미관측`이다
+- 방 이름을 붙이지 않는다. 주소를 그대로 쓴다 (`0x19 · 채널 1`)
+- **게이트웨이 주소는 화면 어디에도 없다.** 헤더는 연결 상태만
