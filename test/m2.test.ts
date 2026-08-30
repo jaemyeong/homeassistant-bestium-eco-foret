@@ -4763,3 +4763,16 @@ test("M5 RED: the observation window is sized to the poll it waits for", async (
   assert.ok((timeout as number) >= 4_600, "two polls of the slowest device, which is the heating");
   assert.ok((timeout as number) <= 6_900, "and not so wide that three attempts strand the operator");
 });
+
+test("M5 RED: the page prints the version it is actually running", () => {
+  // The header carried `애드온 0.3.0` through 0.3.1, 0.3.2 and 0.3.3, because the three checks
+  // above look at `config.json`, the two `package.json` files and the Dockerfile label — and
+  // the page is none of those. A field report that quotes what the page showed was quoting a
+  // version that had not shipped in three releases, which is the opposite of what printing it
+  // there is for. Same shape as the image allowlist and the shipped defaults before it: the
+  // check measured everything except the artefact the operator actually reads.
+  const ui = readText(paths.uiSource, "ui.ts");
+  const shown = /애드온 (\d+\.\d+\.\d+)/.exec(ui);
+  if (shown === null) throw new Error("the page header must print the add-on version");
+  assert.equal(shown[1], EXPECTED_VERSION, "the version the page header shows");
+});

@@ -35,6 +35,12 @@ All notable changes to this project are documented here.
   which the page does not offer and eleven sends showed to be inert on this line. Hardcoded off
   is narrower than a switch an old options file could still be holding open.
 
+### Fixed
+
+- The page header printed `애드온 0.3.0` on 0.3.1, 0.3.2 and 0.3.3. Four checks pin the version —
+  `config.json`, both `package.json` files, the Dockerfile label — and the page was none of them,
+  so the one surface an operator actually reads was the one nobody verified. It is checked now.
+
 ### Internal
 
 - Four suites built their settings by calling `parseM2Settings` with timing overrides, which is
