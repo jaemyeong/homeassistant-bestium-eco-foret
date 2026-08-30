@@ -85,7 +85,9 @@ main{flex:1;padding:var(--ha-space-4);display:flex;justify-content:center}
 .btn:hover:not(:disabled){background:var(--ha-color-fill-neutral-quiet-hover)}
 .btn:focus-visible{outline:none;box-shadow:0 0 0 2px var(--primary-color)}
 .btn:disabled{cursor:not-allowed;color:var(--disabled-text-color)}
-.btn[aria-pressed="true"]{background:var(--primary-color);color:var(--white-color)}
+/* An active control tints itself. "off" is a state, not an emphasis: it takes the inactive
+   grey rather than the brand colour, which read as though off were the thing being done. */
+.btn[aria-pressed="true"]{background:var(--state-inactive-color);color:var(--white-color)}
 .btn--light[aria-pressed="true"]{background:var(--state-light-active-color);color:var(--black-color)}
 .btn--heat[aria-pressed="true"]{background:var(--state-climate-heat-color);color:var(--white-color)}
 .btn--danger{background:none;border:1px solid var(--error-color);color:var(--error-color)}
@@ -135,6 +137,8 @@ main{flex:1;padding:var(--ha-space-4);display:flex;justify-content:center}
 .banner__meter span{display:block;height:100%;background:var(--info-color);transition:width 120ms linear}
 .banner__foot{display:flex;justify-content:space-between;gap:var(--ha-space-3);
   font-size:var(--ha-font-size-s);color:var(--secondary-text-color)}
+/* display:flex beats the hidden attribute's UA rule, so a hidden row kept rendering. */
+[hidden]{display:none !important}
 .banner__foot span:last-child{font-variant-numeric:tabular-nums}
 .rule{height:1px;background:var(--divider-color);margin-top:var(--ha-space-2)}
 .capture h2{font-size:var(--ha-font-size-l);font-weight:400;color:var(--secondary-text-color)}
@@ -165,6 +169,17 @@ const CLIENT_SCRIPT = String.raw`
   // are read off the link every poll.
   var send = { state: "idle", label: "", startedAtMs: 0, windowMs: 4600, last: null };
   var OBSERVED_WRITES = 8;
+
+  // Each state's glyph, so the banner does not sit on a warning triangle while it says the
+  // controls are ready. The paths are the same MDI singles the page renders elsewhere.
+  var BANNER_ICON = {
+    disconnected: "M13,14H11V9H13M13,18H11V16H13M1,21H23L12,2L1,21Z",
+    quiet: "M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z",
+    ready: "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z",
+    sending: "M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z",
+    confirmed: "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z",
+    unconfirmed: "M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.74,7.13 11.35,7 12,7Z",
+  };
 
   var BANNER = {
     disconnected: {
@@ -248,6 +263,11 @@ const CLIENT_SCRIPT = String.raw`
     if (!el) return;
     el.setAttribute("data-state", state);
     el.setAttribute("aria-busy", state === "sending" ? "true" : "false");
+    var icon = $("banner-icon");
+    if (icon) {
+      var path = icon.querySelector("path");
+      if (path) path.setAttribute("d", BANNER_ICON[state]);
+    }
     setText("banner-title", BANNER[state].title);
     var detail = BANNER[state].detail;
     if (state === "ready") {
@@ -610,7 +630,7 @@ export function renderAppHtml(): string {
       <section class="ha-card card">
         <div class="card__head">
           <h2>조명</h2>
-          <span class="card__note">상태 프레임 0x19 · 관측 확인 3 / 3개</span>
+          <span class="card__note">상태 프레임 0x19 · 등 3개</span>
         </div>
         <div class="grid grid--lights">LIGHT_TILES</div>
         <div class="pair">

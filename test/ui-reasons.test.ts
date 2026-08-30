@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import { renderAppHtml } from "../bestium-eco-foret/src/ui.ts";
 
@@ -215,4 +216,57 @@ test("M5 RED: the capture card drives only the capture", () => {
   assert.match(capture, /\.\/api\/capture|endpoint/, "it posts to the capture endpoints");
   assert.match(capture, /poll\(true\)/, "and re-reads the status either way");
   assert.doesNotMatch(capture, /send\./, "it never touches the send state");
+});
+
+test("M5 RED: nothing in the page's raw blocks can close the literal that holds it", () => {
+  // Three times during this rewrite a backtick in a comment ended `String.raw` early and
+  // turned the rest of the file into TypeScript. The module still parsed, so the failure
+  // arrived as a syntax error at import rather than anywhere near the comment.
+  const source = readFileSync(new URL("../bestium-eco-foret/src/ui.ts", import.meta.url), "utf8");
+  for (const name of ["const PAGE_CSS = String.raw", "const CLIENT_SCRIPT = String.raw"]) {
+    const start = source.indexOf(name);
+    assert.ok(start > 0, `${name} must exist`);
+    const open = source.indexOf("`", start) + 1;
+    const close = source.indexOf("\n`;", open);
+    assert.ok(close > open, `${name} must be closed`);
+    const body = source.slice(open, close);
+    assert.equal(body.includes("`"), false, `${name} carries a backtick`);
+    assert.equal(body.includes("${"), false, `${name} carries a template placeholder`);
+  }
+});
+
+test("M5 RED: the rendered page fetches nothing from the network", () => {
+  // The CSS constant was checked in E1, but the page also carries its own stylesheet and a
+  // set of inline SVG paths. An Ingress add-on that reaches out fails on a network it cannot
+  // see, and does it silently.
+  const html = renderAppHtml();
+  const rules = html.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.equal(rules.includes("http://"), false);
+  assert.equal(rules.includes("https://"), false);
+  assert.equal(rules.includes("@import"), false);
+  assert.equal(rules.includes("@font-face"), false);
+  assert.equal(/url\(/.test(rules), false);
+  // Its own endpoints are relative, so Ingress's path prefix is preserved.
+  for (const endpoint of ["./api/status", "./api/action", "./api/capture", "./api/stop", "./api/download"]) {
+    assert.ok(html.includes(endpoint), `${endpoint} must be relative`);
+  }
+});
+
+test("M5 RED: the banner's glyph follows its state", () => {
+  // It shipped with a warning triangle baked into the markup, so a ready page sat under an
+  // alert icon. Found by opening the page, not by reading it.
+  const html = renderAppHtml();
+  const table = html.slice(html.indexOf("var BANNER_ICON = {"), html.indexOf("var BANNER = {"));
+  for (const state of ["disconnected", "quiet", "ready", "sending", "confirmed", "unconfirmed"]) {
+    assert.match(table, new RegExp(state + ':\\s*"M'), `${state} must have a glyph`);
+  }
+  const draw = html.slice(html.indexOf("var drawBanner"), html.indexOf("var tickSend"));
+  assert.match(draw, /path\.setAttribute\("d", BANNER_ICON\[state\]\)/, "and the banner must apply it");
+});
+
+test("M5 RED: a hidden row is actually hidden", () => {
+  // The observation meter and its countdown are `display:flex`, which beats the hidden
+  // attribute's user-agent rule, so both kept rendering on a page that was not sending.
+  const html = renderAppHtml();
+  assert.match(html, /\[hidden\]\{display:none !important\}/, "the hidden attribute must win");
 });

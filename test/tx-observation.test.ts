@@ -44,3 +44,45 @@ test("M5 RED: the window is wide enough that a late poll does not cause a resend
   assert.ok(OBSERVATION_TIMEOUT_MS > 3_000, "wider than the default it replaces");
   assert.ok(OBSERVATION_TIMEOUT_MS <= 30_000, "and inside the range the settings schema allows");
 });
+
+// A direct reply is not evidence of an effect. Three measurements say so: the gas valve
+// answered byte-identically whether or not the state changed, a heating zone echoed a target
+// temperature it did not adopt, and a group command draws no direct reply at all. So the one
+// thing confirmation may never do is read a reply as proof.
+test("M5 RED: a gas reply is not proof the valve moved", async () => {
+  const { isConfirmed } = await import("../bestium-eco-foret/src/tx-queue.ts");
+  const writeAtMs = 1_000;
+  const close = { kind: "gas", state: "close" };
+
+  // The wallpad's reply to our close arrives, and the valve is still reported open. This is
+  // the case measurement found: the same bytes come back either way.
+  const stillOpen = { gas: { state: "open", lastSeenAtMs: 1_200, generation: 1 } };
+  assert.equal(isConfirmed(close, stillOpen, writeAtMs, 1), false,
+    "a reply that still reads open must never confirm a close");
+
+  // Nothing at all yet — the device has not been seen since the write.
+  const beforeWrite = { gas: { state: "closed", lastSeenAtMs: 900, generation: 1 } };
+  assert.equal(isConfirmed(close, beforeWrite, writeAtMs, 1), false,
+    "an observation older than the write proves nothing about it");
+
+  // A different generation is a different transport, and its evidence does not carry over.
+  const otherGeneration = { gas: { state: "closed", lastSeenAtMs: 1_200, generation: 2 } };
+  assert.equal(isConfirmed(close, otherGeneration, writeAtMs, 1), false,
+    "evidence from another generation does not confirm this write");
+
+  // Only a state frame that says closed, stamped after the write, in this generation.
+  const closed = { gas: { state: "closed", lastSeenAtMs: 1_200, generation: 1 } };
+  assert.equal(isConfirmed(close, closed, writeAtMs, 1), true);
+});
+
+test("M5 RED: a heating target confirms on the target field, not on the power reply", async () => {
+  const { isConfirmed } = await import("../bestium-eco-foret/src/tx-queue.ts");
+  // 4°C was echoed back by a zone that did not adopt it — the device clamps to 5–40 and the
+  // reply carried the value we asked for anyway. What confirms a target is the target field
+  // holding it, in an observation newer than the write.
+  const action = { kind: "heat", zone: 1, temperatureC: 24 };
+  const echoedButUnchanged = { heating: { 1: { targetC: 23, state: "on", lastSeenAtMs: 1_200, generation: 1 } } };
+  assert.equal(isConfirmed(action, echoedButUnchanged, 1_000, 1), false);
+  const adopted = { heating: { 1: { targetC: 24, state: "on", lastSeenAtMs: 1_200, generation: 1 } } };
+  assert.equal(isConfirmed(action, adopted, 1_000, 1), true);
+});
