@@ -68,6 +68,25 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Call the elevator from this line and watch it come, with evidence row `M4-E150`. Phase eight
+  carries both legacy skeletons and their revokes; five armed sends, 2,252 frames, zero corrupt
+  bytes. **Variant 1's up frame works**: `f70b0134044110000599ee` registered as `05` 1,582 ms later
+  and the car arrived 15.5 s after that. `matchingFrameAgoMs` is `None` on every call send, so the
+  one that worked is not a poll landing in a window.
+
+  This also settles the high nibble. The car was at floor 7 — above the calling floor, answering an
+  up call, which is exactly the discriminating case the previous run could not produce. It
+  descended as `b5` and then held at floor 4 as `a5`. So the nibble is the direction the car is
+  going **or about to go**: actual motion while travelling, service direction while stopped at the
+  destination. The legacy's "moving upside/downside" is right only for the travelling half.
+
+  Two things did not go as planned and are recorded as such. **The revoke was not tested** — it went
+  out eight seconds after the call had already completed, and the tool's own `matchingFrameAgoMs` of
+  1,550 ms marks its apparent reply as a false positive; whether a call can be cancelled is still
+  unknown. **And variant 1's down frame drew nothing**, though the operator's wallpad down call
+  works, so down is not blocked as such; one attempt each is too thin to conclude only up works.
+  Variant 0 drew nothing in either direction, against a legacy default of 0.
+
 - Measure the elevator by listening, with evidence rows `M4-E148` and `M4-E149`. **On this bus the
   elevator is read-only.** The operator pressed the hallway call button and nothing changed
   anywhere on the line — 89 elevator frames all idle, twelve distinct frames in the whole window,
