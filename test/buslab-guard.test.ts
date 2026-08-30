@@ -71,12 +71,17 @@ test("E3 RED: the subphone macros are refused by a list no flag opens", () => {
   }
 });
 
-test("E3 RED: the undecided entrance frame is refused even with every flag set", () => {
-  // Three of these appear at the instant the operator presses door-open, and nothing answers
-  // them. Until the two disambiguating captures exist, sending one may open a door.
-  const verdict = checkOutgoing({ hex: "f70e011e024311040004ffffb6ee", armed: true, allowAll: true });
+test("E3 RED: an invented entrance frame is refused even with every flag set", () => {
+  // This test used to name the observed door frame. It was written while the frame's meaning was
+  // undecided, so the rule refused every `0x1E 02` and this asserted that. The meaning is decided
+  // now — see phase ten — and the rule is narrowed to everything but the frame the wallpad sends.
+  //
+  // What the test was protecting has not changed and is asserted here instead: on the one device
+  // that opens a door, a frame nobody has watched go out is refused by name, and no flag reaches
+  // it. Guessing a field is not a measurement when the field unlocks a door.
+  const verdict = checkOutgoing({ hex: "f70e011e024311010004ffffb3ee", armed: true, allowAll: true });
   assert.equal(verdict.ok, false);
-  assert.match(String(verdict.reason), /undecided|door/i);
+  assert.match(String(verdict.reason), /door/i);
 });
 
 test("E3 RED: gas may be closed and never opened", () => {
@@ -686,4 +691,73 @@ test("E11 RED: the values between the ends are deliberately absent", async () =>
     assert.ok(!PHASE9_ALLOWED.includes(hex), `${celsius} C must not be on the list`);
     assert.equal(checkOutgoing({ hex, armed: true, phase: 9 }).ok, false, `${celsius} C`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Phase ten: the household door, and a refusal narrowed rather than lifted.
+//
+// `0x1E 02` was refused outright because its meaning was undecided and it *might* open a door.
+// It is decided now: the operator pressed the wallpad's own door-open button and this exact frame
+// went out three times, 0.69 s apart, in the `0x1E` query's slot. The legacy names the same bytes
+// `makePacketOpen`.
+//
+// So the refusal loses its stated reason but not its job. It is narrowed to everything **except**
+// the frame the wallpad itself sends: an invented `0x1E 02` variant is still refused at every
+// phase and under `allowAll`, because a door is the one place where guessing a field is not a
+// measurement. The one observed frame is on the phase-ten list and nowhere else.
+
+const DOOR_OPEN = "f70e011e024311040004ffffb6ee";
+
+test("E12 RED: phase ten adds the observed door frame and nothing else", async () => {
+  const { PHASE9_ALLOWED, PHASE10_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE10_ALLOWED.filter((hex) => !PHASE9_ALLOWED.includes(hex));
+  assert.deepEqual(added, [DOOR_OPEN]);
+  assert.equal(PHASE10_ALLOWED.length, 47, "forty-six from phase nine plus one");
+});
+
+test("E12 RED: the door frame is byte-for-byte what the wallpad sent", () => {
+  const b = bytes(DOOR_OPEN);
+  assert.equal(b.length, 14);
+  assert.equal(b[1], 0x0e, "declares fourteen bytes");
+  assert.equal(b[3], 0x1e, "the entrance device");
+  assert.equal(b[4], 0x02, "a set frame");
+  assert.equal(b[5], 0x43, "sub-command");
+  let x = 0;
+  for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+  assert.equal(x, b[b.length - 2]);
+  assert.equal(b[b.length - 1], 0xee);
+});
+
+test("E12 RED: phase nine still refuses it, phase ten permits it", () => {
+  assert.equal(checkOutgoing({ hex: DOOR_OPEN, armed: true, phase: 9 }).ok, false);
+  assert.equal(checkOutgoing({ hex: DOOR_OPEN, armed: true, phase: 10 }).ok, true);
+});
+
+test("E12 RED: every other 0x1E set frame is still refused, at every phase and by every flag", () => {
+  // The narrowing must be to this frame and no other. These are the shapes an invented door
+  // command would take: a different value, a different address, a different length.
+  const others = [
+    "f70e011e024311010004ffffb3ee",  // value 01 instead of 04
+    "f70e011e024312040004ffffb5ee",  // address 12
+    "f70b011e024311040004b9ee",      // eleven bytes instead of fourteen
+    "f70e011e024311040004fffeb7ee",  // one payload byte different
+  ];
+  for (const hex of others) {
+    for (const phase of [1, 5, 9, 10] as const) {
+      const verdict = checkOutgoing({ hex, armed: true, phase });
+      assert.equal(verdict.ok, false, `${hex} at phase ${phase}`);
+      assert.match(String(verdict.reason), /door/i, `${hex} must be refused by name, not by the list`);
+    }
+    const bypass = checkOutgoing({ hex, armed: true, allowAll: true });
+    assert.equal(bypass.ok, false, `allow-all must not reach ${hex}`);
+    assert.match(String(bypass.reason), /door/i, hex);
+  }
+});
+
+test("E12 RED: the observed frame is not refused by name, only gated by the list", () => {
+  // It has to pass the refusal or phase ten could not send it; the list is what holds it back
+  // before phase ten.
+  const early = checkOutgoing({ hex: DOOR_OPEN, armed: true, phase: 1 });
+  assert.equal(early.ok, false);
+  assert.match(String(early.reason), /allowlist/i, "phase one refuses it by the list, not by name");
 });

@@ -194,6 +194,21 @@ export const PHASE9_ALLOWED: readonly string[] = [
   "f70b01180245110400b7ee",
 ];
 
+/**
+ * Phase ten is the household front door: one frame, the one the wallpad sends.
+ *
+ * It is not on any earlier list and the refusal above no longer names it, so this list is the only
+ * thing standing between the tool and the door. That is deliberate — opening a door is a decision,
+ * and a decision belongs in a phase rather than in a rule that claims uncertainty it no longer has.
+ *
+ * The wallpad sends it three times at 0.69 s. One send is tried first, because if one is enough
+ * the burst is redundancy and that is worth knowing.
+ */
+export const PHASE10_ALLOWED: readonly string[] = [
+  ...PHASE9_ALLOWED,
+  "f70e011e024311040004ffffb6ee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
@@ -204,6 +219,7 @@ const PHASES: Record<number, readonly string[]> = {
   7: PHASE7_ALLOWED,
   8: PHASE8_ALLOWED,
   9: PHASE9_ALLOWED,
+  10: PHASE10_ALLOWED,
 };
 
 export type Verdict =
@@ -222,6 +238,11 @@ function checksumOk(frame: Uint8Array): boolean {
   return x === frame[frame.length - 2] && frame[frame.length - 1] === 0xee;
 }
 
+/** The one `0x1E 02` frame the wallpad was watched sending. Nothing else on that device is sent. */
+const OBSERVED_DOOR_OPEN = "f70e011e024311040004ffffb6ee";
+
+const toHex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
+
 /** The warmest heating target this tool will ever send. See the refusal below for why. */
 const HEATING_TARGET_CEILING_C = 40;
 
@@ -233,8 +254,19 @@ function refusalReason(b: Uint8Array): string | null {
   if (b[0] !== 0xf7) return "a frame must begin with F7 or 7F";
   const device = b[3];
   const kind = b[4];
-  if (device === 0x1e && kind === 0x02) {
-    return "the 0x1E 02 frame's meaning is undecided and may be a door-open command";
+  if (device === 0x1e && kind === 0x02 && b !== undefined) {
+    // This was refused outright while its meaning was undecided. It is decided now: the operator
+    // pressed the wallpad's own door-open button and exactly these bytes went out three times,
+    // 0.69 s apart, in the `0x1E` query's slot, and the legacy names them `makePacketOpen`.
+    //
+    // The reason is gone; the job is not. Narrowed to everything except the frame the wallpad
+    // itself sends, so an invented variant — another value, another address, another length, one
+    // payload byte moved — stays refused at every phase and under `allowAll`. A door is the one
+    // place where guessing a field is not a measurement. The observed frame is held back by the
+    // phase list instead, which is where a decision about opening a door belongs.
+    if (toHex(b) !== OBSERVED_DOOR_OPEN) {
+      return "only the door-open frame the wallpad itself sends may be used, and this is not it";
+    }
   }
   if (device === 0x1b && kind === 0x02) {
     // 03 locks the valve. Anything else on this device is an opening, or an unknown, and gas
