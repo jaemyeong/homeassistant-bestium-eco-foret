@@ -22,6 +22,13 @@ const config = JSON.parse(
 // rather than the eleven a light or heating frame occupies. Across the 34 captures under
 // `tools/buslab/runs`, 6,415 s carried 685,772 bytes in 34,427 reads — 106.9 B/s and 5.37
 // reads/s. Rounded up for headroom, since a busier minute is not the average one.
+//
+// The two figures are not equally solid. Those captures came from the buslab tool: the same
+// physical line through the same gateway, so the byte rate is the add-on's byte rate. A read
+// is whatever one client's socket handed up in one chunk, which is buslab's segmentation and
+// only an estimate of the add-on's. The ceilings carry enough headroom to absorb the
+// difference, and `maximum_records` is the limit that would need re-measuring first if a
+// capture ever stopped early.
 const BYTES_PER_SECOND = 120;
 const READS_PER_SECOND = 6;
 
