@@ -196,17 +196,19 @@ test("0.2.7 RED: a heating command frame is never a source of state", () => {
 });
 
 test("0.2.7 RED: the elevator reports the directions the bus actually carries", () => {
-  const cases: Array<[string, string, number]> = [
-    ["f70d013401411000a6010b33ee", "up", 1],      // 0xA6: moving up
-    ["f70d013401411000b6040b26ee", "down", 4],    // 0xB6: moving down
-    ["f70d01340141100001040b91ee", "arrival", 4], // 0x01: arrived
-    ["f70d0134014110000000009fee", "idle", 0],    // 0x00: idle, seen 171 times
+  const cases: Array<[string, string, string, number]> = [
+    // hex, heading, call, floor
+    ["f70d013401411000a6010b33ee", "up", "down", 1],
+    ["f70d013401411000b6040b26ee", "down", "down", 4],
+    ["f70d01340141100001040b91ee", "none", "arrival", 4],
+    ["f70d0134014110000000009fee", "none", "none", 0],
   ];
-  for (const [hex, direction, floor] of cases) {
+  for (const [hex, heading, call, floor] of cases) {
     const m = fresh();
     push(m, hex, 1_000);
     const elevator = devices(m).elevator as AnyRecord;
-    assert.equal(elevator.direction, direction, hex);
+    assert.equal(elevator.heading, heading, hex);
+    assert.equal(elevator.call, call, hex);
     assert.equal(elevator.floor, floor, hex);
   }
 });
@@ -221,11 +223,17 @@ test("0.3.0 RED: the 0x1E 02 frame is a door-open observation, never a call", ()
   push(m, "f70e011e024311040004ffffb6ee", now);
   const household = (): AnyRecord => (devices(m).entrances as AnyRecord).household as AnyRecord;
   assert.equal(household().call, undefined, "nothing may claim a call is in progress");
-  assert.equal(household().doorOpenObserved, true, "the door-open operation is what was observed");
+  // A door opening is an event, so what is kept is when it happened. The old boolean read as
+  // "a door is open", which nothing on this line reports: there is no closing frame. The time
+  // outlives staleness on purpose — "opened at 13:18:02, and we have heard nothing from this
+  // device since" is two true statements, where a flag that quietly went false would erase
+  // the first one.
+  assert.equal(household().doorOpenAtMs, 1_000, "the observation carries its time");
   now += 5_000;
-  assert.equal(household().doorOpenObserved, true, "and it survives while the frame is fresh");
+  assert.equal(household().stale, false, "the device is still fresh");
   now += 30_000;
-  assert.notEqual(household().doorOpenObserved, true, "once the frame goes stale the observation stops");
+  assert.equal(household().stale, true, "the device has gone quiet");
+  assert.equal(household().doorOpenAtMs, 1_000, "but the door still opened when it did");
 });
 
 test("0.2.7 RED: the entrance poll frame is kept rather than dropped", () => {
@@ -278,4 +286,61 @@ test("M5 RED: the 0x2A reply is decoded, and it carries two devices at once", ()
   const other = fresh();
   push(other, "f70c012a0240110119009bee", 1_000);
   assert.equal((devices(other).batchOff as AnyRecord).state, undefined, "a command is not a source of state");
+});
+
+test("M5 RED: the elevator's high nibble is where the car is headed, not that it is moving", () => {
+  // The legacy add-on read this nibble as "moving upside/downside". Watching all four states
+  // live falsified that: it is the direction the car is going *or about to go* — actual
+  // motion while travelling, and the direction it will serve while stopped at a floor. So a
+  // field called `motion` was telling a reader something the bus never says. Standing still
+  // is only ever the low nibble's business: 0x00 waiting, 0x01 arrived (M4-E149).
+  const m = fresh();
+  const cases: [string, string, string, string | null][] = [
+    // hex, heading, call, floor label
+    ["f70d013401411000a5040b35ee", "up", "up", "4"],
+    ["f70d01340141100006040b96ee", "none", "down", "4"],
+  ];
+  for (const [hex, heading, call, floor] of cases) {
+    push(m, hex, 1_000);
+    const e = devices(m).elevator as AnyRecord;
+    assert.equal(e.heading, heading, hex);
+    assert.equal(e.call, call, hex);
+    assert.equal(e.floorLabel, floor, hex);
+    assert.equal(e.motion, undefined, "nothing may claim to know the car is in motion");
+  }
+
+  // Waiting: no heading at all, and the floor still reads.
+  push(m, "f70d01340141100000040b90ee", 2_000);
+  const idle = devices(m).elevator as AnyRecord;
+  assert.equal(idle.heading, "none", "a zero high nibble is not a direction");
+  assert.equal(idle.call, "none");
+
+  // The basement is a character encoding, not a number: 0xB1 is B1, never 177.
+  push(m, "f70d013401411000a5b10b80ee", 3_000);
+  assert.equal((devices(m).elevator as AnyRecord).floorLabel, "B1");
+});
+
+test("M5 RED: a door opening is an event with a time, not a flag that stays true", () => {
+  // The wallpad sends the 0x1E 02 frame three times about 0.69 s apart for one press. Three
+  // frames are one event, and what the page shows is when it happened — a flag that goes true
+  // and never goes back says a door is open now, which is not what was observed.
+  let now = 10_000;
+  const m = fresh(() => now);
+  const door = "f70e011e024311040004ffffb6ee";
+  push(m, door, now);
+  now = 10_690;
+  push(m, door, now);
+  now = 11_380;
+  push(m, door, now);
+  const household = () => (devices(m).entrances as AnyRecord).household as AnyRecord;
+  assert.equal(household().doorOpenAtMs, 10_000, "the event is stamped when it started");
+  assert.equal(household().doorOpenCount, 1, "three frames, one press");
+  assert.equal(household().doorOpenObserved, undefined, "the old flag is gone");
+  assert.equal(household().call, undefined, "and nothing claims a call is in progress");
+
+  // A second press, well clear of the first, is a second event.
+  now = 60_000;
+  push(m, door, now);
+  assert.equal(household().doorOpenAtMs, 60_000);
+  assert.equal(household().doorOpenCount, 2);
 });

@@ -56,6 +56,9 @@ function cloneBytes(value: Uint8Array): Uint8Array {
  * and the byte carries no second example to confirm the nibble means what it looks like.
  * The bus reports `0x00` once the car settles, which is an absence rather than a floor.
  */
+/** One door-open press repeats its frame three times, 0.69 s apart; 3 s covers the burst. */
+const DOOR_EVENT_WINDOW_MS = 3_000;
+
 function floorLabel(value: unknown): string | null {
   if (!Number.isInteger(value)) return null;
   const byte = value as number;
@@ -197,32 +200,35 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     return;
   }
   if (command === 0x34 && payload.length >= 8) {
-    // The high nibble is movement and the low nibble is the standing call. Collapsing both
-    // into one `direction` hid the call whenever the car was moving: 0xA5 is "ascending
-    // with an up call waiting" and read as plain "up". The two are reported separately now,
-    // which is also the only signal that can tell us whether a call frame of ours worked.
+    // Two nibbles, two different things, and the high one is not what the legacy add-on said.
+    //
+    // It read the high nibble as "moving upside/downside". Watching all four states live
+    // falsified that: it is the direction the car is going *or about to go* — actual motion
+    // while travelling, and the direction it will serve while standing at a floor. So there
+    // is no field here that means "the car is moving", and a `motion` field was telling a
+    // reader something this bus never says (M4-E149).
+    //
+    // The low nibble is the standing call, and it is the only signal that can say whether a
+    // call frame of ours registered. Collapsing the two into one value hid it whenever the
+    // car was travelling: 0xA5 is "heading up, an up call waiting" and used to read as a
+    // plain "up".
     const code = payload[6];
-    const moving = code >> 4;
+    const headingCode = code >> 4;
     const callCode = code & 0x0f;
-    const direction = moving === 0x0a ? "up"
-      : moving === 0x0b ? "down"
-      : moving !== 0 ? undefined
-      : callCode === 1 ? "arrival"
-      : callCode === 0 ? "idle"
-      : callCode === 5 ? "up"
-      : callCode === 6 ? "down"
+    const heading = headingCode === 0 ? "none"
+      : headingCode === 0x0a ? "up"
+      : headingCode === 0x0b ? "down"
       : undefined;
-    if (direction === undefined) {
-      markUnknown("0x34");
-      return;
-    }
-    const motion = moving === 0x0a ? "up" : moving === 0x0b ? "down" : "idle";
     const call = callCode === 0 ? "none"
       : callCode === 1 ? "arrival"
       : callCode === 5 ? "up"
       : callCode === 6 ? "down"
       : undefined;
-    mark("elevator", { floor: payload[7], floorLabel: floorLabel(payload[7]), motion, call, direction, evidence: "observed" });
+    if (heading === undefined || call === undefined) {
+      markUnknown("0x34");
+      return;
+    }
+    mark("elevator", { floor: payload[7], floorLabel: floorLabel(payload[7]), heading, call, evidence: "observed" });
     return;
   }
   if (command === 0x1e && payload.length >= 5) {
@@ -231,7 +237,24 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     // the bell is actually rung. Whether it is the door-open command itself or the notice
     // that the call ended because the door opened is still undecided, so it is reported as
     // the observation it is and never as a call in progress.
-    if (payload[2] === 0x02) mark("entrances", { household: { ...devices.entrances.household, doorOpenObserved: true, ...freshness(at, generation) } });
+    if (payload[2] === 0x02) {
+      // One press puts this frame on the line three times, about 0.69 s apart. Three frames
+      // are one event, so a repeat inside the window below extends the same event rather than
+      // starting another, and what is kept is when it began. A flag that goes true and never
+      // goes back would say a door is open now, which is not what was observed: nothing on
+      // this line reports the door closing.
+      const previous = devices.entrances.household as DeviceState;
+      const lastAtMs = previous.doorOpenAtMs as number | undefined;
+      const sameEvent = lastAtMs !== undefined && at - lastAtMs < DOOR_EVENT_WINDOW_MS;
+      mark("entrances", {
+        household: {
+          ...previous,
+          doorOpenAtMs: sameEvent ? lastAtMs : at,
+          doorOpenCount: sameEvent ? previous.doorOpenCount : ((previous.doorOpenCount as number | undefined) ?? 0) + 1,
+          ...freshness(at, generation),
+        },
+      });
+    }
     // Every one of the poll frames is byte-identical, on this capture and the last, and none
     // changed while a call was ringing. There is nothing in them to read yet.
     else mark("entrances", { communal: { ...devices.entrances.communal, evidence: "not_decoded", ...freshness(at, generation) } });

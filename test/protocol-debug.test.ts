@@ -154,24 +154,26 @@ test("RED: decoded device state carries freshness metadata and preserves generat
   monitor.push(bytes("f70d013401411000a6040b36ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
   assert.equal(monitor.snapshot().devices.elevator.floorLabel, "4");
-  assert.equal(monitor.snapshot().devices.elevator.direction, "up");
-  // 0xA6 is a car ascending with a down call standing. Folding both nibbles into one
-  // `direction` reported "up" and lost the call for the whole journey.
-  assert.equal(monitor.snapshot().devices.elevator.motion, "up");
+  // 0xA6 is a car headed up with a down call standing. Folding both nibbles into one
+  // `direction` reported "up" and lost the call for the whole journey. The high nibble is
+  // also not motion — it is where the car is going or about to go — so there is no field
+  // here that claims the car is moving (M4-E149).
+  assert.equal(monitor.snapshot().devices.elevator.heading, "up");
   assert.equal(monitor.snapshot().devices.elevator.call, "down");
+  assert.equal(monitor.snapshot().devices.elevator.motion, undefined);
+  assert.equal(monitor.snapshot().devices.elevator.direction, undefined);
   monitor.push(bytes("f70d01340141100006040b96ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
-  assert.equal(monitor.snapshot().devices.elevator.direction, "down");
-  assert.equal(monitor.snapshot().devices.elevator.motion, "idle");
+  assert.equal(monitor.snapshot().devices.elevator.heading, "none");
   assert.equal(monitor.snapshot().devices.elevator.call, "down");
   monitor.push(bytes("f70d01340141100001040b91ee"));
   assert.equal(monitor.snapshot().devices.elevator.floor, 4);
-  assert.equal(monitor.snapshot().devices.elevator.direction, "arrival");
+  assert.equal(monitor.snapshot().devices.elevator.heading, "none");
   assert.equal(monitor.snapshot().devices.elevator.call, "arrival");
   // A car in the basement reports 0xB1, which used to render as 177.
   monitor.push(bytes("f70d013401411000a5b10b80ee"));
   assert.equal(monitor.snapshot().devices.elevator.floorLabel, "B1");
-  assert.equal(monitor.snapshot().devices.elevator.motion, "up");
+  assert.equal(monitor.snapshot().devices.elevator.heading, "up");
   assert.equal(monitor.snapshot().devices.elevator.call, "up");
   monitor.push(bytes("f70d01340141100001040b91ee"));
   monitor.push(bytes("f70e011e024311040004ffffb6ee"));
@@ -200,8 +202,8 @@ test("RED: decoded device state carries freshness metadata and preserves generat
   );
   assertDeviceFresh(snapshot.devices.heating[1], now, 0);
   assert.equal(snapshot.devices.elevator.floor, 4);
-  assert.equal(snapshot.devices.elevator.direction, "arrival");
-  assert.equal(snapshot.devices.entrances.household.doorOpenObserved, true);
+  assert.equal(snapshot.devices.elevator.call, "arrival");
+  assert.equal(typeof snapshot.devices.entrances.household.doorOpenAtMs, "number");
   assert.equal(snapshot.devices.entrances.household.call, undefined, "the 0x1E 02 frame is not a call");
   assert.equal(snapshot.devices.entrances.communal.evidence, "not_decoded");
   assert.equal(snapshot.devices.outlet.queryOnly, true);
