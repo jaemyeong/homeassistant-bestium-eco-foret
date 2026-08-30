@@ -8,7 +8,7 @@ import { encodeSemanticAction } from "../bestium-eco-foret/src/protocol-debug.ts
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
-const EXPECTED_VERSION = "0.3.1";
+const EXPECTED_VERSION = "0.3.2";
 const VALID_CHALLENGE_ID = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_UNKNOWN_CHALLENGE_ID = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const appRoot = new URL(`${APP_FOLDER}/`, root);
@@ -1125,8 +1125,9 @@ test("RED: bounded coordinator stop reasons, recorder outputs, and deterministic
   const makeCoordinator = m2.createBoundedCaptureCoordinator;
   const base = validSettings({ connect_timeout_ms: 40, capture_duration_ms: 80, maximum_bytes: 4, maximum_records: 1 });
 
+  // A real clock, so nothing here may be left waiting on a timer once the test returns.
   const active = makeCoordinator({
-    settings: base,
+    settings: { ...base, connect_timeout_ms: 30_000 },
     createTransport: createFakeTransport,
     nowMs() {
       return 1;
@@ -1237,16 +1238,30 @@ test("RED: bounded coordinator stop reasons, recorder outputs, and deterministic
     assert.equal(Object.prototype.hasOwnProperty.call(result, "records"), false);
     assert.equal(store.finalizeCalls, 1, `${tc.name} must finalize its partial store`);
     assert.equal(store.finalized, true, `${tc.name} must await store finalization`);
-    assert.equal(events.indexOf("transport.destroy") < events.indexOf("store.finalize"), true);
     assert.equal(store.lines.every((line) => line.endsWith("\n")), true);
     assert.deepStrictEqual(
       store.lines.map((line) => parseJson<CaptureRecord>(line)),
       tc.expect.preview,
       `${tc.name} must persist every preview record as NDJSON`,
     );
-    assert.equal(transport.isDestroyed(), true);
-    assert.equal(transport.listenerCount(), 0);
-    assert.equal(timer.pendingCount(), 0);
+
+    // `duration`, `maximum_bytes` and `maximum_records` are the capture file's own limits:
+    // they close the file and leave the socket up, because a link that ended itself after
+    // `capture_duration_ms` would take the page's control with it — which is exactly what
+    // the operator hit. Everything else here is the link failing, and a failing link takes
+    // the recording with it. Listing the three by name means a reason added later closes
+    // the link unless someone decides otherwise.
+    // What this test owns is the recording: every one of these reasons closes the file and
+    // finalizes it exactly once, with everything it had recorded written out.
+    //
+    // None of them ends the link any more. `duration`, `maximum_bytes` and `maximum_records`
+    // are the file's own limits and never touched the socket. `connect_timeout`, `closed` and
+    // `error` are the link failing, and the link recovers from all three rather than
+    // surrendering — a gateway that reboots, or an EW11 that is not answering yet when Home
+    // Assistant starts the add-on, must not leave the page dead until someone restarts it.
+    // That recovery is `link-recording.test.ts`'s subject, and driving it here would mean
+    // advancing a clock this test uses to trigger the reasons in the first place.
+    assert.notEqual(coordinator.getTxState().recording, "open", `${tc.name}: the recording is closed`);
   }
 });
 
@@ -2039,7 +2054,10 @@ test("RED: finalization failures propagate to manual stop and automatic callback
   automaticTransport.emit("data", new Uint8Array([0xaa]));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(entries.some((entry) => entry.level === "error" && /finalize|automatic/.test(entry.summary.reason as string)), true);
-  assert.equal(automatic.getState().phase, "stopped");
+  // The recording ended on its own byte limit, so the file is closed and the failure is
+  // logged — but the limit bounds the file, not the socket, and the link is still up.
+  assert.equal(automatic.getState().state, "stopped", "the recording closed");
+  assert.equal(automatic.getState().phase, "running", "and the link it ran on did not");
 });
 
 test("RED: lifecycle phases serialize stop-during-start and start-during-finalize", async () => {
@@ -2341,6 +2359,12 @@ test("RED: finalized and recovered internal stores both serve downloads without 
   assert.equal(recoveredDownload.statusCode, 200);
   assert.equal(recoveredDownload.headers.get("content-disposition"), 'attachment; filename="capture-recovered.ndjson"');
   assert.equal(recoveredDownload.body, '{"sequence":7}\n');
+
+  // Both runtimes opened a link at startup — that is the whole point of the split — so both
+  // hold a socket and a connect timer until they are stopped. Leaving them running kept the
+  // event loop alive after every test had passed.
+  await normal.stop();
+  await recovered.stop();
 });
 
 test("RED: capture-store begin observes delayed stream-open errors and remains reusable", async () => {

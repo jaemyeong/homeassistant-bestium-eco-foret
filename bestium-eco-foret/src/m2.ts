@@ -97,6 +97,8 @@ type RuntimeCoordinator = {
 
 const INGRESS_PEER_ALLOWED = "172.30.32.2";
 const PROGRESS_INTERVAL_MS = 3_600_000;
+/** How long to wait before each relink attempt. The last value repeats from then on. */
+const RECONNECT_BACKOFF_MS = [0, 1_000, 2_000, 5_000, 15_000, 30_000] as const;
 
 type FakeReq = {
   method: string;
@@ -305,6 +307,9 @@ export function createBoundedCaptureCoordinator(opts: {
   let progressTimeoutId: TimerToken | null = null;
   let connected = false;
   let reconnecting = false;
+  /** Escalating waits so a gateway that is down does not become a reconnect loop. */
+  let reconnectAttempts = 0;
+  let reconnectTimeoutId: TimerToken | null = null;
   let startedAtMs = 0;
   let stoppedAtMs = 0;
   let byteCount = 0;
@@ -401,6 +406,13 @@ export function createBoundedCaptureCoordinator(opts: {
       opts.clearTimeout(progressTimeoutId);
       progressTimeoutId = null;
     }
+    // A relink waiting to fire would hold the event loop open past shutdown and, worse, put
+    // a socket back after the caller asked for the link to be gone.
+    if (reconnectTimeoutId !== null) {
+      opts.clearTimeout(reconnectTimeoutId);
+      reconnectTimeoutId = null;
+    }
+    reconnecting = false;
     detachTransport(transport);
     listeners.length = 0;
     connected = false;
@@ -430,6 +442,13 @@ export function createBoundedCaptureCoordinator(opts: {
   };
 
   let requestFinish: (reason: string) => Promise<CoordinatorResult>;
+
+  /**
+   * Ends the capture file because it reached one of its own limits — duration, bytes or
+   * records — and leaves the link untouched. All three bound the file, not the socket: a link
+   * that closed itself after `capture_duration_ms` would take the page's control with it.
+   */
+  let endRecording: (reason: string) => Promise<CoordinatorResult>;
 
   const handleAppendFailure = (error: unknown): void => {
     const normalized = logFailure("append", error, "append");
@@ -564,6 +583,15 @@ export function createBoundedCaptureCoordinator(opts: {
     return finishing;
   };
 
+  endRecording = (reason: string): Promise<CoordinatorResult> => {
+    if (recording === "off") {
+      return Promise.resolve(lastResult ?? { ...currentSummary(), reason, stoppedAtMs, phase });
+    }
+    if (finishPromise) return finishPromise;
+    if (recording === "opening") return requestFinish(reason);
+    return finishCapture(reason, false);
+  };
+
   requestFinish = (reason: string): Promise<CoordinatorResult> => {
     if (finishPromise) return finishPromise;
     // A stop arriving while the store is still opening cannot finalize a file that does not
@@ -592,9 +620,57 @@ export function createBoundedCaptureCoordinator(opts: {
     return finishCapture(reason);
   };
 
+  /**
+   * Puts the link back after it drops, and ends any recording that was riding on it.
+   *
+   * A dropped socket used to end everything, which was right when the link belonged to a
+   * capture: a capture is a finite job and losing the line ends it. A link is not finite — it
+   * lives as long as the page does — so a gateway that reboots, a network that blinks, or an
+   * EW11 that is not answering yet when Home Assistant starts the add-on all have to be
+   * recovered from rather than surrendered to.
+   *
+   * The recording does end. Frames were lost, and a capture file with a hole in it is worse
+   * than a short one: whoever analyses it later has no way to see the gap.
+   */
+  const relinkAfter = (reason: string): void => {
+    if (reconnecting) return;
+    reconnecting = true;
+    const wasRecording = recording !== "off";
+    const attempt = Math.min(reconnectAttempts, RECONNECT_BACKOFF_MS.length - 1);
+    const delayMs = RECONNECT_BACKOFF_MS[attempt]!;
+    reconnectAttempts += 1;
+    logger.info("relink", { reason, delayMs, attempt: reconnectAttempts, byteCount, recordCount });
+    const finished = wasRecording
+      ? endRecording(reason).catch(() => undefined)
+      : Promise.resolve(undefined);
+    void finished.then(() => {
+      // The link may have been taken down deliberately while the recording was closing —
+      // `stop()` does exactly that — and scheduling here would both hold the event loop open
+      // and put a socket back that the caller asked to be gone.
+      if (phase !== "running") { reconnecting = false; return; }
+      if (reconnectTimeoutId !== null) opts.clearTimeout(reconnectTimeoutId);
+      reconnectTimeoutId = opts.setTimeout(() => {
+        reconnectTimeoutId = null;
+        reconnecting = false;
+        if (phase !== "running") return;
+        try {
+          detachTransport(transport);
+          listeners.length = 0;
+          connected = false;
+          protocol.resetGeneration();
+          attachTransport();
+        } catch (error) {
+          logFailure("relink", error, "relink");
+          // Nothing else is going to retry, so schedule the next attempt from here.
+          relinkAfter("relink_failed");
+        }
+      }, delayMs);
+    });
+  };
+
   const onConnectTimeout = (activeTransport: Transport): void => {
     if (phase === "running" && transport === activeTransport && !connected) {
-      void requestFinish("connect_timeout").catch(() => undefined);
+      relinkAfter("connect_timeout");
     }
   };
 
@@ -605,18 +681,19 @@ export function createBoundedCaptureCoordinator(opts: {
       byteCount,
       recordCount,
     });
-    void requestFinish("error").catch(() => undefined);
+    relinkAfter("error");
   };
 
   const onClose = (activeTransport: Transport): void => {
     if (phase === "running" && transport === activeTransport) {
-      void requestFinish("closed").catch(() => undefined);
+      relinkAfter("closed");
     }
   };
 
   const onConnect = (activeTransport: Transport): void => {
     if (phase !== "running" || transport !== activeTransport || connected) return;
     connected = true;
+    reconnectAttempts = 0;
     if (connectTimeoutId !== null) {
       opts.clearTimeout(connectTimeoutId);
       connectTimeoutId = null;
@@ -632,7 +709,7 @@ export function createBoundedCaptureCoordinator(opts: {
       // The duration limit bounds the capture file, not the link. A link that closed itself
       // after `capture_duration_ms` would take the page's control with it.
       runningTimeoutId = opts.setTimeout(() => {
-        if (recording === "open") void requestFinish("duration").catch(() => undefined);
+        if (recording === "open") void endRecording("duration").catch(() => undefined);
       }, settings.capture_duration_ms);
     }
   };
@@ -664,9 +741,19 @@ export function createBoundedCaptureCoordinator(opts: {
     }
     if (pendingAppend) return;
 
+    // Everything below belongs to the capture file: the byte and record counts, the preview,
+    // and the two limits that end it. A link with no recording open must do none of it.
+    //
+    // E2B guarded `queueRecord`, which is where the file is actually written, and left this
+    // accounting running. So a link that had never recorded anything still counted its way to
+    // `maximum_records` — about four minutes on this bus — and then called `requestFinish`,
+    // which closed the link and with it the page's control. Starting and stopping a capture
+    // reset the counters, which is why it looked like the split worked afterwards.
+    if (recording !== "open") return;
+
     const remaining = settings.maximum_bytes - byteCount;
     if (remaining <= 0) {
-      void requestFinish("maximum_bytes").catch(() => undefined);
+      void endRecording("maximum_bytes").catch(() => undefined);
       return;
     }
     const accepted = chunk.byteLength > remaining ? chunk.slice(0, remaining) : chunk;
@@ -678,9 +765,9 @@ export function createBoundedCaptureCoordinator(opts: {
     queueRecord(record);
 
     if (byteCount >= settings.maximum_bytes) {
-      void requestFinish("maximum_bytes").catch(() => undefined);
+      void endRecording("maximum_bytes").catch(() => undefined);
     } else if (recordCount >= settings.maximum_records) {
-      void requestFinish("maximum_records").catch(() => undefined);
+      void endRecording("maximum_records").catch(() => undefined);
     }
   };
 

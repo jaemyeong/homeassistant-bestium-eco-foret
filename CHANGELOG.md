@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.2] - 2026-08-31
+
+### Fixed
+
+- Control stopped working a few minutes after the add-on started unless a capture had been
+  run. `onData` kept the capture file's accounting — the byte count, the record count, the
+  preview — running whether or not a recording was open. 0.3.0 guarded `queueRecord`, which is
+  where the file is written, and left everything above it untouched, so a link that had never
+  recorded anything still counted its way to `maximum_records` and then called the same finish
+  path a real capture uses. That closed the link, and with it the page's control. On this bus
+  1,000 reads is about four minutes.
+
+  Starting and stopping a capture reset the counters, which is why control came back
+  afterwards and looked like the split working. It was buying another four minutes.
+
+- A link that dropped never came back. `onClose`, `onError` and `onConnectTimeout` all ended
+  the link for good. That was right when the link belonged to a capture — a capture is a
+  finite job and losing the line ends it — but a link lives as long as the page does. A
+  gateway that reboots, a network that blinks, or an EW11 that is not answering yet in the
+  three seconds after Home Assistant starts the add-on would each leave the page dead until
+  someone restarted it. All three now relink, with waits that escalate to thirty seconds so a
+  gateway that is down does not become a reconnect loop.
+
+  The recording still ends when the link drops. Frames were lost, and a capture file with an
+  invisible hole in it is worse than a short one.
+
+  The capture's own limits — `capture_duration_ms`, `maximum_bytes`, `maximum_records` — now
+  end only the file. A link that closed itself after `capture_duration_ms` would take the
+  page's control with it, which is the same defect by another road.
+
 ## [0.3.1] - 2026-08-31
 
 ### Fixed
