@@ -33,26 +33,34 @@ export function intentKey(action: unknown): string | null {
   }
   if (value.kind === "gas" && value.state === "close") return "gas";
   if (value.kind === "elevator" && (value.direction === "up" || value.direction === "down")) return "elevator";
-  if ((value.kind === "outlet" || value.kind === "ventilation") && value.action === "query") {
-    return `query:${value.kind}`;
+  if (value.kind === "batchoff" && (value.state === "on" || value.state === "off")) return "batchoff";
+  // The group commands address the group settable at 0x10, which is a different settable from
+  // any of the individual ones. Giving them their own keys means a group press and a single
+  // press queue separately and neither overtakes the other, and it means a group press is
+  // retried and confirmed like everything else rather than going out once and unwatched.
+  if (value.kind === "light" && value.target === "all" && (value.state === "on" || value.state === "off")) {
+    return "light:all";
+  }
+  if (value.kind === "heat" && value.target === "all" && (value.state === "on" || value.state === "off")) {
+    return "heat:all";
   }
   // Entrance macros have no reply on this line, so they can be neither confirmed nor safely
-  // retried; raw has no addressed settable at all. Both keep the single-shot path.
+  // retried. They keep the single-shot path.
   return null;
 }
 
 /**
- * All-zones off is four independent commands, not one macro. The wallpad sends them that
- * way too — zone 4 down to zone 1, 0.3 s to 2.0 s apart — and four queue entries retry and
- * confirm one at a time instead of failing together.
+ * Nothing expands any more.
+ *
+ * All-zones off used to become four per-zone commands here, on the reasoning that the wallpad
+ * had no group command and sent them one at a time. It has one, at address 0x10, and it sends
+ * that. Four commands where the wallpad sends one is four chances to half-succeed, and the
+ * preview showed four frames while a single frame went out. The group is now its own settable
+ * with its own key, retried and confirmed like any other (M4-E139).
  */
 export function expandAction(action: unknown): AnyRecord[] {
   if (!action || typeof action !== "object" || Array.isArray(action)) return [];
-  const value = action as AnyRecord;
-  if (value.kind === "heat" && value.target === "all" && value.state === "off") {
-    return [1, 2, 3, 4].map((zone) => ({ kind: "heat", zone, state: "off" }));
-  }
-  return [value];
+  return [action as AnyRecord];
 }
 
 function observedAfter(entry: unknown, writeAtMs: number, generation: number): entry is AnyRecord {
@@ -107,9 +115,24 @@ export function isConfirmed(
     const previous = (before as AnyRecord | undefined)?.elevator?.call;
     return previous !== undefined && previous !== value.direction;
   }
-  if (value.kind === "outlet" || value.kind === "ventilation") {
-    // A query changes nothing, so a fresh reply from that device is the whole criterion.
-    return observedAfter(state[value.kind], writeAtMs, generation);
+  // A group command draws no reply of its own: the wallpad answers with each member's next
+  // poll instead, about 161 ms later. So the whole group has to be holding the requested
+  // state, each member observed after the write, before this counts as confirmed.
+  if (value.kind === "light" && value.target === "all") {
+    return [1, 2, 3].every((index) => {
+      const entry = state.lights?.[index];
+      return observedAfter(entry, writeAtMs, generation) && entry.state === value.state;
+    });
+  }
+  if (value.kind === "heat" && value.target === "all") {
+    return [1, 2, 3, 4].every((zone) => {
+      const entry = state.heating?.[zone];
+      return observedAfter(entry, writeAtMs, generation) && entry.state === value.state;
+    });
+  }
+  if (value.kind === "batchoff" && (value.state === "on" || value.state === "off")) {
+    const entry = state.batchOff;
+    return observedAfter(entry, writeAtMs, generation) && entry.state === value.state;
   }
   return false;
 }

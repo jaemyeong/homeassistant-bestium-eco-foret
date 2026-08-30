@@ -301,6 +301,11 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
   assert.throws(() => action({ kind: "cctv", state: "start" }));
   assert.throws(() => action({ kind: "batch", actions: [] }));
 
+  // `raw` is gone; the door macros are not. Arbitrary sends belong to the local buslab,
+  // behind its allow-list, and never to a page on the household network. The macros stay as
+  // candidates that no single tap can send, which keeps the speculative path exercised and
+  // gives the subphone work — where the bell and the video actually live — something to
+  // attach to. The new page offers neither.
   const unsafeLive = { ...live, unsafeTransmitEnabled: true };
   const assertUnsafeMacro = (value: unknown, expected: string[]) => {
     const result = action(value, unsafeLive);
@@ -308,65 +313,23 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
     assert.equal(result.transportEvidence, "unverified");
     assert.equal(result.sendable, false);
     assert.equal(result.requiresSpeculativeConfirmation, true);
-    assert.deepStrictEqual(
-      (result.frames as Uint8Array[]).map((entry) => hex(entry)),
-      expected,
-    );
+    assert.deepStrictEqual((result.frames as Uint8Array[]).map((entry) => hex(entry)), expected);
   };
-  assertUnsafeMacro(
-    { kind: "entrance", target: "household", state: "inactive" },
-    ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
-  );
-  assertUnsafeMacro(
-    { kind: "entrance", target: "household", state: "ringing" },
-    ["7fb70000ee", "7fb40000ee", "7fb80000ee"],
-  );
-  assertUnsafeMacro(
-    { kind: "entrance", target: "communal", state: "ringing" },
-    ["7f5f0000ee", "7f610000ee", "7f600000ee"],
-  );
-
-  const raw = action({ kind: "raw", hex: "aAbB" }, unsafeLive);
-  assert.equal(raw.evidence, "unsafe_candidate");
-  assert.equal(raw.transportEvidence, "unverified");
-  assert.equal(raw.sendable, false);
-  assert.equal(raw.requiresSpeculativeConfirmation, true);
-  assert.equal(hex(raw.frame), "aabb");
-  for (const invalidHex of ["", "a", "gg", "aa bb", "a".repeat(514)]) {
-    assert.throws(() => action({ kind: "raw", hex: invalidHex }, unsafeLive));
+  assertUnsafeMacro({ kind: "entrance", target: "household", state: "inactive" }, ["7fb90000ee", "7fb40000ee", "7fba0000ee"]);
+  assertUnsafeMacro({ kind: "entrance", target: "household", state: "ringing" }, ["7fb70000ee", "7fb40000ee", "7fb80000ee"]);
+  assertUnsafeMacro({ kind: "entrance", target: "communal", state: "ringing" }, ["7f5f0000ee", "7f610000ee", "7f600000ee"]);
+  for (const value of [{ kind: "outlet", action: "query" }, { kind: "ventilation", action: "query" }]) {
+    const result = action(value, unsafeLive);
+    assert.equal(result.evidence, "rejected", JSON.stringify(value));
+    assert.equal(result.sendable, false, JSON.stringify(value));
   }
-  for (const recognizedHex of [
-    "f70b01190240110100b6ee",
-    "f70b011b0243110300b5ee",
-    "f70d013401411000a6040b36ee",
-    "f70b011f0140100000b3ee",
+  for (const rawish of [
+    { kind: "raw", hex: "aabb" },
+    { kind: "raw", hex: "f70b01190240110100b6ee" },
+    { kind: "raw", hex: "7fb70000ee" },
+    { kind: "raw" },
   ]) {
-    assert.throws(() => action({ kind: "raw", hex: recognizedHex }, unsafeLive));
-  }
-  for (const recognizedHex of [
-    "f70d011904401000020102b5ee",
-    "f70c011802401101010000b1ee",
-    "f70c011802401101040000b4ee",
-    "f70c011802401102010000b2ee",
-    "f70c011802401103010000b3ee",
-    "f70c011802401104010000b4ee",
-    "f70c011802401101011414b1ee",
-    "f715011804401100040000040000040000040000aeee",
-    "f70d01340141100006040b96ee",
-    "f70b012b014011000086ee",
-    "f70e011e024311040004ffffb6ee",
-  ]) {
-    assert.throws(() => action({ kind: "raw", hex: recognizedHex }, unsafeLive));
-  }
-  for (const gasFrame of [
-    "f70d011b04431100030000b5ee",
-    "f70d011b04431100040000b2ee",
-    hex(frame([0x01, 0x1b, 0x02, 0x43, 0x11, 0x00, 0x00])),
-  ]) {
-    assert.throws(() => action({ kind: "raw", hex: gasFrame }, unsafeLive));
-  }
-  for (const doorFrame of ["7fb70000ee", "7fb90000ee", "7fb40000ee", "7fba0000ee", "7f5f0000ee", "7f610000ee", "7f600000ee", "7f620000ee"]) {
-    assert.throws(() => action({ kind: "raw", hex: doorFrame }, unsafeLive));
+    assert.throws(() => action(rawish, unsafeLive), /unsupported/, JSON.stringify(rawish));
   }
 
   // Zone 1 once claimed observed evidence on a frame that appeared in no capture. 0.2.7
@@ -397,49 +360,36 @@ test("RED-exception: semantic action encoder keeps evidence, speculative confirm
     assert.equal(action({ kind: "heat", zone: 1, temperatureC }).evidence, "rejected");
   }
 
-  // The elevator call is the remaining candidate: pressing the wallpad's own call button
-  // put no set frame on this line, so neither legacy shape has support here.
-  const candidate = action({ kind: "elevator", direction: "down" });
-  assert.equal(candidate.evidence, "inferred_candidate");
-  assert.equal(candidate.sendable, false);
-  assert.equal(candidate.requiresSpeculativeConfirmation, true);
-  const phraseOnly = action({ kind: "elevator", direction: "down", confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }, {
-    transmitEnabled: true,
-    speculativeTransmitEnabled: false,
-    authorizedUser: true,
-  });
-  assert.equal(phraseOnly.sendable, false);
-  const phraseOnlyCandidate = action({ kind: "elevator", direction: "up", confirmation: "BESTIUM-SPECULATIVE-CONFIRM" });
-  assert.equal(phraseOnlyCandidate.evidence, "inferred_candidate");
-  assert.equal(phraseOnlyCandidate.sendable, false);
-  assert.equal(phraseOnlyCandidate.requiresSpeculativeConfirmation, true);
+  // The elevator call was the last candidate. Its earlier shape had two bytes wrong and
+  // registered nothing twice; the corrected one went out five times and took. The phrase
+  // field is still accepted on any action and still changes nothing — it was never what
+  // made a control safe.
   for (const direction of ["up", "down"] as const) {
     const elevator = action({ kind: "elevator", direction });
-    assert.equal(elevator.evidence, "inferred_candidate");
-    assert.equal(elevator.sendable, false);
-    const phraseOnlyElevator = action({ kind: "elevator", direction, confirmation: "BESTIUM-SPECULATIVE-CONFIRM" });
-    assert.equal(phraseOnlyElevator.sendable, false);
-    assert.equal(phraseOnlyElevator.requiresSpeculativeConfirmation, true);
+    assert.equal(elevator.evidence, "observed");
+    assert.equal(elevator.sendable, true, "one tap is the point");
+    assert.equal(elevator.requiresSpeculativeConfirmation, undefined);
+    assert.equal(action({ kind: "elevator", direction, confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }).sendable, true);
+    assert.equal(action({ kind: "elevator", direction }, { transmitEnabled: false, authorizedUser: true }).sendable, false);
   }
   for (const value of [
     { kind: "heat", zone: 3, temperatureC: 20 },
     { kind: "heat", zone: 4, temperatureC: 20 },
+    { kind: "batchoff", state: "on" },
+    { kind: "light", target: "all", state: "off" },
+    { kind: "heat", target: "all", state: "off" },
   ]) {
-    // Promoted, so one tap sends. A stray confirmation field is still accepted and still
-    // changes nothing, because the phrase was never what made a control safe.
-    assert.equal(action(value).sendable, true);
-    assert.equal(action({ ...value, confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }).sendable, true);
-    assert.equal(action(value, { transmitEnabled: false, authorizedUser: true }).sendable, false);
+    assert.equal(action(value).sendable, true, JSON.stringify(value));
+    assert.equal(action({ ...value, confirmation: "BESTIUM-SPECULATIVE-CONFIRM" }).sendable, true, JSON.stringify(value));
+    assert.equal(action(value, { transmitEnabled: false, authorizedUser: true }).sendable, false, JSON.stringify(value));
   }
 
-  const outlet = action({ kind: "outlet", action: "query" });
-  assert.equal(outlet.evidence, "observed");
-  assert.equal(outlet.sendable, true);
-  assert.equal(hex(outlet.frame), "f70b011f0140100000b3ee");
-  const ventilation = action({ kind: "ventilation", action: "query" });
-  assert.equal(ventilation.evidence, "observed");
-  assert.equal(ventilation.sendable, true);
-  assert.equal(hex(ventilation.frame), "f70b012b014011000086ee");
+  // Both query actions are gone with their devices. 0x1F and 0x2B were polled on every
+  // sweep of the bus and answered on none of them: this wallpad has neither an outlet
+  // module nor a ventilation unit, so a control for either would be a button that does
+  // nothing at all.
+  assert.equal(action({ kind: "outlet", action: "query" }).evidence, "rejected");
+  assert.equal(action({ kind: "ventilation", action: "query" }).evidence, "rejected");
 });
 
 test("RED-final: malformed short F7 and unclosed 7F input stay bounded and non-throwing", () => {
@@ -638,7 +588,7 @@ test("RED-final: 7F proof rejects mid-sequence noise/invalid frames and timestam
   }
 });
 
-test("RED-exception: encoder evidence keeps measured controls distinct from inferred candidates", () => {
+test("M5: every control the page offers is measured, and no candidates remain", () => {
   const context = {
     transmitEnabled: true,
     speculativeTransmitEnabled: true,
@@ -665,15 +615,21 @@ test("RED-exception: encoder evidence keeps measured controls distinct from infe
     assert.equal(observed(value).evidence, "observed", JSON.stringify(value));
   }
 
-  // The elevator call is the one control still without support on this line.
+  // The elevator call was the last inferred candidate. Its shape had two bytes wrong, which
+  // is why the earlier one registered nothing; the corrected frame was sent five times and
+  // judged off the status stream. Nothing on this page is a candidate any more.
   for (const value of [
     { kind: "elevator", direction: "up" },
     { kind: "elevator", direction: "down" },
+    { kind: "batchoff", state: "on" },
+    { kind: "batchoff", state: "off" },
+    { kind: "light", target: "all", state: "on" },
+    { kind: "heat", target: "all", state: "on" },
   ]) {
     const result = observed(value);
-    assert.equal(result.evidence, "inferred_candidate", JSON.stringify(value));
-    assert.equal(result.sendable, false, JSON.stringify(value));
-    assert.equal(result.requiresSpeculativeConfirmation, true, JSON.stringify(value));
+    assert.equal(result.evidence, "observed", JSON.stringify(value));
+    assert.equal(result.sendable, true, JSON.stringify(value));
+    assert.equal(result.requiresSpeculativeConfirmation, undefined, JSON.stringify(value));
   }
   assert.equal(observed({ kind: "gas", state: "open" }).evidence, "rejected");
 

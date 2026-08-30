@@ -22,7 +22,10 @@ test("0.2.7 RED: every emitted frame declares its own true length", () => {
     { kind: "light", target: 1, state: "on" }, { kind: "gas", state: "close" },
     { kind: "heat", zone: 1, state: "on" }, { kind: "heat", zone: 4, state: "off" },
     { kind: "heat", zone: 2, temperatureC: 23 }, { kind: "heat", target: "all", state: "off" },
-    { kind: "elevator", direction: "up" },
+    { kind: "heat", target: "all", state: "on" },
+    { kind: "light", target: "all", state: "on" }, { kind: "light", target: "all", state: "off" },
+    { kind: "batchoff", state: "on" }, { kind: "batchoff", state: "off" },
+    { kind: "elevator", direction: "up" }, { kind: "elevator", direction: "down" },
   ];
   for (const action of actions) {
     for (const hex of framesOf(encode(action))) {
@@ -72,25 +75,78 @@ test("0.3.0 RED: every heating zone is observed once the operator drove it live"
   assert.equal(encode({ kind: "gas", state: "open" }).evidence, "rejected");
 });
 
-test("0.2.7 RED: heat-all-off is four verified frames, not one invented one", () => {
-  const frames = framesOf(encode({ kind: "heat", target: "all", state: "off" }));
-  assert.deepEqual(frames, [
-    "f70b01180246110400b4ee", "f70b01180246120400b7ee",
-    "f70b01180246130400b6ee", "f70b01180246140400b1ee",
-  ]);
+test("0.3.0 RED: the heating group is the one frame the wallpad sends, not four", () => {
+  // 0.2.7 expanded this into four per-zone frames on the reasoning that the wallpad had no
+  // group command. It has one: address 0x10, the same shape the lights use, and the wallpad
+  // itself sends it. Measured 2026-08-30, both directions confirmed by polling — the group
+  // command draws no direct reply of its own, which is M4-E139.
+  assert.deepEqual(framesOf(encode({ kind: "heat", target: "all", state: "off" })), ["f70b01180246100400b5ee"]);
+  assert.deepEqual(framesOf(encode({ kind: "heat", target: "all", state: "on" })), ["f70b01180246100100b0ee"]);
 });
 
-test("0.2.7 RED: the elevator call is a command, not a replayed status broadcast", () => {
-  // 0x02 is the set sub-command; 0x01 is the wallpad's own query to the hallway pad, which
-  // is what this used to replay. The legacy Bestium add-on for this building ships
-  // elevator_packet_call_type 0 and elevator_packet_command_call_down_value 6.
-  assert.deepEqual(framesOf(encode({ kind: "elevator", direction: "down" })), ["f70b013402411006009cee"]);
-  assert.deepEqual(framesOf(encode({ kind: "elevator", direction: "up" })), ["f70b013402411005009fee"]);
+test("0.3.0 RED: the light group is one frame at address 0x10", () => {
+  // The lights' own group address, the same 0x10 the heating group uses. Ten sends, all
+  // confirmed. Individual lights stay at 0x11 through 0x13.
+  assert.deepEqual(framesOf(encode({ kind: "light", target: "all", state: "on" })), ["f70b01190240100100b7ee"]);
+  assert.deepEqual(framesOf(encode({ kind: "light", target: "all", state: "off" })), ["f70b01190240100200b4ee"]);
+  for (const state of ["on", "off"]) {
+    assert.equal(encode({ kind: "light", target: "all", state }).evidence, "observed", state);
+  }
+});
+
+test("0.3.0 RED: batch-off is a control, not something we can only watch", () => {
+  // 0x2A has no button on the wallpad — the switch is by the front door — so the frame was
+  // never going to appear by working the panel. It came from the legacy source and then from
+  // sending it: length 0x0C, address 0x11, and the `19 00` payload after the value, which is
+  // the part a shape guessed from 0x19 would have missed.
+  assert.deepEqual(framesOf(encode({ kind: "batchoff", state: "on" })), ["f70c012a0240110119009bee"]);
+  assert.deepEqual(framesOf(encode({ kind: "batchoff", state: "off" })), ["f70c012a02401102190098ee"]);
+  for (const state of ["on", "off"]) {
+    assert.equal(encode({ kind: "batchoff", state }).evidence, "observed", state);
+  }
+  assert.equal(encode({ kind: "batchoff", state: "toggle" }).evidence, "rejected");
+});
+
+test("0.3.0 RED: the elevator call is the shape that actually registered", () => {
+  // 0.2.7 sent `02 41 10 <dir> 00` and called it inferred. Two sends of that shape moved
+  // nothing. The legacy add-on's other shape did: kind byte 0x04, and the direction in the
+  // last payload position behind a `00`. Both bytes differ, which is why swapping one was
+  // never going to work. The verdict comes off the status stream rather than a direct reply,
+  // because the reply carries the call the building already had — see M4-E150.
+  assert.deepEqual(framesOf(encode({ kind: "elevator", direction: "up" })), ["f70b0134044110000599ee"]);
+  assert.deepEqual(framesOf(encode({ kind: "elevator", direction: "down" })), ["f70b013404411000069aee"]);
   for (const direction of ["up", "down"]) {
     const result = encode({ kind: "elevator", direction });
-    assert.equal(result.evidence, "inferred_candidate", direction);
-    const hex = framesOf(result)[0];
-    assert.ok(!hex.startsWith("f70d0134 01".replace(" ", "")), "a query frame must never be sent as a call");
+    assert.equal(result.evidence, "observed", direction);
+    assert.equal(result.sendable, true, `${direction} must be sendable with TX on`);
+    assert.ok(!framesOf(result)[0]!.startsWith("f70d013401"), "a query frame must never be sent as a call");
+  }
+});
+
+test("0.3.0 RED: the kinds measurement removed are gone", () => {
+  // Outlet and ventilation: polled on every sweep, answered on none — this wallpad has
+  // neither. Raw: arbitrary sends belong to the local buslab, behind its allow-list, not to
+  // a page anyone on the household network can open.
+  for (const action of [{ kind: "outlet", action: "query" }, { kind: "ventilation", action: "query" }]) {
+    const result = encode(action);
+    assert.equal(result.evidence, "rejected", JSON.stringify(action));
+    assert.equal(result.sendable, false, JSON.stringify(action));
+    assert.deepEqual(framesOf(result), [], JSON.stringify(action));
+  }
+  assert.throws(() => encode({ kind: "raw", hex: "f70b011902401101000000ee" }), /unsupported/);
+});
+
+test("0.3.0 RED: the door macros stay in the contract and stay unsendable", () => {
+  // Eleven sends opened nothing, so this is not a command on this line. It stays a candidate
+  // rather than leaving, because the subphone line — where the bell, the intercom and the
+  // video actually live — is not captured yet, and door control will belong there. The new
+  // page offers none of it; what this asserts is that one tap can never send it.
+  for (const target of ["household", "communal"]) {
+    const result = encode({ kind: "entrance", target, state: "ringing" });
+    assert.equal(result.evidence, "unsafe_candidate", target);
+    assert.equal(result.sendable, false, `${target} must never be one tap`);
+    assert.equal(result.requiresSpeculativeConfirmation, true, target);
+    assert.equal(framesOf(result).length, 3, `${target} is a three-frame macro`);
   }
 });
 

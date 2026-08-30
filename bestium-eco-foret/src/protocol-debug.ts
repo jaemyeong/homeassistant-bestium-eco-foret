@@ -509,12 +509,16 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
     gas: ["kind", "state", "confirmation"],
     heat: ["kind", "zone", "target", "state", "temperatureC", "confirmation"],
     elevator: ["kind", "direction", "confirmation"],
-    outlet: ["kind", "action"],
-    ventilation: ["kind", "action"],
+    batchoff: ["kind", "state", "confirmation"],
     entrance: ["kind", "target", "state", "confirmation"],
   };
   if (typeof kind === "string" && allowedFields[kind] && Object.keys(value).some((key) => !allowedFields[kind]!.includes(key))) {
     return rejectedResult("action fields are exact");
+  }
+  if (kind === "light" && value.target === "all" && (value.state === "on" || value.state === "off")) {
+    // The lights' group address. 0x10 is the group and 0x11 through 0x13 are the three
+    // lights, the same split the heating uses. Ten sends, every one confirmed.
+    return observed(makeF7([1, 0x19, 2, 0x40, 0x10, value.state === "on" ? 1 : 2, 0]), context);
   }
   if (kind === "light" && Number.isInteger(value.target) && value.target >= 1 && value.target <= 3 && (value.state === "on" || value.state === "off")) {
     const frame = {
@@ -547,29 +551,38 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
     if (value.state === "off") return observed(makeF7([1, 0x18, 2, 0x46, address, 4, 0]), context);
     return rejectedResult("unsupported heating state");
   }
-  if (kind === "heat" && value.target === "all" && value.state === "off") {
-    // Neither the bus nor the legacy implementation has a batch heating command. The send
-    // path expands this into four independent per-zone intents, each queued, retried and
-    // confirmed on its own; these frames are what the preview shows.
-    const frames = [1, 2, 3, 4].map((zone) => makeF7([1, 0x18, 2, 0x46, 0x10 + zone, 4, 0]));
-    return {
-      frames, frameHex: hexOf(frames[0] as Uint8Array), framesHex: frames.map((entry) => hexOf(entry)),
-      evidence: "observed", sendable: context.transmitEnabled === true && context.authorizedUser === true,
-      confirmed: false,
-    };
+  if (kind === "heat" && value.target === "all" && (value.state === "on" || value.state === "off")) {
+    // There is a group command, at the same 0x10 the lights use, and the wallpad sends it
+    // itself. This used to expand into four per-zone frames on the belief that no such
+    // command existed — an argument from absence, and wrong. The one difference worth
+    // knowing is that the group draws no reply of its own: confirmation arrives when the
+    // next poll of each zone comes back changed, about 161 ms later (M4-E139).
+    return observed(makeF7([1, 0x18, 2, 0x46, 0x10, value.state === "on" ? 1 : 4, 0]), context);
+  }
+  if (kind === "batchoff" && (value.state === "on" || value.state === "off")) {
+    // The switch this drives is by the front door, not on the wallpad, so no amount of
+    // working the panel was ever going to put the frame on the line. It came from the legacy
+    // source and then from sending it. Two bytes distinguish it from a light command that
+    // would otherwise look the same: the length is 0x0C, and a `19 00` payload follows the
+    // value. Setting address 0x11 is not the 0x10 the queries use (M4-E143, M4-E144).
+    return observed(makeF7([1, 0x2a, 2, 0x40, 0x11, value.state === "on" ? 1 : 2, 0x19, 0]), context);
   }
   if (kind === "elevator" && (value.direction === "up" || value.direction === "down")) {
-    // Pressing the wallpad's own call button put no 0x34 set frame on this line, and a
-    // byte-level diff of every device across that moment found nothing else moving either,
-    // so this shape is the legacy add-on's claim with a negative observation against it.
-    // The verdict comes from the call nibble, which now has its own field: a call that
-    // registers turns `call` from "none" into the direction that was asked for. The legacy's
-    // second shape (`01 34 04 41 10 00 <05|06>`) is not sent, because a frame nothing in the
-    // send path can reach is dead weight; it stays documented in the protocol spec.
-    return inferred(makeF7([1, 0x34, 2, 0x41, 0x10, value.direction === "up" ? 5 : 6, 0]));
+    // Two bytes separate this from the shape 0.2.7 sent: the kind byte is 0x04, not 0x02,
+    // and the direction sits in the last payload position behind a `00`. That version went
+    // out twice and moved nothing. This one registered the call — read off the status stream
+    // rather than the direct reply, because the reply reports the call the building already
+    // had rather than the one we just made (M4-E150).
+    return observed(makeF7([1, 0x34, 4, 0x41, 0x10, 0, value.direction === "up" ? 5 : 6]), context);
   }
-  if (kind === "outlet" && value.action === "query") return observed(bytesFromHex("f70b011f0140100000b3ee"), context);
-  if (kind === "ventilation" && value.action === "query") return observed(bytesFromHex("f70b012b014011000086ee"), context);
+  // The door macros stay in the contract and stay off the page.
+  //
+  // Eleven sends of the 0x1E frame under varied conditions opened nothing, so this is not a
+  // command as far as this line is concerned. But the bell, the intercom and the video are
+  // all on the subphone line, which is not captured yet, and door control will belong there.
+  // Keeping the macros here as candidates that can never be sent in one tap keeps the
+  // speculative path — the challenge, its expiry, its proof — exercised rather than dead,
+  // and it is what the subphone work will attach to. The new UI offers none of this.
   if (kind === "entrance" && (value.target === "household" || value.target === "communal")) {
     const table: Record<string, string[]> = {
       "household:inactive": ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
@@ -582,14 +595,12 @@ export function encodeSemanticAction(value: any, context: AnyRecord = {}): AnyRe
       return { frames, frameHex: hexOf(frames[0] as Uint8Array), framesHex: frames.map((entry) => hexOf(entry)), evidence: "unsafe_candidate", transportEvidence: "unverified", sendable: false, confirmed: false, requiresSpeculativeConfirmation: true };
     }
   }
-  if (kind === "raw") {
-    if (Object.keys(value).some((key) => key !== "kind" && key !== "hex")) throw new Error("raw action fields are exact");
-    if (typeof value.hex !== "string" || value.hex.length < 2 || value.hex.length > 512 || value.hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(value.hex)) throw new Error("raw hex is invalid");
-    const normalized = value.hex.toLowerCase();
-    if (isRecognizedFrame(normalized)) throw new Error("recognized frame cannot use raw");
-    const frame = bytesFromHex(normalized);
-    return { frame, frameHex: hexOf(frame), framesHex: [hexOf(frame)], evidence: "unsafe_candidate", transportEvidence: "unverified", sendable: false, confirmed: false, requiresSpeculativeConfirmation: true };
+  // Removed outright. Outlet and ventilation: polled on every sweep of the bus, answered on
+  // none of them; this wallpad has neither module, so a control for either would be a button
+  // that does nothing. Raw: sending an arbitrary frame is the local buslab's job, behind its
+  // allow-list, not something a page on the household network should offer.
+  if (kind === "raw" || kind === "door" || kind === "vehicle" || kind === "cctv" || kind === "batch") {
+    throw new Error("unsupported unsafe action");
   }
-  if (kind === "door" || kind === "vehicle" || kind === "cctv" || kind === "batch") throw new Error("unsupported unsafe action");
   return rejectedResult("unsupported action");
 }

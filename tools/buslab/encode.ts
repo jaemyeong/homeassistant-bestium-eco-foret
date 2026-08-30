@@ -41,11 +41,13 @@ export function buildFrame(action: unknown): Built {
       return { ...frame([1, 0x19, 2, 0x40, 0x10 + value.target, value.state === "on" ? 1 : 2, 0]),
         observedIn: "capture-1788009200284 and the operator's own presses" };
     }
-    // Address 0x10 is the group. Only the off value has been watched; a group on has not.
-    if (value.target === "all" && value.state === "off") {
-      return { ...frame([1, 0x19, 2, 0x40, 0x10, 2, 0]), observedIn: "capture-1788009200284, twice" };
+    // Address 0x10 is the group. Both directions have now been sent and confirmed, so the
+    // note about only having watched the off value no longer holds.
+    if (value.target === "all" && (value.state === "on" || value.state === "off")) {
+      return { ...frame([1, 0x19, 2, 0x40, 0x10, value.state === "on" ? 1 : 2, 0]),
+        observedIn: "capture-1788009200284, and ten sends of our own, all confirmed" };
     }
-    return { reason: "only lights 1-3 on/off and the all-off group frame have been observed" };
+    return { reason: "only lights 1-3 and the group address take on/off" };
   }
 
   if (value.kind === "heat") {
@@ -60,15 +62,37 @@ export function buildFrame(action: unknown): Built {
     }
     // `target: "all"` rather than `zone: "all"`, because `compareWithProduct` hands the very
     // same object to both encoders and the add-on spells it this way.
-    if (value.target === "all" && value.state === "off") {
-      return { ...frame([1, 0x18, 2, 0x46, 0x10, 4, 0]), observedIn: "capture-1788009200284, twice" };
+    if (value.target === "all" && (value.state === "on" || value.state === "off")) {
+      return { ...frame([1, 0x18, 2, 0x46, 0x10, value.state === "on" ? 1 : 4, 0]),
+        observedIn: "capture-1788009200284, and two sends confirmed by polling" };
     }
-    return { reason: "only zones 1-4 and the all-off group frame have been observed" };
+    return { reason: "only zones 1-4 and the group address take on/off" };
   }
 
   if (value.kind === "gas") {
     if (value.state === "close") return { ...frame([1, 0x1b, 2, 0x43, 0x11, 3, 0]), observedIn: "capture-1788009200284" };
     return { reason: "gas may be closed and never opened" };
+  }
+
+  // Length 0x0C and a `19 00` payload after the value, which no other family on this bus
+  // uses. Setting address 0x11, not the 0x10 the query rides on — reading the query address
+  // back as the setting address is what made every derived candidate miss.
+  if (value.kind === "batchoff") {
+    if (value.state === "on" || value.state === "off") {
+      return { ...frame([1, 0x2a, 2, 0x40, 0x11, value.state === "on" ? 1 : 2, 0x19, 0]),
+        observedIn: "the legacy source, then two sends of our own, both confirmed" };
+    }
+    return { reason: "batch-off is set or released, nothing else" };
+  }
+
+  // Kind byte 0x04 and the direction last, behind a `00`. The 0x02 shape went out twice and
+  // registered nothing.
+  if (value.kind === "elevator") {
+    if (value.direction === "up" || value.direction === "down") {
+      return { ...frame([1, 0x34, 4, 0x41, 0x10, 0, value.direction === "up" ? 5 : 6]),
+        observedIn: "five sends, judged off the status stream rather than the reply" };
+    }
+    return { reason: "the elevator is called up or down; there is no cancel" };
   }
 
   return { reason: `no observed frame for ${JSON.stringify(value.kind ?? null)}` };

@@ -24,9 +24,8 @@ function createFixture(cooldownMs: number) {
     ew11_host: "gateway-1",
     ew11_port: 8899,
     transmit_enabled: true,
-    speculative_transmit_enabled: true,
     transmit_user_id: "operator-7",
-    speculative_tx_cooldown_ms: cooldownMs,
+    tx_cooldown_ms: cooldownMs,
   } as AnyRecord);
   const coordinator = createTxCoordinator({
     settings,
@@ -58,40 +57,44 @@ const request = {
   confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
   schedule: "immediate",
 };
-// Heating was promoted to `observed` once the operator drove it on the live bus, so the
-// elevator call is now the candidate this gate is asserted against.
-const action = { kind: "elevator", direction: "down" };
+// Every control the page offers is measured now: heating went first, then the elevator, whose
+// earlier shape had two bytes wrong. The one candidate left is the door macro, and it sends
+// three frames with waits between them that this clock-less fixture cannot drive. So the gate
+// is asserted against an observed control instead — which is also the one an operator meets
+// every day, since the page offers no candidate at all.
+const action = { kind: "light", target: 1, state: "on" };
 
-test("M4.9 RED: candidate one-tap is still rate limited by the speculative cooldown", async () => {
-  // One tap now issues the challenge and commits in a single gesture, so the operator no
-  // longer types the confirmation phrase. The phrase was never the rate limit: the cooldown
-  // is charged at challenge issuance, and `send` skips its own check for an accepted
-  // challenge precisely because issuance already charged it. Nothing else stops repeated
-  // taps, so that one gate is asserted here.
+test("M5 RED: one tap is rate limited, and it is the ordinary control that meets the gate", async () => {
+  // The cooldown was asserted against a candidate because a candidate was the only thing that
+  // took one tap without a typed phrase. Measurement removed every candidate the page offers,
+  // so the gate that matters is the one an ordinary control meets: nothing but the cooldown
+  // stands between a mashed button and a burst of frames on a half-duplex bus.
   const { coordinator, writes, advance } = createFixture(5_000);
   const preview = await coordinator.send(action, { ...request, mode: "preview" }) as AnyRecord;
-  assert.equal(preview.evidence, "inferred_candidate", "the elevator call is a candidate, not an observed control");
+  assert.equal(preview.evidence, "observed", "every control the page offers is measured");
   assert.equal(preview.ready, true, JSON.stringify(preview.reasons ?? []));
 
   const tap = async (): Promise<string> => {
-    let challenge: AnyRecord;
-    try {
-      challenge = coordinator.issueSpeculativeChallenge(action, request) as AnyRecord;
-    } catch (error) {
-      return String((error as Error).message);
-    }
-    const result = await coordinator.send(action, { ...request, mode: "live", challengeId: challenge.id }) as AnyRecord;
-    return String(result.outcome ?? result.reason);
+    const result = await coordinator.send(action, { ...request, mode: "live" }) as AnyRecord;
+    // A queued control reports its outcome and, when refused, why. The reason is the half
+    // this test is about.
+    return [result.outcome, result.reason].filter(Boolean).join(": ");
   };
 
-  assert.equal(await tap(), "socket_written_unconfirmed");
+  // An observed control goes through the queue, so what comes back names the confirmation
+  // rather than the write. Either way the frame left the socket, which is what charges the
+  // cooldown; whether the wallpad answered is a different test's subject.
+  const firstTap = await tap();
+  assert.match(firstTap, /written|confirmed|unconfirmed/, `the first tap reaches the bus, got ${firstTap}`);
   assert.equal(writes.length, 1);
-  assert.match(await tap(), /TX cooldown active/, "a second tap inside the cooldown must be refused");
+  const secondTap = await tap();
+  assert.match(secondTap, /TX cooldown active/, `a second tap inside the cooldown must be refused, got ${secondTap}`);
   assert.equal(writes.length, 1, "a refused tap must not put a frame on the bus");
   advance(4_999);
   assert.match(await tap(), /TX cooldown active/, "the cooldown runs to its full width");
   assert.equal(writes.length, 1);
   advance(2);
-  assert.equal(await tap(), "socket_written_unconfirmed", "the tap is allowed once the cooldown expires");
+  const laterTap = await tap();
+  assert.match(laterTap, /written|confirmed|unconfirmed/, `the tap is allowed once the cooldown expires, got ${laterTap}`);
   assert.equal(writes.length, 2);
 });

@@ -43,12 +43,17 @@ test("E3 RED: the heating and gas frames are built from the same rule", () => {
 });
 
 test("E3 RED: an action nobody has watched on the bus is refused, not guessed at", () => {
+  // The two group frames that used to sit in this list have been sent and confirmed since,
+  // and they moved to the agreement test above. What is left is what the bus still has not
+  // shown: a fourth light, an opening gas valve, a door this line can open, and an elevator
+  // cancel the installation does not have.
   for (const action of [
     { kind: "light", target: 4, state: "on" },
-    { kind: "light", target: "all", state: "on" },
-    { kind: "heat", target: "all", state: "on" },
+    { kind: "heat", zone: 5, state: "on" },
     { kind: "gas", state: "open" },
     { kind: "entrance", target: "household", state: "open" },
+    { kind: "elevator", direction: "cancel" },
+    { kind: "batchoff", state: "toggle" },
     { kind: "nonsense" },
   ]) {
     const built = buildFrame(action);
@@ -64,20 +69,42 @@ test("E3 RED: where the two encoders agree, the comparison says so and names the
   assert.deepEqual(result.product, ["f70b01190240110100b6ee"]);
 });
 
-test("E3 RED: where they differ, both are kept and the difference is the finding", () => {
-  // The product expands all-zones-off into four per-zone frames, because the specification said
-  // no batch command existed. `capture-1788009200284` shows the wallpad sending one. Until the
-  // single frame has been sent and answered, neither side is called wrong.
-  const result = compareWithProduct({ kind: "heat", target: "all", state: "off" });
-  assert.equal(result.agree, false);
-  assert.equal(result.ours, "f70b01180246100400b5ee");
-  assert.equal(result.product.length, 4, "four per-zone frames stand where one group frame does");
-  assert.match(String(result.note), /differ|finding/i);
+test("M5 RED: the disagreements this file recorded are settled, and both encoders agree", () => {
+  // Two findings stood here. The product expanded all-zones-off into four per-zone frames
+  // because the specification said no group command existed, and it had no all-lights-off at
+  // all. The bus decided both: the wallpad sends one group frame per family, at address 0x10,
+  // and we sent them ourselves and watched them take. Neither disagreement survives.
+  for (const action of [
+    { kind: "heat", target: "all", state: "off" }, { kind: "heat", target: "all", state: "on" },
+    { kind: "light", target: "all", state: "off" }, { kind: "light", target: "all", state: "on" },
+    { kind: "batchoff", state: "on" }, { kind: "batchoff", state: "off" },
+    { kind: "elevator", direction: "up" }, { kind: "elevator", direction: "down" },
+  ]) {
+    const result = compareWithProduct(action);
+    assert.equal(result.agree, true, `${JSON.stringify(action)}: ${result.ours} vs ${result.product.join(",")}`);
+    assert.equal(result.productEvidence, "observed", JSON.stringify(action));
+    assert.equal(result.note, undefined, JSON.stringify(action));
+  }
 });
 
-test("E3 RED: a comparison the product refuses is recorded rather than treated as agreement", () => {
-  const result = compareWithProduct({ kind: "light", target: "all", state: "off" });
-  assert.equal(result.ours, "f70b01190240100200b4ee");
-  assert.deepEqual(result.product, [], "the add-on has no all-lights-off action at all");
+test("M5 RED: a comparison neither encoder will make is recorded as such", () => {
+  // An action with no observed frame on either side. The note has to say the two encoders
+  // both declined rather than let two empty answers read as agreement.
+  const result = compareWithProduct({ kind: "gas", state: "open" });
+  assert.equal(result.ours, null);
+  assert.deepEqual(result.product, []);
   assert.equal(result.agree, false);
+  assert.match(String(result.note), /neither/i);
+});
+
+test("M5 RED: the door macros are a disagreement, not a match", () => {
+  // buslab builds only what it has watched the wallpad do, and it has never watched a door
+  // open from this line. The add-on keeps the macro as a candidate for the subphone work.
+  // Three frames against none is a difference, and the comparison must say so.
+  const result = compareWithProduct({ kind: "entrance", target: "household", state: "ringing" });
+  assert.equal(result.ours, null);
+  assert.equal(result.product.length, 3);
+  assert.equal(result.productEvidence, "unsafe_candidate");
+  assert.equal(result.agree, false);
+  assert.match(String(result.note), /differ|finding/i);
 });

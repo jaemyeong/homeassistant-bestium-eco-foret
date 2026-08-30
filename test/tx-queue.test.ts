@@ -41,7 +41,15 @@ test("0.3.0 RED: the queue key names the settable, not the device family", () =>
   assert.equal(intentKey({ kind: "heat", zone: 3, temperatureC: 24 }), "heat:3:target");
   assert.equal(intentKey({ kind: "gas", state: "close" }), "gas");
   assert.equal(intentKey({ kind: "elevator", direction: "down" }), "elevator");
-  assert.equal(intentKey({ kind: "outlet", action: "query" }), "query:outlet");
+  assert.equal(intentKey({ kind: "batchoff", state: "on" }), "batchoff");
+  // The group address is its own settable, so a group press and a single press queue apart
+  // and neither overtakes the other.
+  assert.equal(intentKey({ kind: "light", target: "all", state: "off" }), "light:all");
+  assert.equal(intentKey({ kind: "heat", target: "all", state: "on" }), "heat:all");
+  // Outlet and ventilation queries left with their devices: polled on every sweep of the bus,
+  // answered on none.
+  assert.equal(intentKey({ kind: "outlet", action: "query" }), null);
+  assert.equal(intentKey({ kind: "ventilation", action: "query" }), null);
 });
 
 test("0.3.0 RED: an action with no confirmable state is never queued", () => {
@@ -51,16 +59,17 @@ test("0.3.0 RED: an action with no confirmable state is never queued", () => {
   assert.equal(intentKey({ kind: "nonsense" }), null);
 });
 
-test("0.3.0 RED: all-zones off becomes four independent per-zone intents", () => {
-  const expanded = expandAction({ kind: "heat", target: "all", state: "off" });
-  assert.deepEqual(expanded, [
-    { kind: "heat", zone: 1, state: "off" },
-    { kind: "heat", zone: 2, state: "off" },
-    { kind: "heat", zone: 3, state: "off" },
-    { kind: "heat", zone: 4, state: "off" },
-  ]);
+test("M5 RED: nothing expands — the wallpad's group command is one frame", () => {
+  // 0.2.7 turned all-zones off into four per-zone intents because the specification said no
+  // group command existed. It does, at address 0x10, and the wallpad sends it. Four commands
+  // where one goes out is four chances to half-succeed, and the preview showed four frames
+  // while a single frame reached the bus.
+  const group = { kind: "heat", target: "all", state: "off" };
+  assert.deepEqual(expandAction(group), [group]);
   const single = { kind: "light", target: 1, state: "on" };
   assert.deepEqual(expandAction(single), [single]);
+  const lightGroup = { kind: "light", target: "all", state: "on" };
+  assert.deepEqual(expandAction(lightGroup), [lightGroup]);
 });
 
 test("0.3.0 RED: the same key keeps its place and carries the last requested state", () => {

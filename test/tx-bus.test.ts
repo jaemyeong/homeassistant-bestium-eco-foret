@@ -174,10 +174,11 @@ test("0.2.8 RED: a multi-frame send survives the bus talking between frames", as
     await Promise.resolve();
   }
   const result = await pending;
-  assert.equal(writes.length, 4, `all four zone frames must go out, got ${writes.length}: ${JSON.stringify(result)}`);
+  // One frame, not four. The group command exists at address 0x10 and the wallpad sends it;
+  // the four-frame expansion this test used to guard came from believing it did not. The bus
+  // talking in between still must not split or duplicate the write, which is what the clock
+  // above is for.
+  assert.equal(writes.length, 1, `the group is one frame, got ${writes.length}: ${JSON.stringify(result)}`);
   assert.equal(result.outcome, "socket_written_unconfirmed", JSON.stringify(result));
-  assert.deepEqual(writes, [
-    "f70b01180246110400b4ee", "f70b01180246120400b7ee",
-    "f70b01180246130400b6ee", "f70b01180246140400b1ee",
-  ]);
+  assert.deepEqual(writes, ["f70b01180246100400b5ee"]);
 });

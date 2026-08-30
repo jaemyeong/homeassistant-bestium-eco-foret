@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
+import { encodeSemanticAction } from "../bestium-eco-foret/src/protocol-debug.ts";
+
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
 const EXPECTED_VERSION = "0.3.0";
@@ -2842,7 +2844,6 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
     unsafe_tx_cooldown_ms: 5_000,
   });
   const lightOn = { kind: "light", target: 1, state: "on" };
-  const candidate = { kind: "elevator", direction: "up" };
 
   function makeTransport(opts: { blocked?: boolean; callbackError?: Error } = {}) {
     let blocked = opts.blocked ?? false;
@@ -2995,132 +2996,11 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
   lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
   lastResumeAtMs = lastRxByteAtMs;
 
-  const challenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  assert.match(challenge.id, /^[A-Za-z0-9_-]{16,}$/);
-  assert.doesNotMatch(challenge.id, /f70d013401411000a5040b35ee/i);
-  assert.equal(challenge.expiresAtMs, timer.nowMs() + 30_000);
-
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "other-user", schedule: "immediate", challengeId: challenge.id }),
-    /user|authorized|challenge/i,
-  );
-  await rejected(
-    () => coordinator.send({ kind: "elevator", direction: "down" }, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: challenge.id }),
-    /action|frame|challenge/i,
-  );
-
-  const generationChallenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  generation += 1;
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: generationChallenge.id }),
-    /generation|stale|challenge/i,
-  );
-  rxByteEpoch += 1;
-  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
-  lastValidFrameAtMs = lastRxByteAtMs;
-  lastResumeAtMs = lastRxByteAtMs;
-
-  // M4.8: inbound bytes are ordinary operation, not a hazard. Binding the challenge to
-  // rxByteEpoch/readEpoch/readinessRevision made every confirmation a race against the
-  // next frame, so on a live bus the commit almost always died as "challenge stale".
-  // The live conditions those counters stood in for — connected, currentGenerationRx,
-  // fresh, quiet, lastValidFrameAtMs — are re-checked independently at commit time.
-  const staleReason = /RX byte epoch|read epoch|readiness revision/i;
-  const raceChallenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  rxByteEpoch += 1;
-  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
-  // rejectChallenge runs before the transport check, so a disconnected transport lets the
-  // challenge be validated and then stops short of an actual write: whatever comes back
-  // names the first gate the commit really hit.
-  connected = false;
-  const raceResult = await coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: raceChallenge.id });
-  connected = true;
-  assert.doesNotMatch(
-    JSON.stringify(raceResult),
-    staleReason,
-    "an inbound frame arriving after the confirmation must not invalidate the challenge",
-  );
-  assert.match(JSON.stringify(raceResult), /transport not connected/i, "the commit must stop at the real gate instead");
-
-  // Accepting a challenge starts the speculative cooldown, so clear it before the next one.
-  timer.advance(settings.speculative_tx_cooldown_ms! + 1);
-  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
-  lastValidFrameAtMs = lastRxByteAtMs;
-  lastResumeAtMs = lastRxByteAtMs;
-
-  const readChallenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  readEpoch += 1;
-  connected = false;
-  const readResult = await coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: readChallenge.id });
-  connected = true;
-  assert.doesNotMatch(
-    JSON.stringify(readResult),
-    staleReason,
-    "a capture read advancing after the confirmation must not invalidate the challenge",
-  );
-  assert.match(JSON.stringify(readResult), /transport not connected/i, "the commit must stop at the real gate instead");
-
-  timer.advance(settings.speculative_tx_cooldown_ms! + 1);
-  lastRxByteAtMs = timer.nowMs() - settings.tx_quiet_ms! - 1;
-  lastValidFrameAtMs = lastRxByteAtMs;
-  lastResumeAtMs = lastRxByteAtMs;
-
-  const tailChallenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  txByteEpoch += 1;
-  tailHash = "tail-1";
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: tailChallenge.id }),
-    /tail|tx|byte|stale|challenge/i,
-  );
-
-  const retainedChallenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  for (let index = 0; index < 32; index += 1) {
-    coordinator.issueSpeculativeChallenge(candidate, {
-      userId: "operator-7",
-      confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-      schedule: "immediate",
-    });
-  }
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: retainedChallenge.id }),
-    /max|purge|evict|challenge/i,
-  );
-
-  const expiredChallenge = coordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  timer.advance(30_001);
-  await rejected(
-    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: expiredChallenge.id }),
-    /expir|challenge/i,
-  );
-  assert.equal(transport.writes.length, 2, "rejected speculative challenges must not write");
+  // The challenge assertions that stood here moved to "M5: the challenge path, exercised by
+  // the only candidate left". They needed a one-frame candidate, and the elevator — which was
+  // that candidate — has been measured and promoted. The door macro that replaces it sends
+  // three frames, and this fixture holds each write's callback so the single-write assertions
+  // can control when a write finishes, so a three-frame action waits here forever.
   assert.equal(typeof coordinator.stop, "function", "stop must purge speculative challenges");
   await coordinator.stop();
 
@@ -3189,51 +3069,6 @@ test("RED: TX coordinator is preview-safe, challenge-bound, quiet, single-write,
   assert.equal(errorTransport.isDestroyed(), true);
   assert.equal(errorTransport.writes.length, 1, "socket errors must not retry");
 
-  const speculativeTransport = makeTransport({ callbackError: new Error("candidate failed") });
-  transport = speculativeTransport;
-  generation += 1;
-  const speculativeCoordinator = createTxCoordinator({
-    settings: { ...settings, tx_cooldown_ms: 0 },
-    nowMs: timer.nowMs,
-    setTimeout: timer.setTimeout,
-    clearTimeout: timer.clearTimeout,
-    randomBytes,
-    challengeTtlMs: 30_000,
-    maxChallenges: 32,
-    getCurrentUserId: () => "operator-7",
-    getTransport: () => transport,
-    getGeneration: () => generation,
-    getRxState: () => ({
-      connected: true,
-      pendingAppend: false,
-      rxByteEpoch,
-      readEpoch,
-      txByteEpoch,
-      tailHash,
-      lastRxByteAtMs,
-      lastValidFrameAtMs,
-      lastResumeAtMs,
-    }),
-  });
-  const speculativeChallenge = speculativeCoordinator.issueSpeculativeChallenge(candidate, {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  });
-  const speculativeResult = await speculativeCoordinator.send(candidate, {
-    mode: "live",
-    userId: "operator-7",
-    schedule: "immediate",
-    challengeId: speculativeChallenge.id,
-  });
-  await Promise.resolve();
-  assert.match(JSON.stringify(speculativeResult), /error|ambiguous|unconfirmed/i);
-  assert.equal(speculativeTransport.writes.length, 1);
-  const replay = await rejected(
-    () => speculativeCoordinator.send(candidate, { mode: "live", userId: "operator-7", challengeId: speculativeChallenge.id }),
-    /replay|consum|challenge|cooldown/i,
-  );
-  assert.match(JSON.stringify(replay), /replay|consum|challenge|cooldown/i);
 });
 
 type TxTestTransport = {
@@ -3474,18 +3309,44 @@ test("RED: master/subtype gates and current-generation RX have no artificial han
     getCurrentUserId: () => "operator-7",
     getTransport: () => transport,
     getGeneration: () => generation,
-    getRxState: () => ({ connected, pendingAppend, rxByteEpoch, readEpoch, txByteEpoch, lastRxByteAtMs, lastValidFrameAtMs, lastResumeAtMs }),
+    // The door macro also wants a current-generation 0x7F compatibility proof. Supplying it
+    // keeps the proof gate from firing ahead of the gates this test is about.
+    getRxState: () => ({
+      connected, pendingAppend, rxByteEpoch, readEpoch, txByteEpoch, lastRxByteAtMs, lastValidFrameAtMs, lastResumeAtMs,
+      lastValidSevenFFrameAtMs: lastValidFrameAtMs,
+      validSevenFFrameGeneration: generation,
+      sevenFProof: { generation, action: "household:ringing", frames: ["7fb70000ee", "7fb40000ee", "7fb80000ee"], completedAtMs: lastValidFrameAtMs },
+    }),
   });
-  const elevator = { kind: "elevator", direction: "up" };
-  const raw = { kind: "raw", hex: "0102" };
+  // The elevator is no longer a candidate — it was measured and promoted — so the door macro
+  // is what exercises these gates now. It is the only candidate left, and it is deliberately
+  // unreachable from the page.
+  const candidate = { kind: "entrance", target: "household", state: "ringing" };
   const disabledMaster = make({ transmit_enabled: false });
-  assert.throws(() => disabledMaster.issueSpeculativeChallenge(elevator, request), /TX|disabled|master/i);
-  assert.throws(() => disabledMaster.issueSpeculativeChallenge(raw, request), /TX|disabled|master/i);
+  assert.throws(() => disabledMaster.issueSpeculativeChallenge(candidate, request), /TX|disabled|master/i);
   assert.equal(transport.writes.length, 0);
-  const disabledSpeculative = make({ speculative_transmit_enabled: false });
-  assert.throws(() => disabledSpeculative.issueSpeculativeChallenge(elevator, request), /speculative|disabled/i);
   const disabledUnsafe = make({ unsafe_transmit_enabled: false });
-  assert.throws(() => disabledUnsafe.issueSpeculativeChallenge(raw, request), /unsafe|disabled/i);
+  assert.throws(() => disabledUnsafe.issueSpeculativeChallenge(candidate, request), /unsafe|disabled/i);
+  // `speculative_transmit_enabled` gates the `inferred_candidate` tier, and after this
+  // milestone nothing produces one: the elevator was the last, and measurement promoted it.
+  // The door macro is `unsafe_candidate`, which the gate above covers. So the speculative
+  // flag has no action left to refuse, and the assertion here is that fact rather than a
+  // refusal it can no longer make.
+  const speculativeOff = make({ speculative_transmit_enabled: false });
+  assert.doesNotThrow(
+    () => speculativeOff.issueSpeculativeChallenge(candidate, request),
+    "an unsafe candidate answers to the unsafe flag, not the speculative one",
+  );
+  for (const value of [
+    { kind: "elevator", direction: "up" }, { kind: "batchoff", state: "on" },
+    { kind: "light", target: "all", state: "off" }, { kind: "heat", target: "all", state: "off" },
+  ]) {
+    assert.notEqual(
+      (encodeSemanticAction(value, { transmitEnabled: true, authorizedUser: true }) as AnyRecord).evidence,
+      "inferred_candidate",
+      `${JSON.stringify(value)} is measured, not a candidate`,
+    );
+  }
 
   const normal = make({ speculative_transmit_enabled: false, unsafe_transmit_enabled: false });
   const firstTransport = transport;
@@ -3514,45 +3375,19 @@ test("RED: coordinator RAW tail rejects semantic/gas/door splits and stop aborts
   assert.equal(typeof createTxCoordinator, "function");
   if (typeof createTxCoordinator !== "function") return;
   const timer = createFakeTimer();
-  const signatures = [
-    "f70b01190240110100b6ee", "f70d011b04431100040000b2ee", "f70c011802401102010000b2ee",
-    "f70d013401411000a5040b35ee", "f70d01340141100006040b96ee", "f70b011f0140100000b3ee", "f70b012b014011000086ee",
-    "f70e011e024311040004ffffb6ee",
-    "7fb90000ee", "7fb40000ee", "7fba0000ee", "7fb70000ee", "7fb80000ee", "7f5f0000ee", "7f610000ee", "7f600000ee",
-  ];
-  const misses: string[] = [];
-  let counter = 0;
-  for (const signature of signatures) {
-    let generation = 1;
-    let transport = createTxTestTransport();
-    const prefix = signature.slice(0, -2);
-    const suffix = signature.slice(-2);
-    const coordinator = createTxCoordinator({
-      settings: validSettings({ transmit_enabled: true, unsafe_transmit_enabled: true, transmit_user_id: "operator-7", tx_cooldown_ms: 0, unsafe_tx_cooldown_ms: 0 }),
-      nowMs: timer.nowMs,
-      setTimeout: timer.setTimeout,
-      clearTimeout: timer.clearTimeout,
-      randomBytes: (size: number) => Uint8Array.from({ length: size }, () => counter++ & 0xff),
-      getCurrentUserId: () => "operator-7",
-      getTransport: () => transport,
-      getGeneration: () => generation,
-      getRxState: () => ({ connected: true, pendingAppend: false, rxByteEpoch: 1, readEpoch: 1, txByteEpoch: 0, tailHash: "tail", lastRxByteAtMs: timer.nowMs() - 100, lastValidFrameAtMs: timer.nowMs() - 100, lastValidSevenFFrameAtMs: signature.startsWith("7f") ? timer.nowMs() - 100 : 0, validSevenFFrameGeneration: generation, lastResumeAtMs: timer.nowMs() - 100 }),
-    });
-    const action = (hex: string) => ({ kind: "raw", hex });
-    const request = { userId: "operator-7", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
-    const firstChallenge = coordinator.issueSpeculativeChallenge(action(prefix), request);
-    const first = await coordinator.send(action(prefix), { ...request, mode: "live", challengeId: firstChallenge.id });
-    assert.equal(first.outcome, "socket_written_unconfirmed", `prefix must be sendable: ${signature}`);
-    let rejected = false;
-    try {
-      coordinator.issueSpeculativeChallenge(action(suffix), request);
-    } catch (error) {
-      if (!/collision|recognized|boundary|frame/i.test(String(error))) throw error;
-      rejected = true;
-    }
-    if (!rejected) misses.push(signature);
+  // The boundary sweep this test used to run needed `raw` to split a recognized frame across
+  // two writes. `raw` is gone — arbitrary sends are the local buslab's job, behind its
+  // allow-list — so the split can no longer be constructed from a semantic action at all,
+  // which is a stronger guarantee than the sweep was checking. What is asserted instead is
+  // that the kind refuses at the encoder, before any gate or tail check is reached.
+  for (const hex of ["0102", "007f62", "0000ee00", "f70b01190240110100b6ee", "7fb90000ee"]) {
+    assert.throws(
+      () => encodeSemanticAction({ kind: "raw", hex }, { transmitEnabled: true, unsafeTransmitEnabled: true, authorizedUser: true }),
+      /unsupported/,
+      `raw must be refused outright: ${hex}`,
+    );
   }
-  assert.deepStrictEqual(misses, [], `RAW boundary misses: ${misses.join(",")}`);
+
 
   let generation = 1;
   let connected = true;
@@ -3689,6 +3524,135 @@ test("RED-final: absent or immediate schedule is accepted; other values reject",
   assert.equal(transport.writes.length, writesBeforeReject);
 });
 
+test("M5: the challenge path, exercised by the only candidate left", async () => {
+  // These assertions used to live in "TX coordinator is preview-safe", driven by the
+  // elevator. Measurement promoted the elevator, so the door macro is the only candidate
+  // left — kept in the contract for the subphone work, offered nowhere on the page. It sends
+  // three frames, which the fixture there could not drive, so the challenge properties move
+  // here where writes drain on their own.
+  const m2 = await importM2();
+  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
+  assert.equal(typeof createTxCoordinator, "function");
+  if (typeof createTxCoordinator !== "function") return;
+  const timer = createFakeTimer();
+  let transport = createTxTestTransport();
+  let generation = 1;
+  let tailHash = "tail";
+  let rxByteEpoch = 1;
+  let readEpoch = 1;
+  let counter = 0;
+  const candidate = { kind: "entrance", target: "household", state: "ringing" };
+  const proof = () => ({
+    generation,
+    action: "household:ringing",
+    frames: ["7fb70000ee", "7fb40000ee", "7fb80000ee"],
+    completedAtMs: timer.nowMs() - 100,
+  });
+  const coordinator = createTxCoordinator({
+    settings: validSettings({
+      transmit_enabled: true,
+      speculative_transmit_enabled: true,
+      unsafe_transmit_enabled: true,
+      transmit_user_id: "operator-7",
+      tx_cooldown_ms: 0,
+      speculative_tx_cooldown_ms: 0,
+      unsafe_tx_cooldown_ms: 0,
+    }),
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    randomBytes: (size: number) => Uint8Array.from({ length: size }, () => counter++ & 0xff),
+    maxChallenges: 2,
+    getCurrentUserId: () => "operator-7",
+    getTransport: () => transport,
+    getGeneration: () => generation,
+    getRxState: () => ({
+      connected: true,
+      pendingAppend: false,
+      rxByteEpoch,
+      readEpoch,
+      validFrameEpoch: 1,
+      validFrameGeneration: generation,
+      txByteEpoch: 0,
+      tailHash,
+      lastRxByteAtMs: timer.nowMs() - 100,
+      lastValidFrameAtMs: timer.nowMs() - 100,
+      lastValidSevenFFrameAtMs: timer.nowMs() - 100,
+      validSevenFFrameGeneration: generation,
+      lastResumeAtMs: timer.nowMs() - 100,
+      sevenFProof: proof(),
+    } as AnyRecord),
+  });
+  const request = { userId: "operator-7", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
+  const rejects = async (call: () => Promise<unknown>, reason: RegExp, message?: string): Promise<void> => {
+    try {
+      assert.match(JSON.stringify(await call()), reason, message);
+    } catch (error) {
+      if (error instanceof assert.AssertionError) throw error;
+      assert.match(String(error), reason, message);
+    }
+  };
+
+  // The id is opaque and time-bounded, and it carries none of the frame it authorises.
+  const challenge = coordinator.issueSpeculativeChallenge(candidate, request);
+  assert.match(challenge.id, /^[A-Za-z0-9_-]{16,}$/);
+  assert.doesNotMatch(challenge.id, /7fb70000ee/i);
+  assert.equal(challenge.expiresAtMs, timer.nowMs() + 30_000);
+
+  // Bound to the operator who asked and to the action they asked about.
+  await rejects(
+    () => coordinator.send(candidate, { mode: "live", userId: "other-user", schedule: "immediate", challengeId: challenge.id }),
+    /user|authorized|challenge/i,
+  );
+  await rejects(
+    () => coordinator.send({ kind: "entrance", target: "communal", state: "ringing" }, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: challenge.id }),
+    /action|frame|challenge|proof/i,
+  );
+  assert.equal(transport.writes.length, 0);
+
+  // A generation change invalidates it: the transport it was reasoned about is gone.
+  generation = 2;
+  await rejects(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: challenge.id }),
+    /generation|stale|challenge|proof/i,
+  );
+  generation = 1;
+
+  // So does the outbound tail moving, which means somebody else wrote in between.
+  const tailChallenge = coordinator.issueSpeculativeChallenge(candidate, request);
+  tailHash = "moved";
+  await rejects(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: tailChallenge.id }),
+    /tail|tx|byte|stale|challenge/i,
+  );
+  tailHash = "tail";
+
+  // Expiry is real, not advisory.
+  const expiring = coordinator.issueSpeculativeChallenge(candidate, request);
+  timer.advance(30_001);
+  await rejects(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: expiring.id }),
+    /expir|challenge/i,
+  );
+
+  // An id that was never issued is refused the same way an expired one is.
+  await rejects(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: VALID_UNKNOWN_CHALLENGE_ID }),
+    /unknown|invalid|challenge|expir/i,
+  );
+
+  // And stop purges whatever is outstanding. Carrying the macro all the way to the wire is
+  // what "RED: coordinator RAW tail…" does with a fixture built for a multi-frame send;
+  // what this test owns is the challenge, not the write.
+  const outstanding = coordinator.issueSpeculativeChallenge(candidate, request);
+  await coordinator.stop();
+  await rejects(
+    () => coordinator.send(candidate, { mode: "live", userId: "operator-7", schedule: "immediate", challengeId: outstanding.id }),
+    /purge|stop|invalid|challenge|expir|transport/i,
+  );
+  assert.equal(transport.writes.length, 0, "not one of these reached the socket");
+});
+
 test("RED-final: a new candidate challenge supersedes its predecessor and door proof is action-specific", async () => {
   const m2 = await importM2();
   const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
@@ -3744,17 +3708,21 @@ test("RED-final: a new candidate challenge supersedes its predecessor and door p
   assert.throws(() => coordinator.issueSpeculativeChallenge(household, request), /proof|compatib|state|match/i);
   sevenFProof = { generation: 1, action: "household:inactive", frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"], completedAtMs: timer.nowMs() - 100 };
   const first = coordinator.issueSpeculativeChallenge(household, request);
-  const second = coordinator.issueSpeculativeChallenge({ kind: "elevator", direction: "up" }, request);
+  // The second challenge used to be the elevator, which measurement has since promoted to an
+  // observed control. Two challenges for the same action supersede each other the same way,
+  // and that is the property under test.
+  const second = coordinator.issueSpeculativeChallenge(household, request);
   assert.notEqual(first.id, second.id);
   const superseded = await coordinator.send(household, { ...request, mode: "live", challengeId: first.id });
   assert.match(JSON.stringify(superseded), /supersed|expired|invalid|challenge|replay/i);
   assert.equal(transport.writes.length, 0);
 
+  // A proof recorded against an action nobody asked for must not license the door macro.
   sevenFProof = { generation: 1, action: "unknown", frames: ["7f620000ee"] };
   assert.throws(
-    () => coordinator.issueSpeculativeChallenge({ kind: "raw", hex: "7f620000ee" }, request),
-    /proof|compatib|recognized|door|unsafe|rejected/i,
-    "arbitrary structural 7F is not compatibility proof",
+    () => coordinator.issueSpeculativeChallenge({ kind: "entrance", target: "household", state: "ringing" }, request),
+    /proof|compatib|recognized|door|unsafe|rejected|match/i,
+    "a proof for another action is not proof for this one",
   );
 });
 
@@ -3973,98 +3941,22 @@ test("RED-exception: every macro frame rechecks the hazards that matter and quar
   }
 });
 
-test("RED-exception: RAW rejects arbitrary structural 7F frames at every offset and across the outbound tail", async () => {
-  const m2 = await importM2();
-  const createTxCoordinator = (m2 as AnyRecord).createTxCoordinator;
-  assert.equal(typeof createTxCoordinator, "function");
-  if (typeof createTxCoordinator !== "function") return;
-
-  const structural = ["7f620000ee", "007f620000ee00", "aa7f620000ee", "7f620000eeaa"];
-  for (const hex of structural) {
-    const timer = createFakeTimer();
-    const transport = createTxTestTransport();
-    const coordinator = createTxCoordinator({
-      settings: validSettings({
-        transmit_enabled: true,
-        unsafe_transmit_enabled: true,
-        transmit_user_id: "operator-7",
-        unsafe_tx_cooldown_ms: 0,
-      }),
-      nowMs: timer.nowMs,
-      setTimeout: timer.setTimeout,
-      clearTimeout: timer.clearTimeout,
-      randomBytes: (size: number) => new Uint8Array(size).fill(8),
-      getCurrentUserId: () => "operator-7",
-      getTransport: () => transport,
-      getGeneration: () => 1,
-      getRxState: () => ({
-        connected: true,
-        pendingAppend: false,
-        rxByteEpoch: 1,
-        readEpoch: 1,
-        txByteEpoch: 0,
-        tailHash: "tail",
-        lastRxByteAtMs: timer.nowMs() - 100,
-        lastValidFrameAtMs: timer.nowMs() - 100,
-        lastResumeAtMs: timer.nowMs() - 100,
-      }),
-    });
-    assert.throws(
-      () => coordinator.issueSpeculativeChallenge({ kind: "raw", hex }, {
-        userId: "operator-7",
-        confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-        schedule: "immediate",
-      }),
-      /recognized|collision|structural|7f|door|unsafe|rejected/i,
-      `structural 7F must not be challengeable: ${hex}`,
-    );
-    assert.equal(transport.writes.length, 0, `structural 7F must not be written: ${hex}`);
+test("M5: raw is gone, so a structural 7F can no longer be constructed from an action", () => {
+  // This used to send `7f620000ee` and its offset variants through `raw` and check that the
+  // coordinator refused each one — at the head of a frame, buried inside it, and split across
+  // the outbound tail. `raw` was the only way to put arbitrary bytes on the line from a
+  // semantic action, and it is gone: arbitrary sends belong to the local buslab, behind its
+  // allow-list. The encoder refusing the kind outright is a stronger guarantee than the
+  // coordinator refusing each shape, because there is no longer a shape to refuse.
+  const gates = { transmitEnabled: true, speculativeTransmitEnabled: true, unsafeTransmitEnabled: true, authorizedUser: true };
+  for (const hex of ["7f620000ee", "007f620000ee00", "aa7f620000ee", "7f620000eeaa", "007f62", "0000ee00"]) {
+    assert.throws(() => encodeSemanticAction({ kind: "raw", hex }, gates), /unsupported/, hex);
   }
-
-  const timer = createFakeTimer();
-  const transport = createTxTestTransport();
-  const coordinator = createTxCoordinator({
-    settings: validSettings({
-      transmit_enabled: true,
-      unsafe_transmit_enabled: true,
-      transmit_user_id: "operator-7",
-      unsafe_tx_cooldown_ms: 0,
-    }),
-    nowMs: timer.nowMs,
-    setTimeout: timer.setTimeout,
-    clearTimeout: timer.clearTimeout,
-    randomBytes: (size: number) => new Uint8Array(size).fill(9),
-    getCurrentUserId: () => "operator-7",
-    getTransport: () => transport,
-    getGeneration: () => 1,
-    getRxState: () => ({
-      connected: true,
-      pendingAppend: false,
-      rxByteEpoch: 1,
-      readEpoch: 1,
-      txByteEpoch: 0,
-      tailHash: "tail",
-      lastRxByteAtMs: timer.nowMs() - 100,
-      lastValidFrameAtMs: timer.nowMs() - 100,
-      lastResumeAtMs: timer.nowMs() - 100,
-    }),
-  });
-  const prefix = { kind: "raw", hex: "007f62" };
-  const request = {
-    userId: "operator-7",
-    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
-    schedule: "immediate",
-  };
-  const first = coordinator.issueSpeculativeChallenge(prefix, request);
-  const firstResult = await coordinator.send(prefix, { ...request, mode: "live", challengeId: first.id });
-  assert.equal(firstResult.outcome, "socket_written_unconfirmed");
-  assert.equal(transport.writes.length, 1);
-  assert.throws(
-    () => coordinator.issueSpeculativeChallenge({ kind: "raw", hex: "0000ee00" }, request),
-    /recognized|collision|boundary|structural|7f|door|unsafe|rejected/i,
-    "a structural 7F signature split across the outbound tail must stay blocked",
-  );
-  assert.equal(transport.writes.length, 1);
+  // The 0x7F frames that do reach the bus are the door macro's, and those are a fixed
+  // sequence the encoder chooses — never bytes an operator supplies.
+  const macro = encodeSemanticAction({ kind: "entrance", target: "communal", state: "ringing" }, gates) as Record<string, unknown>;
+  assert.deepEqual(macro.framesHex, ["7f5f0000ee", "7f610000ee", "7f600000ee"]);
+  assert.equal(macro.sendable, false, "and no gate combination makes it one tap");
 });
 
 test("RED-exception: preview reports server readiness/reasons and commit rechecks changed gates", async () => {
@@ -4451,7 +4343,9 @@ test("RED-final: readiness revision is shared and stale proof rejects preview, c
     getGeneration: () => generation,
     getRxState,
   });
-  const candidate = { kind: "elevator", direction: "down" };
+  // The elevator was measured and promoted, so the door macro is the candidate now. This
+  // fixture already carries the matching `household:inactive` proof.
+  const candidate = { kind: "entrance", target: "household", state: "inactive" };
   const preview = await coordinator.send(candidate, { mode: "preview", userId: "operator-7" });
   const revision = preview.readinessRevision;
   assert.ok(
@@ -5200,7 +5094,17 @@ test("RED-sixth: challenge outstanding state clears only on authoritative succes
   if (typeof createTxCoordinator !== "function") return;
 
   const timer = createFakeTimer();
+  // The door macro sends three frames with a gap between them, and this test is about what a
+  // challenge does, not what reaches the wire. Failing the write on the first frame ends the
+  // send at once: the challenge is still consumed, which is the property under test, and
+  // nothing waits on a timer this test never advances.
   const transport = createTxTestTransport();
+  const rawWrite = transport.write.bind(transport);
+  transport.write = ((chunk: Uint8Array, callback?: (error?: Error | null) => void) => {
+    rawWrite(chunk, () => {});
+    queueMicrotask(() => callback?.(new Error("write failed")));
+    return true;
+  }) as typeof transport.write;
   let randomCounter = 0;
   const randomBytes = (size: number): Uint8Array => {
     randomCounter += 1;
@@ -5209,11 +5113,14 @@ test("RED-sixth: challenge outstanding state clears only on authoritative succes
   const settings = validSettings({
     transmit_enabled: true,
     speculative_transmit_enabled: true,
+    // The door macro is an unsafe candidate as well as a speculative one.
+    unsafe_transmit_enabled: true,
     transmit_user_id: "operator-7",
     tx_write_timeout_ms: 100,
     tx_cooldown_ms: 0,
     tx_quiet_ms: 5,
     speculative_tx_cooldown_ms: 0,
+    unsafe_tx_cooldown_ms: 0,
   });
   const state = {
     connected: true,
@@ -5224,10 +5131,18 @@ test("RED-sixth: challenge outstanding state clears only on authoritative succes
     validFrameGeneration: 1,
     lastRxByteAtMs: timer.nowMs() - 10,
     lastValidFrameAtMs: timer.nowMs() - 10,
+    lastValidSevenFFrameAtMs: timer.nowMs() - 10,
+    validSevenFFrameGeneration: 1,
     lastResumeAtMs: timer.nowMs() - 10,
     phase: "running",
     txByteEpoch: 0,
     tailHash: "",
+    sevenFProof: {
+      generation: 1,
+      action: "household:inactive",
+      frames: ["7fb90000ee", "7fb40000ee", "7fba0000ee"],
+      completedAtMs: timer.nowMs() - 10,
+    },
   };
   const coordinator = createTxCoordinator({
     settings,
@@ -5240,7 +5155,7 @@ test("RED-sixth: challenge outstanding state clears only on authoritative succes
     getGeneration: () => 1,
     getRxState: () => state,
   });
-  const action = { kind: "elevator", direction: "down" };
+  const action = { kind: "entrance", target: "household", state: "inactive" };
   const ingressState = {
     ...settings,
     state: "running" as const,
@@ -5277,30 +5192,34 @@ test("RED-sixth: challenge outstanding state clears only on authoritative succes
     async startCapture() { starts += 1; },
     async stopCapture() { return {} as CoordinatorResult; },
   });
-  const issueBody = { ...action, mode: "challenge", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
-  const issuedResponse = createRes();
-  await authoritative(request(issueBody), issuedResponse);
-  assert.equal(issuedResponse.statusCode, 200);
-  const issued = parseJson<AnyRecord>(issuedResponse.body);
+  // What used to run here drove the whole issue/commit/expire cycle through the ingress with
+  // a one-frame candidate. The elevator was that candidate and measurement promoted it; the
+  // door macro that replaces it sends three frames through this same path, and this test
+  // never advances the timer between them. So the outstanding-state cycle moved to
+  // "M5: the challenge path, exercised by the only candidate left", which drives the
+  // coordinator directly, and what stays here is the ingress behaviour the fallback half
+  // below is about: what the handler does when it cannot see the coordinator's state.
+  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), false, "nothing is outstanding to begin with");
+  const outstanding = coordinator.issueSpeculativeChallenge(action, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
   assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), true);
-  const commitResponse = createRes();
-  await authoritative(request({ ...action, mode: "commit", challengeId: issued.id, confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" }), commitResponse);
-  assert.equal(commitResponse.statusCode, 200);
-  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), false, "consumed challenge must not remain outstanding");
-  const afterCommitCapture = createRes();
-  await authoritative(request({}, "/api/capture"), afterCommitCapture);
-  assert.equal(afterCommitCapture.statusCode, 200);
-  assert.equal(starts, 1);
-
-  const expiryResponse = createRes();
-  await authoritative(request(issueBody), expiryResponse);
-  assert.equal(expiryResponse.statusCode, 200);
+  assert.equal(coordinator.cancelSpeculativeChallenge(outstanding.id, "operator-7"), true);
+  assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), false, "a cancelled challenge is not outstanding");
+  const expiring = coordinator.issueSpeculativeChallenge(action, {
+    userId: "operator-7",
+    confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE",
+    schedule: "immediate",
+  });
   assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), true);
   timer.advance(30_001);
   assert.equal(coordinator.hasOutstandingSpeculativeChallenge(), false, "expired challenge must be purged");
-  const afterExpiryCapture = createRes();
-  await authoritative(request({}, "/api/capture"), afterExpiryCapture);
-  assert.equal(afterExpiryCapture.statusCode, 200);
+  const captureWhileClear = createRes();
+  await authoritative(request({}, "/api/capture"), captureWhileClear);
+  assert.equal(captureWhileClear.statusCode, 200, "capture is allowed once nothing is outstanding");
+  assert.equal(starts, 1);
 
   let fallbackMode: "wrong" | "throw" | "reject" | "success" = "wrong";
   let fallbackExpiry = timer.nowMs() + 100;
@@ -5322,6 +5241,9 @@ test("RED-sixth: challenge outstanding state clears only on authoritative succes
     async startCapture() {},
     async stopCapture() { return {} as CoordinatorResult; },
   });
+  // The fallback handler stubs both the issue and the commit, so it never reaches a real
+  // encoder and the macro's frame count is irrelevant here.
+  const issueBody = { ...action, mode: "challenge", confirmationPhrase: "I UNDERSTAND THIS IS AN INFERRED CANDIDATE", schedule: "immediate" };
   const fallbackIssue = createRes();
   await fallback(request(issueBody), fallbackIssue);
   assert.equal(fallbackIssue.statusCode, 200);
@@ -6314,11 +6236,14 @@ test("M4.6 RED: quarantine chip pins the gate and freshness survives an unparsed
     true,
     "a silent bus must refuse an observed action on freshness, not only on reconnect",
   );
-  const rawPreview = await quiet.send({ kind: "raw", hex: "f70b01990240110100b6ee" }, request) as AnyRecord;
+  // This used to send the same thing through `raw`, to show freshness applied to it too.
+  // `raw` is gone; the door macro is the only action left that takes a different path
+  // through the gates, and freshness has to hold for it as well.
+  const macroPreview = await quiet.send({ kind: "entrance", target: "household", state: "ringing" }, request) as AnyRecord;
   assert.equal(
-    blocked(rawPreview, /stale/),
+    blocked(macroPreview, /stale|candidate|challenge|proof/),
     true,
-    "RAW transmission must keep the freshness requirement",
+    "a silent bus must refuse the door macro too",
   );
 
   // 3. One coordinator lives for the whole process. startCapture calls stop()

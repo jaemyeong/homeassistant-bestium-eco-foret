@@ -41,13 +41,19 @@ function createFixture(options: { answers?: boolean; maxAttempts?: number } = {}
   const applyReply = (hex: string): void => {
     if (!answers) return;
     const bytes = (hex.match(/../g) ?? []).map((pair) => Number.parseInt(pair, 16));
+    // Address 0x10 is the group in both families: the wallpad applies it to every member and
+    // reports each one on its own next poll, which is why 0x11 upward are the individuals.
     if (bytes[3] === 0x19 && bytes[4] === 0x02) {
-      const light = bytes[6] - 0x10;
-      devices.lights[light] = freshDevice(now, { state: bytes[7] === 1 ? "on" : "off" });
+      const state = bytes[7] === 1 ? "on" : "off";
+      const lights = bytes[6] === 0x10 ? [1, 2, 3] : [bytes[6] - 0x10];
+      for (const light of lights) devices.lights[light] = freshDevice(now, { state });
     }
     if (bytes[3] === 0x18 && bytes[4] === 0x02 && bytes[5] === 0x46) {
-      const zone = bytes[6] - 0x10;
-      devices.heating[zone] = { ...devices.heating[zone], ...freshDevice(now, { state: bytes[7] === 1 ? "on" : "off" }) };
+      const state = bytes[7] === 1 ? "on" : "off";
+      const zones = bytes[6] === 0x10 ? [1, 2, 3, 4] : [bytes[6] - 0x10];
+      for (const zone of zones) {
+        devices.heating[zone] = { ...devices.heating[zone], ...freshDevice(now, { state }) };
+      }
     }
     if (bytes[3] === 0x18 && bytes[4] === 0x02 && bytes[5] === 0x45) {
       const zone = bytes[6] - 0x10;
@@ -194,14 +200,16 @@ test("0.3.0 RED: a different control queues behind rather than being refused", a
   assert.deepEqual(fixture.writes, ["f70b01190240110100b6ee", "f70b01190240120100b5ee"]);
 });
 
-test("0.3.0 RED: all-zones off is four independent commands, not one macro", async () => {
+test("M5 RED: all-zones off is one command, confirmed when every zone holds it", async () => {
+  // 0.2.7 expanded this into four per-zone commands because the specification said no group
+  // command existed. It does, at address 0x10, and the wallpad sends it. One frame goes out;
+  // confirmation still requires all four zones, because the group draws no reply of its own
+  // and the only evidence is each zone's next poll (M4-E139).
   const fixture = createFixture();
   const result = await fixture.settle(send(fixture, { kind: "heat", target: "all", state: "off" }));
   assert.equal(result.outcome, "confirmed", JSON.stringify(result));
-  assert.deepEqual(fixture.writes, [
-    "f70b01180246110400b4ee", "f70b01180246120400b7ee",
-    "f70b01180246130400b6ee", "f70b01180246140400b1ee",
-  ]);
+  assert.deepEqual(fixture.writes, ["f70b01180246100400b5ee"]);
+  for (const zone of [1, 2, 3, 4]) assert.equal(fixture.devices.heating[zone].state, "off");
 });
 
 test("0.3.0 RED: an entrance macro is never queued and never retried", async () => {
@@ -221,22 +229,20 @@ test("0.3.0 RED: the target temperature confirms on its own field, not on the po
   assert.deepEqual(fixture.writes, ["f70b01180245111800abee"]);
 });
 
-test("0.3.0 RED: an all-zones batch is confirmed only when every zone is", async () => {
-  // Zone 2 is replaced while it waits, so a newer request for that zone is still to run.
-  // Reporting the batch as confirmed would tell the operator every zone is off when one is
-  // on its way to being turned on.
+test("M5 RED: a group and a single zone are different settables and both run", async () => {
+  // Under the four-frame expansion, turning zone 2 back on while all-zones-off was queued
+  // replaced one of the batch's own parts, and the batch came back `partial` with a count of
+  // three. The group is one command at its own address now, so the two no longer collide:
+  // the group runs and is confirmed against all four zones, then zone 2 runs and is confirmed
+  // on its own. Pressing "all off" and then turning one zone back on does both, in order,
+  // which is what the operator asked for.
   const fixture = createFixture();
   const batch = send(fixture, { kind: "heat", target: "all", state: "off" });
   const zoneTwo = send(fixture, { kind: "heat", zone: 2, state: "on" });
   const [batchResult, zoneResult] = await fixture.settle(Promise.all([batch, zoneTwo]));
-  assert.equal(batchResult.outcome, "partial", JSON.stringify(batchResult));
-  // The whole must never stand in for its parts: three zones did act on a frame, and saying
-  // "not sent" about the batch would invite the operator to press it again.
-  assert.equal(batchResult.confirmedParts, 3);
-  assert.equal(batchResult.partCount, 4);
-  assert.equal(batchResult.framesWritten, 3);
-  assert.match(String(batchResult.reason), /heat:2:power=superseded/);
+  assert.equal(batchResult.outcome, "confirmed", JSON.stringify(batchResult));
+  assert.equal(batchResult.framesWritten, 1, "one frame, not four");
   assert.equal(zoneResult.outcome, "confirmed", JSON.stringify(zoneResult));
-  assert.equal(fixture.devices.heating[2].state, "on", "the newer request for zone 2 is what runs");
-  assert.equal(fixture.devices.heating[3].state, "off");
+  assert.equal(fixture.devices.heating[2].state, "on", "zone 2 ends where the later request put it");
+  assert.equal(fixture.devices.heating[3].state, "off", "and the group reached the rest");
 });
