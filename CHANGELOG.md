@@ -68,6 +68,26 @@ All notable changes to this project are documented here.
 
 ### Documentation
 
+- Measure the heating target range end to end, with evidence row `M4-E151`. The operator raised the
+  tool's ceiling from 23 to 40 to allow it. Seventeen armed sends, answered in 99 to 115 ms,
+  1,051 frames with zero corrupt bytes, sixteen confirmed by the poll. **5 and 40 apply in every
+  zone** and 23 restored each time.
+
+  **The device enforces the bottom of the range itself, and the reply lies about it.** A 4 °C write
+  came back with `04` echoed in the direct reply while the poll's target stayed at 23. The write was
+  not ignored: 2.2 s later the zone's state went from off to on with the target unchanged, so the
+  command is partly applied — the enable is taken and the value discarded. This is the sharpest case
+  yet for judging by the poll. Gas gave a reply that was merely identical in both outcomes; here the
+  reply carries a number the device refused to adopt, and an implementation trusting it would report
+  a 4 °C target that does not exist.
+
+  The 34 values between the ends were left unmeasured on purpose: the same frame with a different
+  byte, at the cost of gas. 40 °C in rooms at 24 to 27 is real demand and writing a target switches
+  its zone on, so each zone burned for about three seconds — one poll period — before 23 took it
+  back. The house is verified at its baseline afterwards.
+
+  Whether the device would also reject 41 is unknown by choice: the tool refuses it.
+
 - Call the elevator from this line and watch it come, with evidence row `M4-E150`. Phase eight
   carries both legacy skeletons and their revokes; five armed sends, 2,252 frames, zero corrupt
   bytes. **Variant 1's up frame works**: `f70b0134044110000599ee` registered as `05` 1,582 ms later
