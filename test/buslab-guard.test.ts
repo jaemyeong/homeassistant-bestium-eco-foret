@@ -527,3 +527,80 @@ test("E9 RED: any gas set value other than 03 is refused, not merely the one we 
     assert.match(String(verdict.reason), /gas may be closed and never opened/, hex);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase eight: the elevator call.
+//
+// The first frame here that acts on a shared building facility. A call brings a car to this floor
+// and the neighbours see the result, so the list carries the **revoke** frame alongside the calls:
+// it is the only way back, and it goes on the list for that reason rather than because anyone has
+// watched it work.
+//
+// Nothing on this bus has ever been seen commanding `0x34`: 44,986 frames, `kind=01` only. That is
+// because the wallpad calls by another path, not because the line refuses one — the operator
+// reports the legacy add-on's call did work here. The legacy offers two skeletons and does not
+// know which applies, selected by `packet_call_type`, whose default is 0; both go on the list so
+// the run can tell them apart.
+
+const ELEVATOR_PHASE8 = [
+  "f70b013402411005009fee",  // variant 0, up
+  "f70b013402411006009cee",  // variant 0, down
+  "f70b013402411000009aee",  // variant 0, revoke
+  "f70b0134044110000599ee",  // variant 1, up
+  "f70b013404411000069aee",  // variant 1, down
+  "f70b013404411000009cee",  // variant 1, revoke
+];
+
+test("E10 RED: phase eight adds the six elevator frames and nothing else", async () => {
+  const { PHASE7_ALLOWED, PHASE8_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE8_ALLOWED.filter((hex) => !PHASE7_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, [...ELEVATOR_PHASE8].sort());
+  assert.equal(PHASE8_ALLOWED.length, 37, "thirty-one from phase seven plus six");
+});
+
+test("E10 RED: both call skeletons are on the list, and each carries its own revoke", async () => {
+  const { PHASE8_ALLOWED } = await import("../tools/buslab/guard.ts");
+  // A call with no way back would be the one shape of this test worth refusing outright.
+  for (const kind of ["02", "04"]) {
+    const family = ELEVATOR_PHASE8.filter((hex) => hex.slice(8, 10) === kind);
+    assert.equal(family.length, 3, `skeleton ${kind} must have up, down and revoke`);
+    const values = family.map((hex) => (kind === "02" ? hex.slice(14, 16) : hex.slice(16, 18))).sort();
+    assert.deepEqual(values, ["00", "05", "06"], `skeleton ${kind} values`);
+    for (const hex of family) assert.ok(PHASE8_ALLOWED.includes(hex), hex);
+  }
+});
+
+test("E10 RED: every elevator frame carries its own correct checksum", () => {
+  for (const hex of ELEVATOR_PHASE8) {
+    const b = bytes(hex);
+    assert.equal(b[3], 0x34, `${hex} device`);
+    assert.equal(b[5], 0x41, `${hex} sub-command`);
+    assert.equal(b[6], 0x10, `${hex} address`);
+    let x = 0;
+    for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+    assert.equal(x, b[b.length - 2], `${hex} has the wrong XOR`);
+    assert.equal(b[b.length - 1], 0xee, `${hex} does not end in EE`);
+    assert.equal(b[1], b.length, `${hex} declares the wrong length`);
+  }
+});
+
+test("E10 RED: phase seven still refuses them, phase eight permits them", () => {
+  for (const hex of ELEVATOR_PHASE8) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 7 }).ok, false, `phase seven must refuse ${hex}`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 8 }).ok, true, `phase eight permits ${hex}`);
+  }
+});
+
+test("E10 RED: phase eight is still a list, and the refusals are still shut", () => {
+  for (const hex of [
+    "f70b013402411007009dee",  // a call value the legacy never builds
+    "f70b013402411106009dee",  // an address nobody has seen
+  ]) {
+    const verdict = checkOutgoing({ hex, armed: true, phase: 8 });
+    assert.equal(verdict.ok, false, hex);
+    assert.match(String(verdict.reason), /allowlist/i, `${hex} must be refused by the list`);
+  }
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b01180245111800abee"]) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 8 }).ok, false, `${hex} at phase eight`);
+  }
+});

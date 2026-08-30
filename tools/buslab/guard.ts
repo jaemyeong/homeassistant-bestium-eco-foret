@@ -146,6 +146,29 @@ export const PHASE7_ALLOWED: readonly string[] = [
   "f70b011b0243110300b5ee",
 ];
 
+/**
+ * Phase eight is the elevator call, the first frame here that acts on a shared building facility.
+ * A call brings a car to this floor and the neighbours see the result.
+ *
+ * The **revoke** frame is on the list because it is the only way back, not because anyone has
+ * watched it work. Sending a call without it would be the one shape of this that deserved refusing.
+ *
+ * Nothing on this bus has ever been seen commanding `0x34`: 44,986 frames, `kind=01` only. That is
+ * the wallpad calling by another path rather than the line refusing one — the operator reports the
+ * legacy add-on's call did work here. The legacy offers two skeletons and its own comment says it
+ * does not know which applies, chosen by `packet_call_type`; the default is 0, so variant 0 is the
+ * likelier of the two, and both are listed so a run can tell them apart.
+ */
+export const PHASE8_ALLOWED: readonly string[] = [
+  ...PHASE7_ALLOWED,
+  "f70b013402411005009fee",
+  "f70b013402411006009cee",
+  "f70b013402411000009aee",
+  "f70b0134044110000599ee",
+  "f70b013404411000069aee",
+  "f70b013404411000009cee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
@@ -154,6 +177,7 @@ const PHASES: Record<number, readonly string[]> = {
   5: PHASE5_ALLOWED,
   6: PHASE6_ALLOWED,
   7: PHASE7_ALLOWED,
+  8: PHASE8_ALLOWED,
 };
 
 export type Verdict =
