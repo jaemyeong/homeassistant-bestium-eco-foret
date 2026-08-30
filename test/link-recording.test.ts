@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createBoundedCaptureCoordinator, createTxCoordinator } from "../bestium-eco-foret/src/m2.ts";
-import { parseM2Settings } from "../bestium-eco-foret/src/settings.ts";
+import { DEFAULTS } from "../bestium-eco-foret/src/settings.ts";
 
 // Kept out of `m2.test.ts`: that file is past the size where Node's TypeScript stripping
 // segfaults intermittently. See M4-E104 in `.agent/progress.md`.
@@ -10,7 +10,11 @@ import { parseM2Settings } from "../bestium-eco-foret/src/settings.ts";
 type AnyRecord = Record<string, any>;
 type Listener = (...args: unknown[]) => void;
 
-const settings = (overrides: AnyRecord = {}): AnyRecord => parseM2Settings({
+// Assembled here rather than through `parseM2Settings`: the parser now reads only the four
+// keys the 구성 panel offers and takes every timing from `DEFAULTS`, so a suite that needs a
+// shorter window has to build the settings object itself.
+const settings = (overrides: AnyRecord = {}): AnyRecord => ({
+  ...DEFAULTS,
   ew11_host: "gateway-1",
   ew11_port: 8899,
   transmit_enabled: true,
@@ -18,7 +22,7 @@ const settings = (overrides: AnyRecord = {}): AnyRecord => parseM2Settings({
   tx_cooldown_ms: 0,
   tx_quiet_ms: 5,
   ...overrides,
-} as AnyRecord);
+});
 
 function createFakeTimer() {
   let now = 1_700_000_000;

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createTxCoordinator, parseM2Settings } from "../bestium-eco-foret/src/m2.ts";
+import { createTxCoordinator } from "../bestium-eco-foret/src/m2.ts";
+import { DEFAULTS } from "../bestium-eco-foret/src/settings.ts";
 
 // This lives outside `m2.test.ts` on purpose. That file is past the size where Node's
 // TypeScript stripping segfaults intermittently: adding roughly 3 KB of any test —
@@ -20,13 +21,14 @@ function createFixture(cooldownMs: number) {
       return true;
     },
   };
-  const settings = parseM2Settings({
+  const settings = {
+    ...DEFAULTS,
     ew11_host: "gateway-1",
     ew11_port: 8899,
     transmit_enabled: true,
     transmit_user_id: "operator-7",
     tx_cooldown_ms: cooldownMs,
-  } as AnyRecord);
+  } as AnyRecord;
   const coordinator = createTxCoordinator({
     settings,
     nowMs: () => now,

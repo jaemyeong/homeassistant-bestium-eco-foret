@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createTxCoordinator, parseM2Settings } from "../bestium-eco-foret/src/m2.ts";
+import { createTxCoordinator } from "../bestium-eco-foret/src/m2.ts";
+import { DEFAULTS } from "../bestium-eco-foret/src/settings.ts";
 
 // Kept out of `m2.test.ts`: that file is past the size where Node's TypeScript stripping
 // segfaults intermittently, and this suite adds several kilobytes.
@@ -73,7 +74,8 @@ function createFixture(options: { answers?: boolean; maxAttempts?: number } = {}
     },
   };
 
-  const settings = parseM2Settings({
+  const settings = {
+    ...DEFAULTS,
     ew11_host: "gateway-1",
     ew11_port: 8899,
     transmit_enabled: true,
@@ -83,7 +85,7 @@ function createFixture(options: { answers?: boolean; maxAttempts?: number } = {}
     // The floor the schema allows, so an exhausted retry budget costs three seconds of fake
     // clock rather than nine.
     tx_observation_timeout_ms: 1_000,
-  } as AnyRecord);
+  } as AnyRecord;
 
   const coordinator = createTxCoordinator({
     settings,

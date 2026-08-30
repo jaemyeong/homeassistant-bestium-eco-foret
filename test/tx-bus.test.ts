@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createTxCoordinator, parseM2Settings } from "../bestium-eco-foret/src/m2.ts";
+import { createTxCoordinator } from "../bestium-eco-foret/src/m2.ts";
+import { DEFAULTS } from "../bestium-eco-foret/src/settings.ts";
 
 // Kept out of `m2.test.ts`: see M4-E104. Every timing figure below was measured on the
 // operator's own captures; `.agent/spec-device-protocol.md` carries the derivation.
@@ -25,11 +26,15 @@ function createBus(overrides: AnyRecord = {}) {
       return true;
     },
   };
-  const settings = parseM2Settings({
+  // Assembled here rather than through `parseM2Settings`: the parser now reads only the four
+  // keys the 구성 panel offers and takes every timing from `DEFAULTS`, so a suite that needs a
+  // shorter window has to build the settings object itself.
+  const settings = {
+    ...DEFAULTS,
     ew11_host: "gateway-1", ew11_port: 8899,
     transmit_enabled: true, speculative_transmit_enabled: true,
     transmit_user_id: "operator-7", ...overrides,
-  } as AnyRecord);
+  } as AnyRecord;
   const coordinator = createTxCoordinator({
     settings,
     nowMs: () => now,
@@ -137,10 +142,11 @@ test("0.2.8 RED: a multi-frame send survives the bus talking between frames", as
       return true;
     },
   };
-  const settings = parseM2Settings({
+  const settings = {
+    ...DEFAULTS,
     ew11_host: "gateway-1", ew11_port: 8899, transmit_enabled: true,
     speculative_transmit_enabled: true, transmit_user_id: "operator-7",
-  } as AnyRecord);
+  } as AnyRecord;
   const coordinator = createTxCoordinator({
     settings,
     nowMs: () => now,

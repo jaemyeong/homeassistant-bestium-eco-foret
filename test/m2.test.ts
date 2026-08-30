@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import { encodeSemanticAction } from "../bestium-eco-foret/src/protocol-debug.ts";
+import { DEFAULTS } from "../bestium-eco-foret/src/settings.ts";
 
 const root = new URL("..", import.meta.url);
 const APP_FOLDER = "bestium-eco-foret";
@@ -63,42 +64,16 @@ const CONFIG_TOP_KEYS = [
   "schema",
 ] as const;
 const CONFIG_STRING_KEYS = ["name", "slug", "description"] as const;
-const CONFIG_OPTION_DEFAULT_KEYS = [
-  "connect_timeout_ms",
-  "idle_timeout_ms",
-  "capture_duration_ms",
-  "maximum_bytes",
-  "maximum_records",
-  "transmit_enabled",
-  "speculative_transmit_enabled",
-  "unsafe_transmit_enabled",
-  "tx_write_timeout_ms",
-  "tx_observation_timeout_ms",
-  "tx_cooldown_ms",
-  "tx_quiet_ms",
-  "tx_max_attempts",
-  "speculative_tx_cooldown_ms",
-  "unsafe_tx_cooldown_ms",
-] as const;
+// The 구성 panel offers four keys and ships a default for one of them. Every timing that used
+// to live here came off the bus, and Supervisor merges an add-on's defaults *under* whatever
+// the operator saved — so a measurement improved in the source never reached an install whose
+// form had been submitted once. They are constants in `settings.ts` now.
+const CONFIG_OPTION_DEFAULT_KEYS = ["transmit_enabled"] as const;
 const CONFIG_SCHEMA_KEYS = [
   "ew11_host",
   "ew11_port",
-  "connect_timeout_ms",
-  "idle_timeout_ms",
-  "capture_duration_ms",
-  "maximum_bytes",
-  "maximum_records",
   "transmit_enabled",
-  "speculative_transmit_enabled",
-  "unsafe_transmit_enabled",
   "transmit_user_id",
-  "tx_write_timeout_ms",
-  "tx_observation_timeout_ms",
-  "tx_cooldown_ms",
-  "tx_quiet_ms",
-  "tx_max_attempts",
-  "speculative_tx_cooldown_ms",
-  "unsafe_tx_cooldown_ms",
 ] as const;
 const REQUIRED_RUNTIME_INPUT_KEYS = ["ew11_host", "ew11_port"] as const;
 const EXACT_ARCH = ["aarch64", "amd64"] as const;
@@ -337,42 +312,7 @@ type RuntimeExports = {
   }>;
 };
 
-type NumericBound = {
-  name: keyof Pick<
-    M2Settings,
-    | "connect_timeout_ms"
-    | "idle_timeout_ms"
-    | "capture_duration_ms"
-    | "maximum_bytes"
-    | "maximum_records"
-    | "tx_write_timeout_ms"
-    | "tx_observation_timeout_ms"
-    | "tx_cooldown_ms"
-    | "tx_quiet_ms"
-    | "tx_max_attempts"
-    | "speculative_tx_cooldown_ms"
-    | "unsafe_tx_cooldown_ms"
-  >;
-  min: number;
-  max: number;
-};
 
-const numericBounds: readonly NumericBound[] = [
-  { name: "connect_timeout_ms", min: 100, max: 30_000 },
-  { name: "idle_timeout_ms", min: 5_000, max: 3_600_000 },
-  { name: "capture_duration_ms", min: 100, max: 86_400_000 },
-  { name: "maximum_bytes", min: 1, max: 67_108_864 },
-  { name: "maximum_records", min: 1, max: 1_000_000 },
-] as const;
-const txNumericBounds: readonly NumericBound[] = [
-  { name: "tx_write_timeout_ms", min: 100, max: 10_000 },
-  { name: "tx_observation_timeout_ms", min: 1_000, max: 30_000 },
-  { name: "tx_cooldown_ms", min: 0, max: 10_000 },
-  { name: "tx_quiet_ms", min: 5, max: 1_000 },
-  { name: "tx_max_attempts", min: 1, max: 10 },
-  { name: "speculative_tx_cooldown_ms", min: 1_000, max: 60_000 },
-  { name: "unsafe_tx_cooldown_ms", min: 1_000, max: 60_000 },
-] as const;
 
 function path(url: URL): string {
   return fileURLToPath(url);
@@ -906,31 +846,8 @@ test("RED: config strictness and exact static contract", () => {
 
   const options = parseJson<AnyRecord>(JSON.stringify(config.options));
   assertExactSet(Object.keys(options), CONFIG_OPTION_DEFAULT_KEYS, "config.options defaults");
-  assert.deepStrictEqual(options, {
-    connect_timeout_ms: 3_000,
-    idle_timeout_ms: 30_000,
-    capture_duration_ms: 600_000,
-    maximum_bytes: 1_048_576,
-    maximum_records: 20_000,
-    transmit_enabled: false,
-    speculative_transmit_enabled: false,
-    unsafe_transmit_enabled: false,
-    tx_write_timeout_ms: 1_000,
-    tx_observation_timeout_ms: 4_600,
-    tx_cooldown_ms: 250,
-    tx_quiet_ms: 60,
-    tx_max_attempts: 3,
-    speculative_tx_cooldown_ms: 1_000,
-    unsafe_tx_cooldown_ms: 5_000,
-  });
-  for (const key of CONFIG_OPTION_DEFAULT_KEYS) {
-    if (key === "transmit_enabled" || key === "speculative_transmit_enabled" || key === "unsafe_transmit_enabled") {
-      assert.equal(typeof options[key], "boolean");
-    } else {
-      assert.equal(typeof options[key], "number");
-      assert.equal(Number.isSafeInteger(options[key]), true);
-    }
-  }
+  // Off, so an install that has never been configured cannot write to the bus.
+  assert.deepStrictEqual(options, { transmit_enabled: false });
 
   for (const required of REQUIRED_RUNTIME_INPUT_KEYS) {
     assert.equal(required in options, false, `RED-M2: ${required} must not be in defaults`);
@@ -940,22 +857,8 @@ test("RED: config strictness and exact static contract", () => {
   assertExactSet(Object.keys(schema), CONFIG_SCHEMA_KEYS, "config.schema key allowlist");
   assert.equal(schema.ew11_host, "str(1,253)");
   assert.equal(schema.ew11_port, "port");
-  assert.equal(schema.connect_timeout_ms, "int(100,30000)");
-  assert.equal(schema.idle_timeout_ms, "int(5000,3600000)");
-  assert.equal(schema.capture_duration_ms, "int(100,86400000)");
-  assert.equal(schema.maximum_bytes, "int(1,67108864)");
-  assert.equal(schema.maximum_records, "int(1,1000000)");
   assert.equal(schema.transmit_enabled, "bool");
-  assert.equal(schema.speculative_transmit_enabled, "bool");
-  assert.equal(schema.unsafe_transmit_enabled, "bool");
   assert.equal(schema.transmit_user_id, "str(1,128)?");
-  assert.equal(schema.tx_write_timeout_ms, "int(100,10000)");
-  assert.equal(schema.tx_observation_timeout_ms, "int(1000,30000)");
-  assert.equal(schema.tx_cooldown_ms, "int(0,10000)");
-  assert.equal(schema.tx_quiet_ms, "int(5,1000)");
-  assert.equal(schema.tx_max_attempts, "int(1,10)");
-  assert.equal(schema.speculative_tx_cooldown_ms, "int(1000,60000)");
-  assert.equal(schema.unsafe_tx_cooldown_ms, "int(1000,60000)");
 });
 
 test("RED: Dockerfile allowlist and pinned production constraints", () => {
@@ -1032,28 +935,9 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     { label: "port too high", input: { ...base, ew11_port: 65_536 }, expect: /ew11_port/i },
     { label: "port fraction", input: { ...base, ew11_port: 9001.5 }, expect: /ew11_port/i },
   );
-  for (const rule of numericBounds) {
-    invalid.push(
-      { label: `${rule.name} non-number`, input: { ...base, [rule.name]: `bad-${rule.name}` }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} NaN`, input: { ...base, [rule.name]: Number.NaN }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} infinity`, input: { ...base, [rule.name]: Number.POSITIVE_INFINITY }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} negative`, input: { ...base, [rule.name]: -1 }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} fraction`, input: { ...base, [rule.name]: rule.min + 0.5 }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} below`, input: { ...base, [rule.name]: rule.min - 1 }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} above`, input: { ...base, [rule.name]: rule.max + 1 }, expect: new RegExp(rule.name) },
-    );
-  }
-  for (const rule of txNumericBounds) {
-    invalid.push(
-      { label: `${rule.name} non-number`, input: { ...base, [rule.name]: `bad-${rule.name}` }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} NaN`, input: { ...base, [rule.name]: Number.NaN }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} infinity`, input: { ...base, [rule.name]: Number.POSITIVE_INFINITY }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} negative`, input: { ...base, [rule.name]: -1 }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} fraction`, input: { ...base, [rule.name]: rule.min + 0.5 }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} below`, input: { ...base, [rule.name]: rule.min - 1 }, expect: new RegExp(rule.name) },
-      { label: `${rule.name} above`, input: { ...base, [rule.name]: rule.max + 1 }, expect: new RegExp(rule.name) },
-    );
-  }
+  // The timing keys are no longer parsed, so there is nothing here to reject: a stored value
+  // for one of them is ignored rather than validated. `addon-defaults.test.ts` is where that
+  // is proved, with the operator's own 3,000 ms as the case.
   invalid.push(
     { label: "transmit user non-string", input: { ...base, transmit_user_id: 7 }, expect: /transmit_user_id/i },
     { label: "transmit user empty", input: { ...base, transmit_user_id: "" }, expect: /transmit_user_id/i },
@@ -1064,43 +948,10 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
     assert.throws(() => parse(check.input), check.expect, check.label);
   }
 
-  const boundaryOk: AnyRecord[] = [];
-  for (const rule of numericBounds) {
-    const min = { ...base, [rule.name]: rule.min } as M2Settings;
-    const max = { ...base, [rule.name]: rule.max } as M2Settings;
-    boundaryOk.push(min, max);
-  }
-  for (const input of boundaryOk) {
-    const parsed = parse(input);
-    for (const rule of numericBounds) {
-      assert.equal(parsed[rule.name], input[rule.name]);
-    }
-  }
-  for (const rule of txNumericBounds) {
-    for (const value of [rule.min, rule.max]) {
-      const parsed = parse({ ...base, [rule.name]: value });
-      assert.equal(parsed[rule.name], value);
-    }
-  }
-
   assert.deepStrictEqual(parse({ ew11_host: "gateway-1", ew11_port: 9001 }), {
+    ...DEFAULTS,
     ew11_host: "gateway-1",
     ew11_port: 9001,
-    connect_timeout_ms: 3_000,
-    idle_timeout_ms: 30_000,
-    capture_duration_ms: 600_000,
-    maximum_bytes: 1_048_576,
-    maximum_records: 20_000,
-    transmit_enabled: false,
-    speculative_transmit_enabled: false,
-    unsafe_transmit_enabled: false,
-    tx_write_timeout_ms: 1_000,
-    tx_observation_timeout_ms: 4_600,
-    tx_cooldown_ms: 250,
-    tx_quiet_ms: 60,
-    tx_max_attempts: 3,
-    speculative_tx_cooldown_ms: 1_000,
-    unsafe_tx_cooldown_ms: 5_000,
   });
   const enabled = parse({ ...base, transmit_enabled: true, transmit_user_id: "operator-7" });
   assert.equal(enabled.transmit_enabled, true);
@@ -1116,8 +967,10 @@ test("RED: settings parser strict host/port and bounded numeric validation", asy
   assert.equal(missingTransmitUser.unsafe_transmit_enabled, false);
   assert.equal(missingTransmitUser.transmit_user_id, undefined);
   assert.equal(parse({ ...base, transmit_user_id: "operator-7" }).transmit_enabled, false);
-  assert.equal(parse({ ...base, speculative_transmit_enabled: true, transmit_user_id: "operator-7" }).speculative_transmit_enabled, true);
-  assert.equal(parse({ ...base, unsafe_transmit_enabled: true, transmit_user_id: "operator-7" }).unsafe_transmit_enabled, true);
+  // A named operator is what the master switch waits for. It is not what these two waited for:
+  // they are off for everyone now, so asking for them with full credentials still gets nothing.
+  assert.equal(parse({ ...base, speculative_transmit_enabled: true, transmit_user_id: "operator-7" }).speculative_transmit_enabled, false);
+  assert.equal(parse({ ...base, unsafe_transmit_enabled: true, transmit_user_id: "operator-7" }).unsafe_transmit_enabled, false);
 
   for (const host of ["gateway-1", "192.168.1.10", "edge-gateway.local"]) {
     assert.equal(parse({ ...base, ew11_host: host }).ew11_host, host);
@@ -1814,7 +1667,7 @@ test("RED: runtime fails closed when all TX flags are enabled without a transmit
   }
 });
 
-test("RED: runtime preserves enabled TX flags with a valid transmit user", async () => {
+test("RED: runtime enables the master switch and keeps the retired flags off", async () => {
   const m2 = await importM2();
   const listenPorts: number[] = [];
   let transportCreations = 0;
@@ -1860,8 +1713,12 @@ test("RED: runtime preserves enabled TX flags with a valid transmit user", async
     const tx = status.tx as AnyRecord;
     assert.equal(res.statusCode, 200);
     assert.equal(tx.enabled, true);
-    assert.equal(tx.speculativeEnabled, true);
-    assert.equal(tx.unsafeEnabled, true);
+    // The options handed to `readOptions` above still ask for both of these, and both come back
+    // off. Neither is switchable any more: nothing calls `inferred()`, so the speculative flag
+    // gated an empty set of actions, and the page offers none of the entrance macros the unsafe
+    // flag opened. An options file that still carries a `true` for either grants nothing.
+    assert.equal(tx.speculativeEnabled, false);
+    assert.equal(tx.unsafeEnabled, false);
     assert.equal(tx.authorized, true);
     assert.deepStrictEqual(listenPorts, [8099]);
     // The link opens with the app now. It used to wait for a capture, which is exactly what
@@ -4899,8 +4756,9 @@ test("M5 RED: the observation window is sized to the poll it waits for", async (
   // a poll runs late, which is a resend on a half-duplex line — and for batch-off, lights
   // going out in rooms the wallpad cannot reach. It is two polls wide now, which survives one
   // late poll and still bounds three attempts inside about fourteen seconds.
-  const config = JSON.parse(readFileSync(new URL("../bestium-eco-foret/config.json", import.meta.url), "utf8")) as AnyRecord;
-  const timeout = (config.options as AnyRecord).tx_observation_timeout_ms;
+  // It is a constant rather than an option now: the panel offered it, an install saved 3,000
+  // there, and Supervisor's merge kept that value ahead of every later default.
+  const timeout = DEFAULTS.tx_observation_timeout_ms;
   assert.equal(typeof timeout, "number");
   assert.ok((timeout as number) >= 4_600, "two polls of the slowest device, which is the heating");
   assert.ok((timeout as number) <= 6_900, "and not so wide that three attempts strand the operator");

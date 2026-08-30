@@ -32,23 +32,6 @@ export type BoundedStopReason =
   | "closed"
   | "error";
 
-type ParseNumericResult = {
-  key: keyof Pick<ParsedSettings,
-    | "connect_timeout_ms"
-    | "idle_timeout_ms"
-    | "capture_duration_ms"
-    | "maximum_bytes"
-    | "maximum_records"
-    | "tx_write_timeout_ms"
-    | "tx_observation_timeout_ms"
-    | "tx_cooldown_ms"
-    | "tx_quiet_ms"
-    | "tx_max_attempts"
-    | "speculative_tx_cooldown_ms"
-    | "unsafe_tx_cooldown_ms"
-  >;
-};
-
 export const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmit_user_id"> = {
   connect_timeout_ms: 3000,
   idle_timeout_ms: 30_000,
@@ -114,66 +97,6 @@ function parsePort(raw: unknown): number {
   return raw;
 }
 
-function parseNumeric(key: ParseNumericResult["key"], raw: unknown): number {
-  if (typeof raw !== "number" || !Number.isSafeInteger(raw)) {
-    throw new TypeError(`${key} must be a safe integer`);
-  }
-  if (raw < 0) {
-    throw new TypeError(`${key} must be a non-negative integer`);
-  }
-
-  switch (key) {
-    case "connect_timeout_ms":
-      if (raw < 100 || raw > 30_000) {
-        throw new TypeError("connect_timeout_ms must be in [100,30000]");
-      }
-      return raw;
-    case "idle_timeout_ms":
-      if (raw < 5_000 || raw > 3_600_000) {
-        throw new TypeError("idle_timeout_ms must be in [5000,3600000]");
-      }
-      return raw;
-    case "capture_duration_ms":
-      if (raw < 100 || raw > 86_400_000) {
-        throw new TypeError("capture_duration_ms must be in [100,86400000]");
-      }
-      return raw;
-    case "maximum_bytes":
-      if (raw < 1 || raw > 67_108_864) {
-        throw new TypeError("maximum_bytes must be in [1,67108864]");
-      }
-      return raw;
-    case "maximum_records":
-      if (raw < 1 || raw > 1_000_000) {
-        throw new TypeError("maximum_records must be in [1,1000000]");
-      }
-      return raw;
-    case "tx_write_timeout_ms":
-      if (raw < 100 || raw > 10_000) throw new TypeError("tx_write_timeout_ms must be in [100,10000]");
-      return raw;
-    case "tx_observation_timeout_ms":
-      if (raw < 1_000 || raw > 30_000) throw new TypeError("tx_observation_timeout_ms must be in [1000,30000]");
-      return raw;
-    case "tx_cooldown_ms":
-      if (raw < 0 || raw > 10_000) throw new TypeError("tx_cooldown_ms must be in [0,10000]");
-      return raw;
-    case "tx_max_attempts":
-      if (raw < 1 || raw > 10) throw new TypeError("tx_max_attempts must be in [1,10]");
-      return raw;
-    case "tx_quiet_ms":
-      if (raw < 5 || raw > 1_000) throw new TypeError("tx_quiet_ms must be in [5,1000]");
-      return raw;
-    case "speculative_tx_cooldown_ms":
-      if (raw < 1_000 || raw > 60_000) throw new TypeError("speculative_tx_cooldown_ms must be in [1000,60000]");
-      return raw;
-    case "unsafe_tx_cooldown_ms":
-      if (raw < 1_000 || raw > 60_000) throw new TypeError("unsafe_tx_cooldown_ms must be in [1000,60000]");
-      return raw;
-    default:
-      throw new TypeError(`Unsupported numeric setting: ${key}`);
-  }
-}
-
 export function parseM2Settings(raw: unknown): ParsedSettings {
   if (raw === null || raw === undefined || typeof raw !== "object") {
     throw new TypeError("settings must be an object");
@@ -188,59 +111,33 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
   const ew11_host = parseHost(rawRecord.ew11_host);
   const ew11_port = parsePort(rawRecord.ew11_port);
 
-  const readNumeric = (key: ParseNumericResult["key"]): number => {
-    if (Object.prototype.hasOwnProperty.call(rawRecord, key)) {
-      return parseNumeric(key, rawRecord[key]);
-    }
-    return parseNumeric(key, DEFAULTS[key]);
-  };
+  const rawTransmitEnabled = Object.prototype.hasOwnProperty.call(rawRecord, "transmit_enabled")
+    ? rawRecord.transmit_enabled
+    : DEFAULTS.transmit_enabled;
+  if (typeof rawTransmitEnabled !== "boolean") throw new TypeError("transmit_enabled must be a boolean");
 
-  const connect_timeout_ms = readNumeric("connect_timeout_ms");
-  const idle_timeout_ms = readNumeric("idle_timeout_ms");
-  const capture_duration_ms = readNumeric("capture_duration_ms");
-  const maximum_bytes = readNumeric("maximum_bytes");
-  const maximum_records = readNumeric("maximum_records");
-  const parseFlag = (key: "transmit_enabled" | "speculative_transmit_enabled" | "unsafe_transmit_enabled"): boolean => {
-    const value = Object.prototype.hasOwnProperty.call(rawRecord, key) ? rawRecord[key] : DEFAULTS[key];
-    if (typeof value !== "boolean") throw new TypeError(`${key} must be a boolean`);
-    return value;
-  };
-  const transmit_enabled = parseFlag("transmit_enabled");
-  const speculative_transmit_enabled = parseFlag("speculative_transmit_enabled");
-  const unsafe_transmit_enabled = parseFlag("unsafe_transmit_enabled");
   const transmit_user_id = rawRecord.transmit_user_id;
   if (transmit_user_id !== undefined && (typeof transmit_user_id !== "string" || transmit_user_id.length < 1 || transmit_user_id.length > 128)) {
     throw new TypeError("transmit_user_id must be a non-empty string of at most 128 characters");
   }
-  const effectiveTransmitEnabled = transmit_user_id === undefined ? false : transmit_enabled;
-  const effectiveSpeculativeTransmitEnabled = transmit_user_id === undefined ? false : speculative_transmit_enabled;
-  const effectiveUnsafeTransmitEnabled = transmit_user_id === undefined ? false : unsafe_transmit_enabled;
-  const tx_write_timeout_ms = readNumeric("tx_write_timeout_ms");
-  const tx_observation_timeout_ms = readNumeric("tx_observation_timeout_ms");
-  const tx_cooldown_ms = readNumeric("tx_cooldown_ms");
-  const tx_quiet_ms = readNumeric("tx_quiet_ms");
-  const tx_max_attempts = readNumeric("tx_max_attempts");
-  const speculative_tx_cooldown_ms = readNumeric("speculative_tx_cooldown_ms");
-  const unsafe_tx_cooldown_ms = readNumeric("unsafe_tx_cooldown_ms");
 
+  // Everything except the four values above comes from `DEFAULTS` and never from the saved
+  // options, which is the point rather than a shortcut. The 구성 panel used to offer the
+  // timings, and Supervisor merges an add-on's defaults *under* whatever the operator saved
+  // with the saved side winning — so shipping a better number never reached an install whose
+  // form had ever been submitted. One such install kept `tx_observation_timeout_ms: 3000`,
+  // which holds a single 2,300 ms heating poll: the write landed, the poll that would have
+  // shown the effect fell outside the window, and the page reported a command the device had
+  // obeyed as unconfirmed and sent it again 250 ms later. The keys are gone from the schema
+  // and ignored here, so a stored value is inert rather than authoritative.
   return {
+    ...DEFAULTS,
     ew11_host,
     ew11_port,
-    connect_timeout_ms,
-    idle_timeout_ms,
-    capture_duration_ms,
-    maximum_bytes,
-    maximum_records,
-    transmit_enabled: effectiveTransmitEnabled,
-    speculative_transmit_enabled: effectiveSpeculativeTransmitEnabled,
-    unsafe_transmit_enabled: effectiveUnsafeTransmitEnabled,
+    // Sending is addressed to a named operator: the ingress compares the caller against this
+    // id and refuses when they differ, so without one the master switch stays off however it
+    // was saved.
+    transmit_enabled: transmit_user_id === undefined ? false : rawTransmitEnabled,
     ...(transmit_user_id === undefined ? {} : { transmit_user_id }),
-    tx_write_timeout_ms,
-    tx_observation_timeout_ms,
-    tx_cooldown_ms,
-    tx_quiet_ms,
-    tx_max_attempts,
-    speculative_tx_cooldown_ms,
-    unsafe_tx_cooldown_ms,
   };
 }

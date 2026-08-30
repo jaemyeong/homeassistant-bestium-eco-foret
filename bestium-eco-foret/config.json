@@ -15,40 +15,12 @@
   "panel_icon": "mdi:radio-tower",
   "panel_title": "BESTIUM 월패드",
   "options": {
-    "connect_timeout_ms": 3000,
-    "idle_timeout_ms": 30000,
-    "capture_duration_ms": 600000,
-    "maximum_bytes": 1048576,
-    "maximum_records": 20000,
-    "transmit_enabled": false,
-    "speculative_transmit_enabled": false,
-    "unsafe_transmit_enabled": false,
-    "tx_write_timeout_ms": 1000,
-    "tx_observation_timeout_ms": 4600,
-    "tx_cooldown_ms": 250,
-    "tx_quiet_ms": 60,
-    "tx_max_attempts": 3,
-    "speculative_tx_cooldown_ms": 1000,
-    "unsafe_tx_cooldown_ms": 5000
+    "transmit_enabled": false
   },
   "schema": {
     "ew11_host": "str(1,253)",
     "ew11_port": "port",
-    "connect_timeout_ms": "int(100,30000)",
-    "idle_timeout_ms": "int(5000,3600000)",
-    "capture_duration_ms": "int(100,86400000)",
-    "maximum_bytes": "int(1,67108864)",
-    "maximum_records": "int(1,1000000)",
     "transmit_enabled": "bool",
-    "speculative_transmit_enabled": "bool",
-    "unsafe_transmit_enabled": "bool",
-    "transmit_user_id": "str(1,128)?",
-    "tx_write_timeout_ms": "int(100,10000)",
-    "tx_observation_timeout_ms": "int(1000,30000)",
-    "tx_cooldown_ms": "int(0,10000)",
-    "tx_quiet_ms": "int(5,1000)",
-    "tx_max_attempts": "int(1,10)",
-    "speculative_tx_cooldown_ms": "int(1000,60000)",
-    "unsafe_tx_cooldown_ms": "int(1000,60000)"
+    "transmit_user_id": "str(1,128)?"
   }
 }

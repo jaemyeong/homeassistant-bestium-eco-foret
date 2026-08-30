@@ -2,6 +2,49 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- The 구성 panel offers four options instead of sixteen: `ew11_host`, `ew11_port`,
+  `transmit_enabled` and `transmit_user_id`. The thirteen that went are measurements — poll
+  cadences, quiet intervals, capture ceilings — and they are constants in `settings.ts` now,
+  next to the comments that justify them.
+
+  This is a fix, not tidying. Supervisor merges an add-on's defaults *under* whatever the
+  operator saved and the saved side wins, so an install whose form had ever been submitted kept
+  its old values however good a number a later release shipped. One install still held
+  `tx_observation_timeout_ms: 3000`, visible on the page as the send banner's "최대 3.0초".
+  3,000 ms holds exactly one 2,300 ms heating poll: the write lands, the next poll may still
+  carry the state from before the command, and the poll that would show the effect falls
+  outside the window. `awaitConfirmation` then returns false and the caller retries, spaced only
+  by `tx_cooldown_ms` — 250 ms, against the 3,217–3,248 ms that separated the transmits measured
+  to succeed. A command the device had obeyed was reported unconfirmed and sent twice more.
+
+  Removing a key from the schema does not remove it from `/data/options.json`; Supervisor keeps
+  it and logs that it is not in the schema. The parser is what makes it inert, and
+  `addon-defaults.test.ts` proves it with the operator's own 3,000 ms as the case.
+
+### Removed
+
+- `speculative_transmit_enabled` and `speculative_tx_cooldown_ms`. The flag gated actions graded
+  `inferred_candidate`, and `inferred()` in `protocol-debug.ts` has no callers — measurement
+  promoted the last of them. The branch stays in the source for the subphone line, which is not
+  captured yet.
+- `unsafe_transmit_enabled` and `unsafe_tx_cooldown_ms`. They gated the entrance door macros,
+  which the page does not offer and eleven sends showed to be inert on this line. Hardcoded off
+  is narrower than a switch an old options file could still be holding open.
+
+### Internal
+
+- Four suites built their settings by calling `parseM2Settings` with timing overrides, which is
+  how they kept a fake clock short. The parser no longer reads those keys, so they assemble the
+  object from `DEFAULTS` instead. `tx-bus.test.ts` was the one that showed it: with a 4,600 ms
+  window against a fake timer nobody advanced, it stopped terminating.
+- The parser's numeric-bounds sweeps in `m2.test.ts` are gone with the options they validated.
+  What replaces them is narrower and more to the point: `addon-defaults.test.ts` checks that a
+  stored value for a retired key cannot reach the running add-on.
+
 ## [0.3.3] - 2026-08-31
 
 ### Changed
