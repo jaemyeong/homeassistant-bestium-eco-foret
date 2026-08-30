@@ -2,7 +2,59 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.3.0] - 2026-08-30
+
+### Changed
+
+- **The page controls without a capture running.** One `coordinator.start()` opened the recording
+  file and the TCP socket in the same call, so nothing decoded and nothing sent until an operator
+  started a capture — the send gate carried `capture is not running` as a literal reason. The two
+  lifecycles are separate now. The link is the socket, the decoder and the generation counter; the
+  add-on opens it at startup and keeps it open. The recording is the capture file, which the
+  operator starts and stops on top of it. The send reason is `gateway link is not up`.
+
+- **The page is a product screen rather than a debug console.** Five cards on one scrolling screen:
+  a send banner in six states, lights, heating, the common-area devices, and the capture card below
+  a rule. Gone with the tabs: the frame log, the query-only device panel, the ambiguous-frame panel,
+  the arbitrary-send lab, the two-activation review flow, the candidate tier and the doorbell
+  banner. The styling is the Home Assistant design system merged from its own sources rather than a
+  hand-summarised subset, which is how the page and the design drifted apart before.
+
+- **The action contract says what the bus does.** The lights and the heating each gained a group
+  command at address `0x10` — one frame, not four; 0.2.7 expanded all-zones-off into four per-zone
+  frames on the reasoning that no group command existed, which was an argument from absence. The
+  elevator call moved to the shape that registered: kind byte `0x04` with the direction last, two
+  bytes away from the one that went out twice and moved nothing. Batch-off is new, and `raw`,
+  `outlet` and `ventilation` are gone — this wallpad has neither module, and arbitrary sends belong
+  to the local buslab behind its allow-list.
+
+- **Confirmation waits for the poll it is actually watching for.** A direct reply says nothing about
+  the effect: the gas valve answers byte-identically whether or not the state changed, a heating
+  zone echoed a target it did not adopt, and a group command draws no direct reply at all. The
+  window is two polls of the slowest device (4,600 ms) rather than 3,000 ms, which held exactly one
+  2,300 ms heating poll — so a poll running late closed the window and the frame went out again.
+
+### Fixed
+
+- Batch-off could be queued but never confirmed: `0x2A` was still being pushed to the ambiguous
+  list, so `devices.batchOff` did not exist and the queue would have retried the write to the end
+  of its budget while the page reported 미관측 for a write that worked. On a switch that kills
+  lights in rooms the wallpad cannot reach, a needless repeat is the wrong way to fail.
+
+- The elevator reported a `motion` field the bus never carries. The high nibble is the direction the
+  car is going *or about to go* — actual motion while travelling, service direction while standing —
+  so `heading` says what it means and nothing claims to know the car is moving.
+
+- A door opening was a flag that went true and stayed true, which reads as "a door is open"; nothing
+  on this line reports a door closing. It is an event with a time now, and the three frames one
+  press puts on the line fold into one.
+
+- Three defects that only a browser found: the banner sat under a warning triangle while saying the
+  controls were ready, the observation meter rendered on a page that was not sending because
+  `display:flex` beats the hidden attribute, and every 끄기 took the brand colour as though off
+  were the thing being done.
+
+### 이번 판에 함께 들어간 앞선 작업
 
 ### Fixed
 
@@ -438,7 +490,7 @@ All notable changes to this project are documented here.
   including monotonic timestamps compared across two processes. No product code, test or
   configuration changed in this unit, and the plan's live phase is gated on a separate instruction.
 
-## [0.3.0] - 2026-08-25
+### 2026-08-25에 준비되었던 0.3.0 항목
 
 The operator raised `tx_quiet_ms` to 60 ms on the live bus and every control confirmed —
 lights, gas and all four heating zones. That closed the collision attribution by

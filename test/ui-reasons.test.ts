@@ -270,3 +270,33 @@ test("M5 RED: a hidden row is actually hidden", () => {
   const html = renderAppHtml();
   assert.match(html, /\[hidden\]\{display:none !important\}/, "the hidden attribute must win");
 });
+
+test("M5 RED: every control meets the minimum touch target", () => {
+  // 44px is the design system's `--min-touch-target`. The capture buttons and the temperature
+  // steppers were 40, which is a miss on a phone held one-handed.
+  const html = renderAppHtml();
+  const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+  for (const rule of [".btn{", ".stepper{", ".stepper__btn{"]) {
+    const at = css.indexOf(rule);
+    assert.ok(at > 0, `${rule} must exist`);
+    const block = css.slice(at, css.indexOf("}", at));
+    assert.match(block, /min-height:var\(--min-touch-target\)/, `${rule} must meet the minimum`);
+  }
+  assert.doesNotMatch(css, /min-height:\s*(?:[0-3]?\d|4[0-3])px/, "no control may be shorter than the minimum");
+});
+
+test("M5 RED: every control has a name a screen reader can announce", () => {
+  const html = renderAppHtml();
+  // A button whose whole label is an icon needs an explicit name; the stepper's plus and
+  // minus are the only two on this page.
+  for (const zone of [1, 2, 3, 4]) {
+    assert.match(html, new RegExp(`id="heat-temp-${zone}-up" type="button" aria-label="[^"]+"`));
+    assert.match(html, new RegExp(`id="heat-temp-${zone}-down" type="button" aria-label="[^"]+"`));
+  }
+  // And each control group says what it groups.
+  for (const label of ["등 1", "존 1 난방", "승강기 호출"]) {
+    assert.ok(html.includes(`role="group" aria-label="${label}"`), `${label} group must be named`);
+  }
+  assert.match(html, /<section class="banner"[^>]*aria-live="polite"/, "the banner is the only live region");
+  assert.equal((html.match(/aria-live=/g) ?? []).length, 1, "and there is only one");
+});
