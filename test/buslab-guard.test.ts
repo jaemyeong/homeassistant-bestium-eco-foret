@@ -228,13 +228,19 @@ test("E5 RED: raising a heating target is refused outright, not merely left off 
   // The allowlist already blocks these, but `allowAll` exists for trying a hypothetical later
   // phase and would otherwise let a frame through that makes a room hotter and burns gas for as
   // long as nobody notices. This is the gas precedent: refuse the unsafe direction by name.
-  // The ceiling is 23 C because that is the target every zone already holds, so nothing this
-  // tool sends can leave a room warmer than the household itself chose. Revisit the constant if
-  // that ever needs to change; it is a deliberate limit, not a fact about the protocol.
+  //
+  // The ceiling was 23 C, the target every zone already held. The operator has since asked for
+  // the wallpad's whole 5 to 40 range to be measured, so it is 40 now: the warmest the wallpad
+  // itself offers. Above that nothing the household can ask for exists, and a frame carrying such
+  // a value is a mistake whatever its intent. It is still a deliberate limit and not a fact about
+  // the protocol — what the device does with 41 is untested, by choice.
+  //
+  // These carry correct checksums on purpose. The refusal list runs before the checksum check, so
+  // a mistyped frame would still be refused here and the test would pass without testing anything.
   for (const hex of [
-    "f70b01180245111800abee",  // zone 1 target 24 C, one degree above
-    "f70b01180245111e00adee",  // zone 1 target 30 C
-    "f70b01180245142800bcee",  // zone 4 target 40 C
+    "f70b011802451129009aee",  // zone 1 target 41 C, one degree above
+    "f70b01180245113c008fee",  // zone 1 target 60 C
+    "f70b0118024511ff004cee",  // zone 1 target 255 C
   ]) {
     for (const opts of [{ phase: 3 }, { allowAll: true }] as const) {
       const verdict = checkOutgoing({ hex, armed: true, ...opts });
@@ -308,7 +314,7 @@ test("E6 RED: phase four is still a list, and the refusals are still shut", () =
   ]) {
     assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, false, hex);
   }
-  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b01180245111800abee"]) {
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b011802451129009aee"]) {
     assert.equal(checkOutgoing({ hex, armed: true, phase: 4 }).ok, false, `${hex} at phase four`);
   }
 });
@@ -363,10 +369,11 @@ test("E7 RED: phase four still refuses them all, and phase five permits them", a
 
 test("E7 RED: the target ceiling still governs the zones phase five opened", () => {
   // Widening `0x45` to three more zones must not let the ceiling be walked around by address.
+  // Correct checksums again: the refusal runs first, so a mistyped frame proves nothing.
   for (const hex of [
-    "f70b01180245121800aaee",  // zone 2 target 24 C
-    "f70b01180245131e00adee",  // zone 3 target 30 C
-    "f70b01180245142800bcee",  // zone 4 target 40 C
+    "f70b0118024512290099ee",  // zone 2 target 41 C
+    "f70b01180245133c008dee",  // zone 3 target 60 C
+    "f70b0118024514ff0049ee",  // zone 4 target 255 C
   ]) {
     for (const opts of [{ phase: 5 }, { allowAll: true }] as const) {
       const verdict = checkOutgoing({ hex, armed: true, ...opts });
@@ -457,7 +464,7 @@ test("E8 RED: phase six is still a list, and the refusals are still shut", () =>
     assert.equal(verdict.ok, false, hex);
     assert.match(String(verdict.reason), /allowlist|checksum|xor/i, hex);
   }
-  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b01180245111800abee"]) {
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b011802451129009aee"]) {
     assert.equal(checkOutgoing({ hex, armed: true, phase: 6 }).ok, false, `${hex} at phase six`);
   }
 });
@@ -600,7 +607,83 @@ test("E10 RED: phase eight is still a list, and the refusals are still shut", ()
     assert.equal(verdict.ok, false, hex);
     assert.match(String(verdict.reason), /allowlist/i, `${hex} must be refused by the list`);
   }
-  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b01180245111800abee"]) {
+  for (const hex of ["7f01020304", "f70e011e024311040004ffffb6ee", "f70b011b0243110400b2ee", "f70b011802451129009aee"]) {
     assert.equal(checkOutgoing({ hex, armed: true, phase: 8 }).ok, false, `${hex} at phase eight`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase nine: the ends of the wallpad's own temperature range.
+//
+// The operator asked for 5 to 40 to be measured per zone, and raised the ceiling to allow it. The
+// list carries the two ends and one probe below the bottom; the 34 values between the ends are
+// the same frame with a different byte and would only add boiler time, so they are left out and
+// said so rather than quietly skipped.
+//
+// **40 °C makes heat.** Every room on this bus reads 24 to 27, so a 40 target with the zone
+// switched on — which writing a target does — is real demand on a summer morning. That is the
+// operator's call, made explicitly, and the run keeps the window as short as the poll allows.
+
+const PHASE9_EXPECTED_ADDITIONS = [
+  "f70b01180245110500b6ee", "f70b01180245120500b5ee",  // 5 C, the bottom of the range
+  "f70b01180245130500b4ee", "f70b01180245140500b3ee",
+  "f70b011802451128009bee", "f70b0118024512280098ee",  // 40 C, the top
+  "f70b0118024513280099ee", "f70b011802451428009eee",
+  "f70b01180245110400b7ee",                             // 4 C on zone 1, one below the bottom
+];
+
+test("E11 RED: phase nine adds the range ends and the one probe below", async () => {
+  const { PHASE8_ALLOWED, PHASE9_ALLOWED } = await import("../tools/buslab/guard.ts");
+  const added = PHASE9_ALLOWED.filter((hex) => !PHASE8_ALLOWED.includes(hex)).sort();
+  assert.deepEqual(added, [...PHASE9_EXPECTED_ADDITIONS].sort());
+  assert.equal(PHASE9_ALLOWED.length, 46, "thirty-seven from phase eight plus nine");
+});
+
+test("E11 RED: the ceiling is 40 now, and it still refuses everything above", async () => {
+  const { PHASE9_ALLOWED } = await import("../tools/buslab/guard.ts");
+  // 40 must pass the ceiling, or the range cannot be measured at all.
+  for (const hex of PHASE9_EXPECTED_ADDITIONS) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 9 }).ok, true, `phase nine permits ${hex}`);
+    assert.ok(PHASE9_ALLOWED.includes(hex), hex);
+  }
+  // and one degree past the wallpad's own range is still named, not merely unlisted
+  for (const hex of ["f70b011802451129009aee", "f70b0118024512290099ee", "f70b0118024514ff0049ee"]) {
+    for (const opts of [{ phase: 9 }, { allowAll: true }] as const) {
+      const verdict = checkOutgoing({ hex, armed: true, ...opts });
+      assert.equal(verdict.ok, false, `${hex} with ${JSON.stringify(opts)}`);
+      assert.match(String(verdict.reason), /target|heat/i, hex);
+    }
+  }
+});
+
+test("E11 RED: every phase-nine frame carries its own correct checksum", () => {
+  for (const hex of PHASE9_EXPECTED_ADDITIONS) {
+    const b = bytes(hex);
+    assert.equal(b[5], 0x45, `${hex} must be the target sub-command`);
+    let x = 0;
+    for (let i = 0; i < b.length - 2; i += 1) x ^= b[i];
+    assert.equal(x, b[b.length - 2], `${hex} has the wrong XOR`);
+    assert.equal(b[b.length - 1], 0xee, `${hex} does not end in EE`);
+  }
+});
+
+test("E11 RED: phase eight still refuses them", () => {
+  for (const hex of PHASE9_EXPECTED_ADDITIONS) {
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 8 }).ok, false, `phase eight must refuse ${hex}`);
+  }
+});
+
+test("E11 RED: the values between the ends are deliberately absent", async () => {
+  // Not an oversight. 6 to 39 are the same frame with a different byte, and every one above the
+  // room temperature costs gas, so measuring them would buy nothing the ends do not.
+  const { PHASE9_ALLOWED } = await import("../tools/buslab/guard.ts");
+  for (const celsius of [6, 10, 25, 30, 39]) {
+    const body = `f70b01180245` + `11` + celsius.toString(16).padStart(2, "0") + `00`;
+    let x = 0;
+    for (const byte of Buffer.from(body, "hex")) x ^= byte;
+    const hex = `${body}${x.toString(16).padStart(2, "0")}ee`;
+    assert.equal(hex.length, 22, `${celsius} C frame must be eleven bytes`);
+    assert.ok(!PHASE9_ALLOWED.includes(hex), `${celsius} C must not be on the list`);
+    assert.equal(checkOutgoing({ hex, armed: true, phase: 9 }).ok, false, `${celsius} C`);
   }
 });

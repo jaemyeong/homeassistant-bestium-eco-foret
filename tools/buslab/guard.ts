@@ -169,6 +169,31 @@ export const PHASE8_ALLOWED: readonly string[] = [
   "f70b013404411000009cee",
 ];
 
+/**
+ * Phase nine is the ends of the wallpad's own temperature range, 5 and 40, for every zone, plus
+ * one probe a degree below the bottom.
+ *
+ * The 34 values in between are the same frame with a different byte. Measuring them would buy
+ * nothing the ends do not and every one above the room temperature costs gas, so they are left
+ * off deliberately and a test says so.
+ *
+ * **40 makes heat.** Every room on this bus reads 24 to 27, and writing a target switches its
+ * zone on, so a 40 target is real demand on a summer morning. The operator asked for it knowing
+ * that. The run's job is to keep the window to what the poll needs.
+ */
+export const PHASE9_ALLOWED: readonly string[] = [
+  ...PHASE8_ALLOWED,
+  "f70b01180245110500b6ee",
+  "f70b01180245120500b5ee",
+  "f70b01180245130500b4ee",
+  "f70b01180245140500b3ee",
+  "f70b011802451128009bee",
+  "f70b0118024512280098ee",
+  "f70b0118024513280099ee",
+  "f70b011802451428009eee",
+  "f70b01180245110400b7ee",
+];
+
 const PHASES: Record<number, readonly string[]> = {
   1: PHASE1_ALLOWED,
   2: PHASE2_ALLOWED,
@@ -178,6 +203,7 @@ const PHASES: Record<number, readonly string[]> = {
   6: PHASE6_ALLOWED,
   7: PHASE7_ALLOWED,
   8: PHASE8_ALLOWED,
+  9: PHASE9_ALLOWED,
 };
 
 export type Verdict =
@@ -197,7 +223,7 @@ function checksumOk(frame: Uint8Array): boolean {
 }
 
 /** The warmest heating target this tool will ever send. See the refusal below for why. */
-const HEATING_TARGET_CEILING_C = 23;
+const HEATING_TARGET_CEILING_C = 40;
 
 /** Refusals no flag opens. Each names why, because a refusal without a reason invites a retry. */
 function refusalReason(b: Uint8Array): string | null {
@@ -219,15 +245,20 @@ function refusalReason(b: Uint8Array): string | null {
     // The allowlist blocks these already; this refusal is here for `allowAll`, which exists so a
     // later phase can be tried and would otherwise let through a frame that makes a room hotter
     // and burns gas for as long as nobody notices. Same shape as the gas rule: name the unsafe
-    // direction rather than rely on a list. The ceiling is the target every zone already holds,
-    // so no frame from here can set a zone warmer than the household chose.
+    // direction rather than rely on a list.
     //
-    // It does not follow that nothing here can call for heat. A zone turned on at the existing
-    // 23 C target will heat a room that has since fallen below it, and this rule cannot see the
-    // room. That is the caller's job: read the current temperatures before arming and stop if
-    // any zone is at or under the target.
+    // The ceiling was 23, the target every zone already held. The operator has since asked for
+    // the wallpad's whole 5 to 40 range to be measured and raised it explicitly, so it is 40:
+    // the warmest the wallpad itself offers. Above that is a value the household cannot even ask
+    // for, and a frame carrying one is a mistake whatever its intent. What the device does with
+    // 41 is untested by choice, not unknown by accident.
     //
-    // The constant is a deliberate limit and not a fact about the protocol; raising it is a
+    // The ceiling never made the tool safe on its own, and now less than before. A target at or
+    // below it can still call for heat whenever it sits above the room, and writing a target
+    // switches its zone on. That is the caller's job: read the current temperatures before
+    // arming, and know that 40 in a 25 °C room is demand.
+    //
+    // The constant is a deliberate limit and not a fact about the protocol; changing it is a
     // decision, and it needs the same approval that widening a phase does.
     return `this tool never raises a heating target above ${HEATING_TARGET_CEILING_C} C`;
   }
