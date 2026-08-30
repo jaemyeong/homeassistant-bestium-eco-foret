@@ -16,6 +16,8 @@ secrets*.yaml
 graphify-out/
 .serena/logs/
 
-# Local measurement tool: gateway address and run artifacts
+# Local measurement tool: the gateway address lives in its config and stays out.
+# The run artifacts do not carry it — every string field across all 34 runs was checked for
+# addresses, MACs, hostnames and keys and holds none — and they cannot be re-taken without
+# operating the wallpad, so they are kept.
 tools/buslab/config.json
-tools/buslab/runs/
