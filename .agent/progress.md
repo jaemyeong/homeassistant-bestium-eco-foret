@@ -100,7 +100,7 @@ separately gated by fresh explicit approval.
 | M2 | Home Assistant App packaging, settings, Ingress, and bounded capture | Complete: static acceptance passed; M3.1 later verified startup/Ingress only |
 | M3 | URL-install publication packaging, then separately gated live runtime and capture canaries | M3.0–M3.2 complete within recorded scopes; M3.3 static/native/adversarial acceptance and public `0.1.3` publication complete, live gates pending |
 | M4 | Packet analysis, clean-room debug/control surfaces, and bounded repairs | M4.2 `0.2.0`, M4.3 `0.2.1`, M4.4 `0.2.2`, and M4.5 `0.2.3` publications complete; the `0.2.3` push was performed outside this session lineage and is recorded in Phase C. M4.6 `0.2.4` quarantine unification, observed-path freshness narrowing, and label-first monitor rendering are accepted in a signed local commit without an independent adversarial review. Push, Home Assistant/Ingress, network/EW11, Capture, actual TX, and device behavior remain separately gated and unverified by M4.5 or M4.6  M4.7–M4.8 rebuild the emitted UI to the canonical prototype and make an observed control one activation. `0.2.5` was published to public `main` at `521149f` and the user updated the installed App and verified the page live, which surfaced two defects the native suite could not see. M4.9 repairs both in `0.2.6`: the client no longer compares a readiness revision that moves on every received byte, and a pending observation leases only the light it watches. The live Light 1 send authorized for the next round is still outstanding |
-| M5 | Home Assistant wallpad communication and smart-home entities | Pending |
+| M5 | Home Assistant wallpad communication and smart-home entities | M5.0 opens it with the product web UI: the bus is now measured end to end (`M4-E128`–`M4-E152`), so the surface is rebuilt to expose exactly the six reads and eight writes that were confirmed and nothing else. Plan in `.agent/plan-m5-product-ui.md`, awaiting the operator's go-ahead. The entity/MQTT half of this milestone is untouched |
 | M6 | MQTT/HomeKit bridge path and Apple Home control | Pending |
 | M7 | Subphone capture, analysis, implementation, and control | Pending |
 | M8 | End-to-end main-wallpad/subphone release at `1.0.0` | Pending |
@@ -157,6 +157,24 @@ separately gated by fresh explicit approval.
 | M4.10 | Analyse a capture taken while the operator worked the wallpad, derive an evidence-backed frame specification per device from it and from the legacy implementation, and repair what the specification contradicts | Complete in authorized native/static scope: full 124/124 on Node `v24.14.1`, six version surfaces at `0.2.7`, `git diff --check` clean, the whole 306.8 s capture reparsed through the real monitor at 1,957 frames with zero invalid and zero leftover bytes, and every screen state checked in a real browser at full width, 768 px and 390 px | This containing signed local commit; public `main` remains `0.2.6` |
 | M4.11 | Find why control worked only intermittently on the live page, why all-zones-off errored, and why one failure left the review card unusable | Complete in authorized native/static scope: full 132/132 on Node `v24.14.1`, six version surfaces at `0.2.8`, `git diff --check` clean, every timing figure measured from the operator's own captures, and the changed screen states checked in a real browser at full width, 768 px and 390 px | This containing signed local commit; public `main` remains `0.2.7` |
 
+
+## M5 task ledger
+
+Plan: `.agent/plan-m5-product-ui.md`. Design mirror: `.agent/design-mirror/`.
+Measured basis: `.agent/measured-capabilities.md` and evidence rows `M4-E128`–`M4-E152`.
+
+Four decisions were taken from the operator before this ledger opened, and the plan is written
+to run in one pass on them: the debug endpoints go while the decoder stays, the design-system CSS
+is inlined rather than served from a new route, the Claude Design canvas is updated after the
+implementation rather than before, and the Korean face falls back to the OS rather than fetching
+Noto Sans KR. Nothing else in the plan needs an answer to start.
+
+| Task | Acceptance gate | Status | Commit |
+| --- | --- | --- | --- |
+| M5.0 E1 | Pull the nine design-system stylesheets in their `@import` order into one add-on constant, strip the Google Fonts import and the Roboto `@font-face` whose TTF is not shipped, and prove nothing was lost in transit by asserting the concatenated length against each source's recorded byte count | Pending | — |
+| M5.0 E2 | Bring the action encoder to the eight write operations the bus actually confirmed: add light-group, heating-group and batch-off, move the elevator to the variant that worked, and remove entrance, outlet, ventilation and raw. Add batch-off to the device snapshot, expose gas state, structure the elevator state so a stop is read from `00`/`01` and never from the high nibble, and fold the three door-open frames into one event. Judge every write by the poll rather than by the direct reply, which was measured lying three separate ways. Drop the capture, stop and download routes | Pending | — |
+| M5.0 E3 | Rebuild the emitted page as one scrolling column of Home Assistant cards with no debug surface, no tabs, no external URL and no emoji: a six-state send banner without `doorbell`, a lights card carrying the three lamps plus group and batch-off, a heating card carrying four zones with a 5–40 °C stepper and a group row, and a shared-facility card carrying gas state and close, elevator call and call-time-only floor, and the door-open event with no control. Say in the interface what the measurement found — that writing a heating target switches its zone on, that batch-off reaches rooms the wallpad cannot, that gas cannot be reopened from here, and that the doorbell never appears on this line | Pending | — |
+| M5.0 E4 | Assert the exact bytes of all eight writes, the refusal of every removed kind, the refusal of 4 °C and 41 °C, that a direct reply alone never reads as confirmed, that the rendered page contains no guess/debug/capture wording and no external URL, then update the ledger, the changelog, the capability list and finally the Claude Design canvas | Pending | — |
 ## Current checkpoint
 
 - Completed and signature-verified M0.1 commit `a47a85bf86a685e583042527fd908fc7e4b82d7f` and M0.2 commit `e3fb4acb108e8c353f5b26c056049cc483364da2`.

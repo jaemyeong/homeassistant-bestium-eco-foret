@@ -1,0 +1,1 @@
+{"observeSeconds":{"editor":"range","min":3,"max":20,"step":1,"default":10,"unit":"초","tsType":"number","section":"송신"},"showGuessCandidates":{"editor":"boolean","default":true,"tsType":"boolean","section":"송신"}}
