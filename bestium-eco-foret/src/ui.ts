@@ -282,7 +282,7 @@ const CLIENT_SCRIPT = String.raw`
         // permanent "0개" teaches nothing. A rising count is the sign that our own writes are
         // colliding with the wallpad's: in the measured runs every transmit that waited for a
         // quiet interval damaged something, and every one through the silent-query gate did not.
-        + (tx.unparsedByteCount > 0 ? " · 해독하지 못한 바이트 " + tx.unparsedByteCount + "개" : "");
+        + ((tx.unparsedByteCount || 0) > 0 ? " · 해독하지 못한 바이트 " + tx.unparsedByteCount + "개" : "");
       var blocked = reasonsKo(gateBlockers(payload));
       if (blocked) detail = blocked + " · " + detail;
     } else if (state === "sending" || state === "confirmed" || state === "unconfirmed") {

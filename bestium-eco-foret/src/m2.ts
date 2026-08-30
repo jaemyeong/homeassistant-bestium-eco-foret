@@ -1266,7 +1266,7 @@ export function createTxCoordinator(opts: {
       ...result,
       readinessRevision: readinessRevisionFor(result),
       unparsedByteCount: state.unparsedByteCount ?? 0,
-      lastSilentQueryAtMs: state.lastSilentQueryAtMs ?? 0,
+      lastSilentQueryAtMs: state.lastSilentQueryAtMs,
     };
   };
   const hasCurrentSevenFProof = (
@@ -1652,11 +1652,13 @@ export function createTxCoordinator(opts: {
     // is always 50 ms out of date and writing on it is what produced the collisions. It stays as
     // the fallback because 0.2% of windows are more than a second apart and refusing to send at
     // all would serve the operator worse than the rule that shipped before this.
-    // A link that has not yet seen one of those queries has nothing to wait for. The gate is a
-    // window in a rhythm, and until the rhythm has been observed once the quiet interval is all
-    // there is — which is also the state a link is in for its first seconds, before the wallpad
-    // has come round to the entrance or the elevator.
-    const gateDeadline = opts.nowMs() + ((beforeWaitState.lastSilentQueryAtMs ?? 0) > 0 ? TX_GATE_WAIT_MS : 0);
+    // A link that has not seen a window yet still waits for one. `relink` calls
+    // `resetGeneration`, which zeroes the timestamp, so skipping the wait on zero would put every
+    // reconnect back on the losing rule for as long as it takes the wallpad to come round to the
+    // entrance or the elevator — and a reconnect is exactly when a send is most likely to be
+    // pressed. The wait is bounded and the quiet interval is still behind it. A state source that
+    // does not report the field at all is one that predates the gate; those go straight through.
+    const gateDeadline = opts.nowMs() + (beforeWaitState.lastSilentQueryAtMs === undefined ? 0 : TX_GATE_WAIT_MS);
     let gateOpenedAt = 0;
     for (;;) {
       // Whether a window is open right now, not whether one arrived since the wait began: a

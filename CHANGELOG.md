@@ -42,8 +42,10 @@ All notable changes to this project are documented here.
   rather than reporting one behind.
 
   The quiet interval stays as the fallback. Windows are a median 345 ms apart and 99.8% of gaps
-  are under a second, so a send waits up to a second for one; past that, and on a link that has
-  not yet seen such a query at all, it sends on the rule that shipped before this.
+  are under a second, so a send waits up to a second for one; past that it sends on the rule that shipped
+  before this. A link that has just reconnected waits too, rather than falling straight back:
+  relinking resets what the decoder has seen, and a reconnect is when a send is most likely to
+  be pressed.
 
 ### Added
 

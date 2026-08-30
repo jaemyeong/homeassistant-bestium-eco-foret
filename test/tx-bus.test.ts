@@ -122,8 +122,10 @@ test("0.2.8 RED: a line that never goes quiet still fails closed", async () => {
   bus.rxAt(bus.nowMs());                      // busy at the moment the send starts
   bus.silentQueryAt(0);                       // and no window to take instead
   const pending = bus.coordinator.send(action, { ...request, mode: "live" }) as Promise<AnyRecord>;
-  // Hold the line busy by restamping the last received byte on every step of the clock.
-  for (let step = 0; step < 60; step += 1) {
+  // Hold the line busy by restamping the last received byte on every step of the clock. Long
+  // enough to outlast both waits in turn: the gate looks for a window for a second, and only
+  // then does the quiet interval get its `tx_write_timeout_ms` to find one.
+  for (let step = 0; step < 150; step += 1) {
     bus.rxAt(bus.nowMs());
     await bus.advance(10);
     await Promise.resolve();
