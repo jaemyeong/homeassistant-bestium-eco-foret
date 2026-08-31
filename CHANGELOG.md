@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.6] - 2026-09-01
+
+### Fixed
+
+- A capture no longer costs commands their retry budget. The send path sampled `pendingAppend`
+  before waiting for the line, and that wait runs up to a second, so it ended commands on a
+  reading that was stale before the write it was meant to protect. The write-time check a
+  hundred lines below it tests the same condition and calls it a retryable race; the earlier one
+  is deleted, so the real gate is the only gate.
+
+  What brought it to notice, across two of the operator's captures: with a capture running, five
+  of six elevator commands were refused either for the append or for that race, and with no
+  capture running neither of two commands was refused at all. Read that as a before and after
+  with one sample on each side rather than as an experiment — the two unrefused commands are from
+  a different minute of a different bus state, and nothing was repeated under both conditions.
+  What it does establish is the timing: the refusals landed over a minute into a capture that was
+  running normally, so this was not a transient at the start of one.
+
+  The readiness preview still reports an outstanding append, which is a status line rather than a
+  decision, and still says so in Korean.
+
+### Note
+
+0.5.5 was published twice. The first push carried everything under its own heading below; this
+entry is what was added afterwards and went out under the same version number, which Home
+Assistant reads as no update at all. Anyone who installed 0.5.5 from the first push does not have
+the change above.
+
 ## [0.5.5] - 2026-09-01
 
 ### Fixed
@@ -37,23 +65,6 @@ All notable changes to this project are documented here.
   and the reason table resolves `<refusal> after N frame(s) reached the bus` through the refusal
   it already had a Korean wording for. The check runs `reasonKo` out of the rendered page rather
   than reading its source.
-
-- A capture no longer costs commands their retry budget. The send path sampled `pendingAppend`
-  before waiting for the line, and that wait runs up to a second, so it ended commands on a
-  reading that was stale before the write it was meant to protect. The write-time check a
-  hundred lines below it tests the same condition and calls it a retryable race; the earlier one
-  is deleted, so the real gate is the only gate.
-
-  What brought it to notice, across two of the operator's captures: with a capture running, five
-  of six elevator commands were refused either for the append or for that race, and with no
-  capture running neither of two commands was refused at all. Read that as a before and after
-  with one sample on each side rather than as an experiment — the two unrefused commands are from
-  a different minute of a different bus state, and nothing was repeated under both conditions.
-  What it does establish is the timing: the refusals landed over a minute into a capture that was
-  running normally, so this was not a transient at the start of one.
-
-  The readiness preview still reports an outstanding append, which is a status line rather than a
-  decision, and still says so in Korean.
 
 - `capture_duration_ms` never applied to a capture an operator could actually start. The timer
   was armed in the socket's connect handler and only when a recording was already open, but
