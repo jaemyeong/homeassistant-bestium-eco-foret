@@ -948,6 +948,21 @@ export function createMqttBridge(options: MqttBridgeOptions) {
       options.log(`dropped an unrecognised command: ${topic} ${payload.slice(0, 32)}`);
       return;
     }
+    // Writing a target powers its zone on — eight of eight, all four zones — which is exactly the
+    // call a night-setback automation makes. The operator chose refusal over documentation here,
+    // knowing it is silent: MQTT carries no way to tell Home Assistant a command was declined, so
+    // the automation believes it succeeded and sees the target unchanged at the next poll. The
+    // page is deliberately not changed; it keeps behaving like the wallpad, so the same device
+    // answers differently on the two surfaces. A zone nobody has polled is refused too, because
+    // not knowing whether it is on is not a reason to burn gas.
+    if (action.kind === "heat" && action.temperatureC !== undefined) {
+      const { devices, generation } = options.getDevices();
+      const zone = livePolled(devices.heating?.[action.zone], nowMs(), generation, STALE_AFTER.heating);
+      if (zone?.state !== "on") {
+        options.log(`refused a target for zone ${action.zone}: writing one powers the zone on, and it is ${zone?.state ?? "not currently known"}`);
+        return;
+      }
+    }
     // Never retried here: `tx_max_attempts` is already the retry policy, and stacking a second
     // one multiplies frames on a half-duplex bus. The outcome is logged and nothing else — an
     // entity's state comes from the poll.

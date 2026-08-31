@@ -712,3 +712,39 @@ test("M6 RED: a broker with no MQTT service does not take the add-on down", asyn
   await fixture.timer.advance(61_000);
   assert.equal(attempts, 2, "and it tries again a minute later");
 });
+
+test("M6 RED: a target for a zone that is off never reaches the bus", async () => {
+  // Writing a target powers its zone on — eight of eight, all four zones — and that is exactly
+  // the call every night-setback automation makes. The operator chose to have the add-on refuse
+  // it rather than document it, knowing the refusal is silent: MQTT is one-way, so the
+  // automation believes it succeeded and sees the target unchanged at the next poll.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const at = fixture.timer.nowMs();
+  const polled = (state: string) => ({ polled: { state, currentC: 24, targetC: 23, lastSeenAtMs: at, generation: 1 } });
+  fixture.setDevices({
+    lights: { 1: {}, 2: {}, 3: {} },
+    heating: { 1: polled("on"), 2: polled("off"), 3: {}, 4: polled("on") },
+    gas: {}, batchOff: {}, elevator: {}, entrances: { household: {} },
+  });
+
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/heating/2/temperature`, "18", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, [], "a zone that is off does not get a target");
+
+  // A zone whose state nobody has polled is not known to be on, and guessing here burns gas.
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/heating/3/temperature`, "18", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, [], "and neither does one we have not seen");
+
+  // A zone that is on takes it, because there is no side effect left to avoid.
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/heating/1/temperature`, "21", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, [{ kind: "heat", zone: 1, temperatureC: 21 }]);
+
+  // Turning a zone on is not a target write and is never refused: that is the operator asking
+  // for the zone to be on, which is what it does.
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/heating/2/mode`, "heat", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent.at(-1), { kind: "heat", zone: 2, state: "on" });
+});

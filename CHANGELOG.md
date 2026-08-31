@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.2] - 2026-08-31
+
+### Fixed
+
+- A heating target sent over MQTT for a zone that is off powered that zone on. Refusing it was the
+  operator's decision, recorded in the decisions table of `.agent/plan-mqtt-bridge.md`, and the
+  dispatcher never carried it.
+
+  Writing a target powers its zone on — eight of eight, all four zones — and that is exactly the
+  call a night-setback automation makes. The refusal is silent, because MQTT carries no way to
+  tell Home Assistant a command was declined: the automation believes it succeeded and sees the
+  target unchanged at the next poll. A zone nobody has polled is refused too, since not knowing
+  whether it is on is not a reason to burn gas. Turning a zone on is never refused — that is the
+  operator asking for exactly what it does.
+
+  The page is deliberately unchanged and keeps behaving like the wallpad, so the same device
+  answers differently on the two surfaces.
+
+- The add-on's documentation described this refusal before it existed.
+
+### Internal
+
+- The specification now says, at the top, that its body is the research output and the decisions
+  section overrides it. Reading only the body is how this and the elevator buttons were both
+  missed; both were recorded correctly and neither reached the code.
+
 ## [0.5.1] - 2026-08-31
 
 ### Fixed

@@ -14,6 +14,11 @@ Every contested claim is now settled against source or fixtures. Writing the fin
 
 ---
 
+> **읽는 순서.** 아래 본문은 리서치가 낸 명세이고, 그 뒤의 **「사용자 결정 · 확정」** 절이
+> 본문을 덮어씁니다. 본문만 보고 구현하면 결정이 빠집니다. 실제로 두 번 그렇게 되었습니다:
+> 승강기 버튼이 비활성으로(0.5.1에서 수정), 꺼진 존의 목표 차단이 통째로 누락된 채로
+> (0.5.2에서 수정) 배포되었습니다. 둘 다 결정 절에는 정확히 적혀 있었습니다.
+
 # MQTT bridge for `bestium-eco-foret` — final specification
 
 **Target version 0.5.0. Minimum Home Assistant 2024.11** (device-based discovery; `valve` needs 2024.1, `event` needs 2023.8 — both below the floor).
