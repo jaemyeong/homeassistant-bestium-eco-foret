@@ -60,6 +60,7 @@ const CONFIG_TOP_KEYS = [
   "ingress_port",
   "panel_icon",
   "panel_title",
+  "services",
   "options",
   "schema",
 ] as const;
@@ -68,12 +69,13 @@ const CONFIG_STRING_KEYS = ["name", "slug", "description"] as const;
 // to live here came off the bus, and Supervisor merges an add-on's defaults *under* whatever
 // the operator saved — so a measurement improved in the source never reached an install whose
 // form had been submitted once. They are constants in `settings.ts` now.
-const CONFIG_OPTION_DEFAULT_KEYS = ["transmit_enabled"] as const;
+const CONFIG_OPTION_DEFAULT_KEYS = ["transmit_enabled", "mqtt_commands_enabled"] as const;
 const CONFIG_SCHEMA_KEYS = [
   "ew11_host",
   "ew11_port",
   "transmit_enabled",
   "transmit_user_id",
+  "mqtt_commands_enabled",
 ] as const;
 const REQUIRED_RUNTIME_INPUT_KEYS = ["ew11_host", "ew11_port"] as const;
 const EXACT_ARCH = ["aarch64", "amd64"] as const;
@@ -84,6 +86,7 @@ const DOCKERFILE_COPY_ALLOWLIST = [
   "src/settings.ts",
   "src/m2.ts",
   "src/protocol-debug.ts",
+  "src/mqtt.ts",
   "src/tx-queue.ts",
   "src/ha-design-system.ts",
   "src/ui.ts",
@@ -96,6 +99,7 @@ const DOCKERIGNORE_INCLUDES = [
   "!src/settings.ts",
   "!src/m2.ts",
   "!src/protocol-debug.ts",
+  "!src/mqtt.ts",
   "!src/tx-queue.ts",
   "!src/ha-design-system.ts",
   "!src/ui.ts",
@@ -846,8 +850,9 @@ test("RED: config strictness and exact static contract", () => {
 
   const options = parseJson<AnyRecord>(JSON.stringify(config.options));
   assertExactSet(Object.keys(options), CONFIG_OPTION_DEFAULT_KEYS, "config.options defaults");
-  // Off, so an install that has never been configured cannot write to the bus.
-  assert.deepStrictEqual(options, { transmit_enabled: false });
+  // Both off, so an install that has never been configured cannot write to the bus at all —
+  // and cannot be driven by anyone who can publish to the broker.
+  assert.deepStrictEqual(options, { transmit_enabled: false, mqtt_commands_enabled: false });
 
   for (const required of REQUIRED_RUNTIME_INPUT_KEYS) {
     assert.equal(required in options, false, `RED-M2: ${required} must not be in defaults`);
@@ -859,6 +864,10 @@ test("RED: config strictness and exact static contract", () => {
   assert.equal(schema.ew11_port, "port");
   assert.equal(schema.transmit_enabled, "bool");
   assert.equal(schema.transmit_user_id, "str(1,128)?");
+  assert.equal(schema.mqtt_commands_enabled, "bool");
+  // `want` rather than `need`: this ships as a working page-only add-on, and `need` would have
+  // Supervisor refuse to start it on an install with no broker.
+  assert.deepStrictEqual(config.services, ["mqtt:want"]);
 });
 
 test("RED: Dockerfile allowlist and pinned production constraints", () => {

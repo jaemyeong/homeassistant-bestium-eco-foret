@@ -15,6 +15,7 @@ import { renderAppHtml } from "./ui.ts";
 import { DEFAULT_OPTIONS_PATH, parseM2Settings, type ParsedSettings } from "./settings.ts";
 import { createProtocolDebugMonitor, encodeSemanticAction } from "./protocol-debug.ts";
 import { createIntentQueue, expandAction, intentKey, isConfirmed, isQueueable, isRetryableRefusal } from "./tx-queue.ts";
+import { createMqttBridge } from "./mqtt.ts";
 
 export { DEFAULT_OPTIONS_PATH, parseM2Settings };
 export type { ParsedSettings };
@@ -2651,6 +2652,30 @@ export async function startM2Runtime(opts: {
   // The link opens with the app and stays open. Control and observation are what the page is
   // for; a capture is something the operator starts on top of them.
   await coordinator.openLink();
+
+  // Not awaited: fetch has no default timeout, and awaiting a hung Supervisor would keep
+  // `server.listen()` from ever running — a dead ingress panel for an optional feature. The env
+  // guard is also the "not running under Supervisor" branch, and it keeps every test that calls
+  // `startM2Runtime` off the network.
+  //
+  // The version comes from package.json rather than config.json because config.json is not in
+  // the image: the Dockerfile copies package.json and the src files, `.dockerignore` denies by
+  // default, and `m2.test.ts` asserts both lists as exact sets.
+  const mqtt = process.env.SUPERVISOR_TOKEN
+    ? createMqttBridge({
+        version: JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")).version,
+        // Both are required. The send path refuses without a named operator, so a command topic
+        // advertised on a runtime that cannot send is a control that silently does nothing.
+        commandsLive: settings.mqtt_commands_enabled === true && settings.transmit_enabled === true,
+        getDevices: () => coordinator.getDevices(),
+        // The same path the page uses, so an MQTT command inherits the intent queue's coalescing,
+        // the poll-based confirmation, the retry budget, the single-writer rule, the frame
+        // collision check and the silent-query gate. A second write path would bypass all six.
+        send: (action) => tx.send(action, { mode: "live", userId: settings.transmit_user_id }) as Promise<AnyRecord>,
+        log: (line) => console.log(`[mqtt] ${line}`),
+      })
+    : null;
+  mqtt?.started.catch((error: unknown) => console.log(`[mqtt] disabled: ${String(error)}`));
   const secureIngress = settings.transmit_user_id !== undefined;
   const txStatus = (request?: FakeReq): Record<string, unknown> => tx.getTxStatus(request);
   const handler = createIngressHandler({
@@ -2700,6 +2725,8 @@ export async function startM2Runtime(opts: {
   return {
     requestHandler: productionHandler as unknown as (req: FakeReq, res: FakeRes) => Promise<void>,
     async stop(): Promise<void> {
+      // Before tx.stop(), so the retained `offline` goes out while the socket is still up.
+      mqtt?.stop();
       tx.stop();
       server.close();
       await coordinator.stop();

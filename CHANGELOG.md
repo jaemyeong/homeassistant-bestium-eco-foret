@@ -2,7 +2,58 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.5.0] - 2026-08-31
+
+### Added
+
+- Home Assistant entities over MQTT, discovered automatically. Sixteen of them on one device: the
+  three lamps, four heating zones, the gas valve, batch-off, three elevator readouts, two elevator
+  call buttons, and the entrance door.
+
+  Three of those needed a decision rather than a mapping.
+
+  **Gas can only be closed.** It is a `valve` whose `payload_open` is a literal `null`, and that
+  is not a UI convention — Home Assistant builds a valve's supported features from the presence
+  of each payload, so `open_valve` is never registered on the entity. Omitting the key would have
+  granted the unsafe direction through a default. Reopening needs no design: a person opens the
+  valve by hand and the next poll reports it.
+
+  **The elevator's floor is readable only while a call stands.** It publishes the string `None`
+  for a floor the frame does not carry, beside `none` for a car that is standing — a value that
+  is unknown and a value that is measured, kept apart. Between calls the device is still
+  answering every 1.2–2.0 s, so an absence of frames is a fault and the availability topic says
+  so; marking it unavailable while merely idle would have read as a broken integration.
+
+  **The door has no closing notification**, so it is an `event` entity. An event's state is the
+  timestamp of the last one, which needs no interval to return from — and the 1.38 s burst is the
+  length of the notification, not of the door being open, so there was nothing to derive one from.
+
+  Every published value comes from the poll's own copy of the device state, never from the reply
+  to our own write. Commands arrive on `bestium-eco-foret/cmd/#` and go through the same send path
+  the page uses, so they inherit the intent queue, the poll-based confirmation, the retry budget,
+  the single-writer rule and the silent-query gate.
+
+  A retained command is never executed. A broker replays retained messages to every new
+  subscriber, so one publish with the retain flag set on the gas topic would otherwise close the
+  valve on every reconnect, permanently, with a person walking to it each time. The bridge also
+  clears every command topic on connect, because nothing else ever deletes a retained message.
+
+  Batch-off and the two elevator buttons arrive disabled. `switch` is in Home Assistant's default
+  voice domains and falls through to `switch.turn_on`, so with no operator action "turn on
+  everything" would reach batch-off with ON — which darkens the whole home, including rooms the
+  wallpad cannot otherwise address.
+
+- One new option, `mqtt_commands_enabled`, off by default. The broker's address and credentials
+  come from Supervisor's `/services/mqtt`; the legacy add-on had twelve knobs for what is now one
+  HTTP GET and one boolean.
+
+### Internal
+
+- `src/mqtt.ts` is a hand-rolled MQTT 3.1.1 client, about 900 lines including the bridge. The
+  image forbids a package manager, and the two alternatives were worse: vendoring the one
+  maintained zero-dependency client puts its files where `addon-image.test.ts`'s closure walker
+  cannot see them, and npm would put sixteen transitive dependencies on a bus that closes a gas
+  valve. `.agent/plan-mqtt-bridge.md` §5.2 carries the ranking.
 
 ### Internal
 

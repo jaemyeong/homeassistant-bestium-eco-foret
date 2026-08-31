@@ -12,6 +12,11 @@ import {
   encodeDisconnect,
   parsePacket,
   createMqttClient,
+  buildDiscovery,
+  buildStateTree,
+  buildAvailability,
+  parseCommand,
+  createMqttBridge,
 } from "../bestium-eco-foret/src/mqtt.ts";
 
 type AnyRecord = Record<string, any>;
@@ -377,4 +382,328 @@ test("M6 RED: publishing before the connection is up does not throw", async () =
   const fixture = connectFixture();
   fixture.client.start();
   assert.doesNotThrow(() => fixture.client.publish("bestium-eco-foret/state", "{}", { retain: true }));
+});
+
+// ── Bridge ───────────────────────────────────────────────────────────────────────────────────
+
+const BASE = "bestium-eco-foret";
+
+test("M6 RED: the discovery payload's identifiers are frozen", () => {
+  // Home Assistant builds `discovery_hash = (platform, "bestium-eco-foret <key>")` from these.
+  // Renaming one orphans its entity and leaves a ghost nothing removes — including the standing
+  // invitation to tidy the hyphen in the topic against the underscore in `identifiers`.
+  const payload = buildDiscovery({ version: "0.5.0", commandsLive: true }) as AnyRecord;
+  assert.deepEqual(payload.device.identifiers, ["bestium_eco_foret"]);
+  assert.deepEqual(Object.keys(payload).sort(), ["components", "device", "origin", "qos"]);
+  assert.deepEqual(Object.keys(payload.components).sort(), [
+    "batch_off", "elevator_call", "elevator_call_down", "elevator_call_up", "elevator_floor",
+    "elevator_heading", "entrance_door", "gas", "heat_1", "heat_2", "heat_3", "heat_4",
+    "light_1", "light_2", "light_3",
+  ]);
+  for (const [key, component] of Object.entries(payload.components as AnyRecord)) {
+    assert.equal((component as AnyRecord).unique_id, `bestium_eco_foret_${key}`, key);
+  }
+  assert.equal(payload.device.sw_version, "0.5.0");
+});
+
+test("M6 RED: the gas valve declares no open payload, and declares it explicitly", () => {
+  // `mqtt/valve.py` builds supported_features from the presence of each payload, and
+  // `_validate_and_add_defaults` fills a missing `payload_open` with "OPEN". So omitting the key
+  // grants the unsafe direction, and `""` grants it too — `"" is not None` is True in Python.
+  // Only a literal null removes the feature from the entity.
+  const gas = (buildDiscovery({ version: "0.5.0", commandsLive: true }) as AnyRecord).components.gas;
+  assert.equal(Object.prototype.hasOwnProperty.call(gas, "payload_open"), true, "the key must be present");
+  assert.equal(gas.payload_open, null, "and literally null");
+  assert.equal(gas.payload_close, "CLOSE");
+  assert.equal(gas.reports_position, false, "or payload_close and the state strings are not consulted");
+  assert.equal(Object.prototype.hasOwnProperty.call(gas, "payload_stop"), false);
+  assert.equal(JSON.stringify(gas).includes('"payload_open":null'), true, "and it survives serialisation");
+});
+
+test("M6 RED: the three irreversible controls arrive disabled", () => {
+  // `switch` is in DEFAULT_EXPOSED_DOMAINS and falls through to switch.turn_on, so with no
+  // operator action "turn on everything" reaches batch_off with ON — and ON darkens the whole
+  // home, including rooms the wallpad cannot otherwise address.
+  const components = (buildDiscovery({ version: "0.5.0", commandsLive: true }) as AnyRecord).components;
+  for (const key of ["batch_off", "elevator_call_up", "elevator_call_down"]) {
+    assert.equal(components[key].enabled_by_default, false, key);
+  }
+  assert.equal(components.gas.enabled_by_default, undefined, "the valve's readout is the safety-useful half");
+});
+
+test("M6 RED: with commands off, no command topic ships and the buttons are removal-shaped", () => {
+  const off = buildDiscovery({ version: "0.5.0", commandsLive: false }) as AnyRecord;
+  const serialised = JSON.stringify(off);
+  assert.equal(serialised.includes("command_topic"), false, "nothing may accept a command");
+  assert.equal(serialised.includes("payload_press"), false);
+  assert.equal(serialised.includes("payload_close"), false);
+  // The doc-prescribed removal form: an empty config plus the platform key.
+  assert.deepEqual(off.components.elevator_call_up, { platform: "button" });
+  assert.deepEqual(off.components.elevator_call_down, { platform: "button" });
+  // Everything readable still ships.
+  assert.equal(off.components.gas.state_topic, `${BASE}/state`);
+  assert.equal(off.components.light_1.state_topic, `${BASE}/state`);
+});
+
+test("M6 RED: the state tree reads the poll's copy and nothing else", () => {
+  const now = 10_000;
+  const fresh = (extra: AnyRecord) => ({ lastSeenAtMs: now - 100, generation: 3, ...extra });
+  const devices = {
+    lights: {
+      1: { state: "off", polled: fresh({ state: "on" }) },      // a reply said off; the poll said on
+      2: { state: "off", polled: fresh({ state: "off" }) },
+      3: { state: "on" },                                        // never polled
+    },
+    heating: {
+      1: { polled: fresh({ state: "on", currentC: 24, targetC: 23 }) },
+      2: { polled: fresh({ state: "off", currentC: 25, targetC: 21 }) },
+      3: {},
+      4: { polled: fresh({ state: "off", currentC: 24, targetC: 21 }) },
+    },
+    gas: { state: "closed", polled: fresh({ state: "open" }) },  // the reply lies; the poll does not
+    batchOff: { polled: fresh({ state: "off" }) },
+    elevator: { polled: fresh({ floorLabel: null, heading: "none", call: "none" }) },
+  };
+
+  const tree = buildStateTree(devices as never, { nowMs: now, generation: 3 }) as AnyRecord;
+  assert.equal(tree.lights["1"], "ON", "the poll wins over the reply");
+  assert.equal(tree.lights["3"], "None", "and a device never polled is not guessed at");
+  assert.equal(tree.gas, "open", "a valve nobody has seen close is open");
+  assert.equal(tree.heating["1"].mode, "heat");
+  assert.equal(tree.heating["1"].current, 24);
+  assert.equal(tree.heating["3"].mode, "None");
+  assert.equal(tree.batch_off, "OFF");
+  // The whole point of the elevator design: "the frame carries no floor" and "the car is
+  // standing" are different facts and stay distinguishable.
+  assert.equal(tree.elevator.floor, "None");
+  assert.equal(tree.elevator.heading, "none");
+});
+
+test("M6 RED: a stale poll is not a current reading", () => {
+  const now = 100_000;
+  const devices = {
+    lights: { 1: { polled: { state: "on", lastSeenAtMs: now - 60_000, generation: 3 } }, 2: {}, 3: {} },
+    heating: { 1: {}, 2: {}, 3: {}, 4: {} },
+    gas: { polled: { state: "open", lastSeenAtMs: now - 100, generation: 2 } },   // wrong generation
+    batchOff: {},
+    elevator: {},
+  };
+  const tree = buildStateTree(devices as never, { nowMs: now, generation: 3 }) as AnyRecord;
+  assert.equal(tree.lights["1"], "None", "a minute past its poll is not a reading");
+  assert.equal(tree.gas, "None", "and neither is a value from a link generation that has ended");
+});
+
+test("M6 RED: availability follows the same staleness the tree does", () => {
+  const now = 10_000;
+  const devices = {
+    lights: { 1: { polled: { state: "on", lastSeenAtMs: now - 100, generation: 1 } }, 2: {}, 3: {} },
+    heating: { 1: {}, 2: {}, 3: {}, 4: {} },
+    gas: {}, batchOff: {}, elevator: {},
+  };
+  const availability = buildAvailability(devices as never, { nowMs: now, generation: 1 }) as AnyRecord;
+  assert.equal(availability.lights, "online");
+  assert.equal(availability.heating, "offline");
+  assert.equal(availability.elevator, "offline", "an elevator that is not answering is a fault, not idle");
+});
+
+test("M6 RED: every command topic the discovery advertises parses back to an action", () => {
+  const cases: Array<[string, string, AnyRecord]> = [
+    [`${BASE}/cmd/light/1`, "ON", { kind: "light", target: 1, state: "on" }],
+    [`${BASE}/cmd/light/3`, "OFF", { kind: "light", target: 3, state: "off" }],
+    [`${BASE}/cmd/heating/2/mode`, "heat", { kind: "heat", zone: 2, state: "on" }],
+    [`${BASE}/cmd/heating/4/mode`, "off", { kind: "heat", zone: 4, state: "off" }],
+    [`${BASE}/cmd/heating/1/temperature`, "23", { kind: "heat", zone: 1, temperatureC: 23 }],
+    // Home Assistant renders setpoints as floats; the encoder rejects a non-integer.
+    [`${BASE}/cmd/heating/1/temperature`, "22.6", { kind: "heat", zone: 1, temperatureC: 23 }],
+    [`${BASE}/cmd/gas`, "CLOSE", { kind: "gas", state: "close" }],
+    [`${BASE}/cmd/batch_off`, "ON", { kind: "batchoff", state: "on" }],
+    [`${BASE}/cmd/elevator`, "DOWN", { kind: "elevator", direction: "down" }],
+  ];
+  for (const [topic, payload, expected] of cases) {
+    assert.deepEqual(parseCommand(topic, payload), expected, `${topic} ${payload}`);
+  }
+
+  // Anything else is dropped rather than guessed at.
+  for (const [topic, payload] of [
+    [`${BASE}/cmd/gas`, "OPEN"],                    // the direction that does not exist
+    [`${BASE}/cmd/light/4`, "ON"],
+    [`${BASE}/cmd/heating/5/mode`, "heat"],
+    [`${BASE}/cmd/heating/1/temperature`, "abc"],
+    [`${BASE}/cmd/elevator`, "CANCEL"],             // the building offers none
+    [`${BASE}/cmd/unknown`, "ON"],
+    [`${BASE}/state`, "ON"],
+  ] as Array<[string, string]>) {
+    assert.equal(parseCommand(topic, payload), null, `${topic} ${payload}`);
+  }
+});
+
+function bridgeFixture(overrides: AnyRecord = {}) {
+  const socket = createFakeSocket();
+  const timer = createTimerHarness();
+  const sent: AnyRecord[] = [];
+  let generation = 1;
+  let devices: AnyRecord = {
+    lights: { 1: {}, 2: {}, 3: {} },
+    heating: { 1: {}, 2: {}, 3: {}, 4: {} },
+    gas: {}, batchOff: {}, elevator: {},
+    entrances: { household: {} },
+  };
+  const bridge = createMqttBridge({
+    version: "0.5.0",
+    commandsLive: true,
+    getDevices: () => ({ devices, generation }),
+    send: async (action: AnyRecord) => { sent.push(action); return { outcome: "confirmed" }; },
+    fetchService: async () => ({ host: "core-mosquitto", port: 1883, username: "addons", password: "x" }),
+    createSocket: () => socket as never,
+    nowMs: timer.nowMs,
+    setTimeout: timer.setTimeout,
+    clearTimeout: timer.clearTimeout,
+    random: () => 0,
+    log: () => {},
+    ...overrides,
+  } as never);
+  const published = () => socket.written
+    .map((frame) => parsePacket(frame, 0))
+    .filter((packet): packet is AnyRecord => packet !== null && packet.type === PACKET.PUBLISH)
+    .map((packet) => ({ topic: packet.topic as string, payload: packet.payload as string, retain: packet.retain as boolean }));
+  return {
+    bridge, socket, timer, sent, published,
+    setDevices: (next: AnyRecord) => { devices = next; },
+    setGeneration: (next: number) => { generation = next; },
+    async connect() {
+      await bridge.started;
+      socket.emit("connect");
+      socket.deliver(connack(0));
+      await timer.advance(0);
+      await Promise.resolve();
+    },
+  };
+}
+
+test("M6 RED: the connect sequence publishes online last", async () => {
+  // A crash leaves the will's `offline` on the global topic while the per-device topics and the
+  // state tree keep their retained pre-crash values. Publishing `online` first would open a
+  // window where Home Assistant reads available plus a frozen `gas: open` as current.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const topics = fixture.published().map((entry) => entry.topic);
+  const online = topics.lastIndexOf(`${BASE}/status`);
+  assert.ok(online >= 0, `status must be published: ${JSON.stringify(topics)}`);
+  assert.equal(online, topics.length - 1, "and it must be the last thing published");
+  assert.ok(topics.indexOf(`homeassistant/device/${BASE}/config`) < online, "discovery before online");
+  assert.ok(topics.indexOf(`${BASE}/state`) < online, "state before online");
+  const status = fixture.published().at(-1)!;
+  assert.equal(status.payload, "online");
+  assert.equal(status.retain, true);
+});
+
+test("M6 RED: a retained command is never executed", async () => {
+  // A broker replays retained messages to every new subscriber. One Node-RED publish with the
+  // retain box ticked would otherwise close the gas valve on every reconnect, forever, and a
+  // person has to walk to the valve each time.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/gas`, "CLOSE", { retain: true, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, [], "a replayed command is not a command");
+
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/gas`, "CLOSE", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, [{ kind: "gas", state: "close" }], "a live one is");
+});
+
+test("M6 RED: the poisoned retained command topics are cleared on connect", async () => {
+  // The guard stops execution but nothing deletes a retained message, so it sits there invisible
+  // waiting for the guard to regress or a second consumer to appear.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const clears = fixture.published().filter((entry) => entry.topic.startsWith(`${BASE}/cmd/`));
+  assert.ok(clears.length >= 6, `every command topic must be cleared: ${clears.length}`);
+  for (const clear of clears) {
+    assert.equal(clear.payload, "", "with a zero-length payload");
+    assert.equal(clear.retain, true, "retained, or it deletes nothing");
+  }
+});
+
+test("M6 RED: with commands off nothing reaches the bus", async () => {
+  const fixture = bridgeFixture({ commandsLive: false });
+  await fixture.connect();
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/light/1`, "ON", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, []);
+});
+
+test("M6 RED: the state tree is republished only when it changes", async () => {
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const before = fixture.published().filter((entry) => entry.topic === `${BASE}/state`).length;
+
+  await fixture.timer.advance(3_000);
+  assert.equal(
+    fixture.published().filter((entry) => entry.topic === `${BASE}/state`).length, before,
+    "an unchanged tree is not republished three times a second",
+  );
+
+  fixture.setDevices({
+    lights: { 1: { polled: { state: "on", lastSeenAtMs: fixture.timer.nowMs(), generation: 1 } }, 2: {}, 3: {} },
+    heating: { 1: {}, 2: {}, 3: {}, 4: {} },
+    gas: {}, batchOff: {}, elevator: {}, entrances: { household: {} },
+  });
+  await fixture.timer.advance(1_100);
+  const after = fixture.published().filter((entry) => entry.topic === `${BASE}/state`);
+  assert.equal(after.length, before + 1, "and a change is");
+  assert.ok(after.at(-1)!.payload.includes('"1":"ON"'));
+});
+
+test("M6 RED: the first door count is a baseline, not an event", async () => {
+  // `createDevices()` builds the household entrance without a counter at all, so the first frame
+  // creates it. Comparing `1 > undefined` is false, which ate the first door event after every
+  // restart — and comparing against a seeded 0 would publish an event for a press that happened
+  // before the add-on started.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const doorEvents = () => fixture.published().filter((entry) => entry.topic === `${BASE}/event/entrance`);
+
+  fixture.setDevices({
+    lights: { 1: {}, 2: {}, 3: {} }, heating: { 1: {}, 2: {}, 3: {}, 4: {} },
+    gas: {}, batchOff: {}, elevator: {},
+    entrances: { household: { doorOpenCount: 4 } },     // four presses before we connected
+  });
+  await fixture.timer.advance(1_100);
+  assert.equal(doorEvents().length, 0, "history is not replayed on start");
+
+  fixture.setDevices({
+    lights: { 1: {}, 2: {}, 3: {} }, heating: { 1: {}, 2: {}, 3: {}, 4: {} },
+    gas: {}, batchOff: {}, elevator: {},
+    entrances: { household: { doorOpenCount: 5 } },
+  });
+  await fixture.timer.advance(1_100);
+  assert.equal(doorEvents().length, 1, "and the next press is an event");
+  assert.equal(doorEvents()[0]!.payload, '{"event_type":"opened"}');
+  assert.equal(doorEvents()[0]!.retain, false, "an event is not a state");
+});
+
+test("M6 RED: Home Assistant coming back online triggers a republish", async () => {
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const before = fixture.published().length;
+
+  fixture.socket.deliver(encodePublish("homeassistant/status", "online", { retain: false, qos: 0 }));
+  await fixture.timer.advance(2_100);
+  assert.ok(fixture.published().length > before, "the whole sequence runs again");
+  assert.equal(fixture.published().at(-1)!.topic, `${BASE}/status`, "ending with online, as before");
+});
+
+test("M6 RED: a broker with no MQTT service does not take the add-on down", async () => {
+  let attempts = 0;
+  const fixture = bridgeFixture({
+    fetchService: async () => { attempts += 1; throw new Error("Service not enabled"); },
+  });
+  await fixture.bridge.started;
+  assert.equal(attempts, 1);
+  assert.equal(fixture.socket.written.length, 0, "nothing was connected");
+  // Supervisor does not restart an add-on when a service later appears, so without this the
+  // operator installs Mosquitto second and stays dark until they restart by hand.
+  await fixture.timer.advance(61_000);
+  assert.equal(attempts, 2, "and it tries again a minute later");
 });

@@ -23,8 +23,15 @@ const config = JSON.parse(
   readFileSync(new URL("../bestium-eco-foret/config.json", import.meta.url), "utf8"),
 ) as { options: Record<string, unknown>; schema: Record<string, string> };
 
-/** What no measurement can supply, so the operator must. Everything else is measured. */
-const OPERATOR_KEYS = ["ew11_host", "ew11_port", "transmit_enabled", "transmit_user_id"];
+/**
+ * What no measurement can supply, so the operator must. Everything else is measured.
+ *
+ * `mqtt_commands_enabled` belongs here for a reason no bus reading settles: an MQTT PUBLISH
+ * carries no caller identity and this add-on's authority check is configuration equality, so
+ * whether to accept commands over the broker depends on who can reach that broker — which only
+ * the operator knows.
+ */
+const OPERATOR_KEYS = ["ew11_host", "ew11_port", "transmit_enabled", "transmit_user_id", "mqtt_commands_enabled"];
 
 // Measured, not derived. Deriving it from `DEVICE_POLL_MS` gave half the real figure: the
 // bus also carries devices this add-on does not decode, and a frame averages 16.6 bytes
@@ -152,4 +159,6 @@ test("M5: the one default the panel still ships agrees with the parser", () => {
   // on a value the panel never showed.
   assert.equal(config.options.transmit_enabled, DEFAULTS.transmit_enabled);
   assert.equal(DEFAULTS.transmit_enabled, false);
+  assert.equal(config.options.mqtt_commands_enabled, DEFAULTS.mqtt_commands_enabled);
+  assert.equal(DEFAULTS.mqtt_commands_enabled, false);
 });

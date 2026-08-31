@@ -11,6 +11,7 @@ export type ParsedSettings = {
   maximum_bytes: number;
   maximum_records: number;
   transmit_enabled: boolean;
+  mqtt_commands_enabled: boolean;
   speculative_transmit_enabled: boolean;
   unsafe_transmit_enabled: boolean;
   transmit_user_id?: string;
@@ -42,6 +43,11 @@ export const DEFAULTS: Omit<ParsedSettings, "ew11_host" | "ew11_port" | "transmi
   maximum_bytes: 1_048_576,
   maximum_records: 20_000,
   transmit_enabled: false,
+  // Off by default and separate from `transmit_enabled` on purpose. An MQTT PUBLISH carries no
+  // caller identity and this add-on's authority check is a configuration-equality check, so
+  // anyone who can publish to the broker inherits the operator's full transmit authority — where
+  // the page requires a Home Assistant login and a CSRF token.
+  mqtt_commands_enabled: false,
   speculative_transmit_enabled: false,
   unsafe_transmit_enabled: false,
   tx_write_timeout_ms: 1_000,
@@ -116,6 +122,11 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     : DEFAULTS.transmit_enabled;
   if (typeof rawTransmitEnabled !== "boolean") throw new TypeError("transmit_enabled must be a boolean");
 
+  const rawMqttCommands = Object.prototype.hasOwnProperty.call(rawRecord, "mqtt_commands_enabled")
+    ? rawRecord.mqtt_commands_enabled
+    : DEFAULTS.mqtt_commands_enabled;
+  if (typeof rawMqttCommands !== "boolean") throw new TypeError("mqtt_commands_enabled must be a boolean");
+
   const transmit_user_id = rawRecord.transmit_user_id;
   if (transmit_user_id !== undefined && (typeof transmit_user_id !== "string" || transmit_user_id.length < 1 || transmit_user_id.length > 128)) {
     throw new TypeError("transmit_user_id must be a non-empty string of at most 128 characters");
@@ -138,6 +149,9 @@ export function parseM2Settings(raw: unknown): ParsedSettings {
     // id and refuses when they differ, so without one the master switch stays off however it
     // was saved.
     transmit_enabled: transmit_user_id === undefined ? false : rawTransmitEnabled,
+    // Commands need a named operator for the same reason sending does: the send path refuses
+    // without one, so an MQTT command topic would be a control that silently does nothing.
+    mqtt_commands_enabled: transmit_user_id === undefined ? false : rawMqttCommands,
     ...(transmit_user_id === undefined ? {} : { transmit_user_id }),
   };
 }
