@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.1] - 2026-08-31
+
+### Fixed
+
+- The two elevator call buttons shipped disabled. The operator had chosen to enable them, and the
+  decisions table in `.agent/plan-mqtt-bridge.md` recorded that choice correctly; the code carried
+  the specification's original recommendation instead. Batch-off stays disabled, which is what was
+  chosen for it.
+
+  Nothing about the reasoning changed: a call brings a shared car the neighbours see, the building
+  offers no cancel, and a `button` gives Home Assistant no failure feedback, so the auto-generated
+  Overview renders two bare PRESS tiles beside the light toggles. A `confirmation:` on a dashboard
+  tile is the answer to that, and MQTT discovery cannot express one.
+
 ## [0.5.0] - 2026-08-31
 
 ### Added

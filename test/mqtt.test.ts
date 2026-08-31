@@ -420,14 +420,19 @@ test("M6 RED: the gas valve declares no open payload, and declares it explicitly
   assert.equal(JSON.stringify(gas).includes('"payload_open":null'), true, "and it survives serialisation");
 });
 
-test("M6 RED: the three irreversible controls arrive disabled", () => {
+test("M6 RED: batch-off arrives disabled, and it is the only one", () => {
   // `switch` is in DEFAULT_EXPOSED_DOMAINS and falls through to switch.turn_on, so with no
   // operator action "turn on everything" reaches batch_off with ON — and ON darkens the whole
-  // home, including rooms the wallpad cannot otherwise address.
+  // home, including rooms the wallpad cannot otherwise address. Every "turn everything on"
+  // reflex in Home Assistant does the opposite of what the operator means.
   const components = (buildDiscovery({ version: "0.5.0", commandsLive: true }) as AnyRecord).components;
-  for (const key of ["batch_off", "elevator_call_up", "elevator_call_down"]) {
-    assert.equal(components[key].enabled_by_default, false, key);
-  }
+  assert.equal(components.batch_off.enabled_by_default, false);
+  // The elevator buttons ship enabled by the operator's own decision, made knowing that a call
+  // brings a shared car the neighbours see, that the building offers no cancel, and that a
+  // button gives Home Assistant no failure feedback. The confirmation belongs on a dashboard
+  // tile, which MQTT discovery cannot express.
+  assert.equal(components.elevator_call_up.enabled_by_default, undefined);
+  assert.equal(components.elevator_call_down.enabled_by_default, undefined);
   assert.equal(components.gas.enabled_by_default, undefined, "the valve's readout is the safety-useful half");
 });
 

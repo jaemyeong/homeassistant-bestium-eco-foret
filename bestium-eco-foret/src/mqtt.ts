@@ -747,10 +747,11 @@ export function buildDiscovery(options: { version: string; commandsLive: boolean
           unique_id: `${DEVICE_ID}_${key}`,
           name: label,
           icon,
-          // A call brings a shared car the neighbours see and the building offers no cancel, and
-          // a button gives Home Assistant no failure feedback. The auto-generated Overview would
-          // otherwise render two bare PRESS tiles beside the light toggles.
-          enabled_by_default: false,
+          // Enabled, by the operator's decision. A call brings a shared car the neighbours see,
+          // the building offers no cancel, and a button gives Home Assistant no failure
+          // feedback — so the auto-generated Overview renders two bare PRESS tiles beside the
+          // light toggles. The confirmation for that belongs on a dashboard tile, which MQTT
+          // discovery cannot express. See the decisions table in `.agent/plan-mqtt-bridge.md`.
           command_topic: `${BASE}/cmd/elevator`,
           payload_press: press,
           retain: false,

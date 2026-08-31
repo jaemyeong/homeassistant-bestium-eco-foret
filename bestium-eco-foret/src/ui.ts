@@ -605,7 +605,7 @@ export function renderAppHtml(): string {
     <span class="app-header__mark">${svg(ICON.check, 26)}</span>
     <div class="app-header__title">
       <strong>BESTIUM 월패드</strong>
-      <span>RS485 · 애드온 0.5.0</span>
+      <span>RS485 · 애드온 0.5.1</span>
     </div>
     <div class="link-chip" id="link-state" data-link="down">
       <span class="link-chip__dot"></span><span id="link-state-text">EW11 게이트웨이 · TCP · 연결 확인 중</span>
