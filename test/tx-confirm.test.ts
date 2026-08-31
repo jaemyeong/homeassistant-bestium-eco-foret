@@ -15,7 +15,7 @@ function freshDevice(atMs: number, extra: AnyRecord = {}): AnyRecord {
   return { lastSeenAtMs: atMs, generation: 1, stale: false, ...extra };
 }
 
-function createFixture(options: { answers?: boolean; maxAttempts?: number } = {}) {
+function createFixture(options: { answers?: boolean; maxAttempts?: number; appendPendingAfterWrites?: number } = {}) {
   const answers = options.answers !== false;
   let now = 1_700_000_000;
   const writes: string[] = [];
@@ -104,7 +104,9 @@ function createFixture(options: { answers?: boolean; maxAttempts?: number } = {}
     getDevices: () => ({ devices, generation: 1 }),
     getRxState: () => ({
       connected: true,
-      pendingAppend: false,
+      // A capture append holds the transport paused, and the send gate refuses while one is
+      // outstanding. Counting writes is how a refusal is placed *after* a frame has gone out.
+      pendingAppend: options.appendPendingAfterWrites !== undefined && writes.length >= options.appendPendingAfterWrites,
       rxByteEpoch: 1,
       validFrameEpoch: 1,
       validFrameGeneration: 1,
@@ -247,4 +249,22 @@ test("M5 RED: a group and a single zone are different settables and both run", a
   assert.equal(zoneResult.outcome, "confirmed", JSON.stringify(zoneResult));
   assert.equal(fixture.devices.heating[2].state, "on", "zone 2 ends where the later request put it");
   assert.equal(fixture.devices.heating[3].state, "off", "and the group reached the rest");
+});
+
+test("M6 RED: a refusal after a written frame is reported unconfirmed, never as rejected", async () => {
+  // Measured on the operator's bus, right after a capture was started:
+  //   `cmd/elevator DOWN -> rejected (1 frame(s), capture append pending)`
+  // One frame had already reached the wallpad and the line said nothing was sent, so the
+  // operator pressed again and called the car a second time. The tail below the retry loop
+  // states the invariant — a frame that reached the bus is never reported as "not sent" —
+  // and the early return for a non-retryable refusal walked around it.
+  const fixture = createFixture({ answers: false, maxAttempts: 3, appendPendingAfterWrites: 1 });
+  const result = await fixture.settle(send(fixture, { kind: "light", target: 1, state: "on" }));
+  assert.equal(fixture.writes.length, 1, "the second attempt is refused before it writes");
+  assert.equal(result.framesWritten, 1);
+  assert.equal(result.outcome, "unconfirmed", JSON.stringify(result));
+  assert.equal(result.reason, "capture append pending after 1 frame(s) reached the bus");
+  // The budget is three; two were spent. Reporting the budget would misstate what happened
+  // just as surely as reporting the outcome did.
+  assert.equal(result.attempts, 2);
 });

@@ -1916,8 +1916,10 @@ export function createTxCoordinator(opts: {
     const maxAttempts = entry.value.evidence === "observed" ? settings.tx_max_attempts : 1;
     let last: AnyRecord = { outcome: "rejected", reason: "no attempt made", confirmed: false, deviceConfirmed: false };
     let framesWritten = 0;
+    let attemptsMade = 0;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (queue.has(entry.key)) return { outcome: "superseded", key: entry.key, reason: "replaced by a newer request for the same control", confirmed: false, deviceConfirmed: false, attempts: attempt - 1, framesWritten };
+      attemptsMade = attempt;
       const spacingMs = lastBusWriteAtMs + settings.tx_cooldown_ms - opts.nowMs();
       if (spacingMs > 0) await waitUntil(spacingMs);
       const before = callBaseline();
@@ -1933,7 +1935,12 @@ export function createTxCoordinator(opts: {
         }
         continue;
       }
-      if (!isRetryableRefusal(result.reason)) return { ...result, key: entry.key, attempts: attempt, framesWritten };
+      // Ends the loop, and must not step over the tail below. Returning from here was how
+      // `cmd/elevator DOWN -> rejected (1 frame(s), capture append pending)` reached the
+      // operator: attempt 1 put a call frame on the bus, attempt 2 was refused for a reason
+      // the retry policy does not cover, and the answer said nothing had been sent. So the
+      // car had been called and the operator pressed again.
+      if (!isRetryableRefusal(result.reason)) break;
     }
     // A frame that reached the bus must never be reported as "not sent". Once one attempt
     // wrote, the answer is unconfirmed even if every later attempt was refused, because the
@@ -1945,7 +1952,7 @@ export function createTxCoordinator(opts: {
       confirmed: false,
       deviceConfirmed: false,
       key: entry.key,
-      attempts: maxAttempts,
+      attempts: attemptsMade,
       framesWritten,
     };
   };

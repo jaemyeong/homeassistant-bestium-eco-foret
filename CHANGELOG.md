@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.5] - 2026-09-01
+
+### Fixed
+
+- A command refused after one of its frames had already reached the bus was reported as
+  `rejected` — as though nothing had been sent. The operator's log caught it on the elevator:
+
+  ```
+  bestium-eco-foret/cmd/elevator DOWN -> rejected (1 frame(s), capture append pending)
+  ```
+
+  The first attempt put a down-call frame on the wallpad. The second was refused because a
+  capture append held the transport paused, and `capture append pending` is not in the retry
+  policy's list, so the loop returned there and skipped the tail below it — the very code that
+  states the invariant: *a frame that reached the bus must never be reported as "not sent"*. The
+  count beside the outcome said `1 frame(s)` and contradicted the word next to it.
+
+  That answer is what an operator acts on. Reading `rejected`, they press again, and the car is
+  called twice. The same path is reachable for the gas valve and batch-off through
+  `transport not connected` and `transport generation changed while waiting for the line`, both
+  of which follow a write deadline that quarantines the generation and destroys the socket.
+
+  A non-retryable refusal now ends the loop instead of returning from it, so the tail answers:
+  `unconfirmed`, with the reason it was refused and how many frames went out. `attempts` reports
+  the attempts actually made rather than the whole budget.
+
+  `0 frame(s)` is unaffected: a command refused before anything was written is still `rejected`.
+
 ## [0.5.4] - 2026-08-31
 
 ### Fixed
