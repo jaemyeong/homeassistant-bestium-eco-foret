@@ -66,9 +66,18 @@ function cloneBytes(value: Uint8Array): Uint8Array {
 }
 
 /**
- * The floor byte was rendered raw, so a car in the basement read as 177 on the page.
- * `0xB1` is read as B1 by inference: it is the only basement sample this bus has produced,
- * and the byte carries no second example to confirm the nibble means what it looks like.
+ * The floor byte is two decimal digits, one per nibble, and never a binary number.
+ *
+ * The basement branch always read it that way — `0xB1` is B1 and never 177 — and the rest of
+ * the byte was still being rendered as its decimal value, which agrees with the digits below
+ * floor 10 and diverges above it. The operator reported floor 19 in a building whose top floor
+ * is 13, and that is `0x13` rendered as 19. A binary byte could not produce it: binary 13 is
+ * `0x0D`, which renders correctly, and the building has nothing at 19 to report.
+ *
+ * Every floor the three captures on record carry is 1, 3 or 4, where the two readings agree,
+ * so the field report is the whole of the evidence and the captures neither confirm nor deny it.
+ * A byte that is not two decimal digits is shown as itself rather than guessed at.
+ *
  * The bus reports `0x00` once the car settles, which is an absence rather than a floor.
  */
 /** One door-open press repeats its frame three times, 0.69 s apart; 3 s covers the burst. */
@@ -78,8 +87,10 @@ function floorLabel(value: unknown): string | null {
   if (!Number.isInteger(value)) return null;
   const byte = value as number;
   if (byte === 0) return null;
-  if (byte >= 1 && byte <= 0x63) return String(byte);
-  if ((byte & 0xf0) === 0xb0 && (byte & 0x0f) >= 1) return `B${byte & 0x0f}`;
+  const tens = byte >> 4;
+  const units = byte & 0x0f;
+  if (tens === 0x0b && units >= 1) return `B${units}`;
+  if (tens <= 9 && units <= 9) return String(tens * 10 + units);
   return `0x${byte.toString(16).padStart(2, "0")}`;
 }
 

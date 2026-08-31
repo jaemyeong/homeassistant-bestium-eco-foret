@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.8] - 2026-09-01
+
+### Fixed
+
+- The elevator's floor read 19 in a building whose top floor is 13. The floor byte is two decimal
+  digits, one per nibble, and it was being rendered as its binary value: `0x13` is floor 13 and
+  came out as 19.
+
+  The basement branch had always read the byte that way — `0xB1` is B1 and never 177 — and the
+  rest of it had not. The two readings agree below floor 10 and diverge above it, which is why
+  nothing caught it: every floor in the three captures on record is 1, 3 or 4.
+
+  So floors 10 through 13 were reading 16 through 19, on the page and on the Home Assistant
+  sensor alike. A byte that is not two decimal digits now shows as itself rather than being
+  guessed at, which also means `0x0A` is no longer a confident "10".
+
+  The operator's report is the whole of the evidence here. A binary byte cannot produce 19:
+  binary floor 13 is `0x0D` and renders correctly, and a 13-storey building has nothing to put
+  at 19.
+
 ## [0.5.7] - 2026-09-01
 
 ### Fixed

@@ -344,3 +344,33 @@ test("M5 RED: a door opening is an event with a time, not a flag that stays true
   assert.equal(household().doorOpenAtMs, 60_000);
   assert.equal(household().doorOpenCount, 2);
 });
+
+test("M6 RED: the floor byte is two digits, not one number", () => {
+  // The operator reports floor 19 in a building whose top floor is 13. That number cannot come
+  // from a binary byte: binary floor 13 is 0x0D and renders 13 correctly, and a 13-storey
+  // building has nothing to put at 19. It comes from `0x13` rendered as its decimal value.
+  //
+  // The byte is two digits, one per nibble, which is what the basement branch had already been
+  // reading it as: `0xB1` is B1 and never 177. Applying that to the whole byte is the fix, and
+  // it is why the captures could not settle this on their own — every floor they carry is 1, 3
+  // or 4, where the two readings agree.
+  const m = fresh();
+  const cases: [string, string | null][] = [
+    ["f70d013401411000a5090b38ee", "9"],    // 0x09, where both readings agree
+    ["f70d013401411000a5100b21ee", "10"],   // was 16
+    ["f70d013401411000a5110b20ee", "11"],   // was 17
+    ["f70d013401411000a5120b23ee", "12"],   // was 18
+    ["f70d013401411000a5130b22ee", "13"],   // was 19 — the floor the operator saw
+  ];
+  let at = 1_000;
+  for (const [hex, label] of cases) {
+    at += 1_000;
+    push(m, hex, at);
+    assert.equal((devices(m).elevator as AnyRecord).floorLabel, label, hex);
+  }
+
+  // A byte that is not two decimal digits is shown as itself rather than guessed at. Under the
+  // old reading `0x0A` was a confident "10", which is the same mistake in the other direction.
+  push(m, "f70d013401411000a50a0b3bee", at + 1_000);
+  assert.equal((devices(m).elevator as AnyRecord).floorLabel, "0x0a");
+});
