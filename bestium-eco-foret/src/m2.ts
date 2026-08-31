@@ -1011,9 +1011,26 @@ export function createBoundedCaptureCoordinator(opts: {
       return {
         state: "stopped" as const,
         ...result,
-        // The reported `phase` is the link's. A recording that has finished says so through
-        // `state`, and the link it ran on may well still be up — that is the split.
+        // The reported `phase`, `generation` and `protocol` are the link's. A recording that has
+        // finished says so through `state`, and the link it ran on may well still be up — that is
+        // the split. `phase` was overridden here from the start and the other two were not, which
+        // is what made a file's description stand in for the line's state.
+        //
+        // `/data/captures` is a persistent volume and nothing deletes from it, so once one capture
+        // has finished, every later boot has `store.recover()` hand back that file and
+        // `metadataFromRecovered` seed `lastResult` with a description of it. A file has no
+        // generation and no decoded devices. Served as link state that meant `getGeneration()`
+        // returned 0 while `attachTransport` had already bumped the live one to 1, so every send
+        // was refused with "no current-generation valid RX frame"; and `safeStatus` fell back to a
+        // `{generation, stale}` stub with no `devices`, which is the page's only source for its
+        // tiles. Both halves dead, on a link that was up and decoding the whole time.
+        //
+        // Starting a capture cleared `lastResult`, and `initialResult` is read once at
+        // construction and never again — a one-way eviction. That is why one press cured it for
+        // the life of the process and stopping did not bring it back.
         phase,
+        generation,
+        protocol: protocol.snapshot(),
         lastResult: lastResult ?? undefined,
       };
     },

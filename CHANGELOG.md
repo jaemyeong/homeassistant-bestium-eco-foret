@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.1] - 2026-08-31
+
+### Fixed
+
+- Read and write did nothing until the packet capture had been started once. After that one
+  press, stopping the capture left them working — which is what identified the defect, because
+  no race behaves that way.
+
+  `getState()` reports a finished recording by spreading `lastResult` and re-overriding `phase`,
+  on the stated reasoning that phase belongs to the link rather than to the file. `generation`
+  and `protocol` belong to the link on exactly the same reasoning and were not overridden.
+
+  `/data/captures` is a persistent volume and nothing deletes from it, so once one capture has
+  finished, every later boot has `store.recover()` hand that file back and `metadataFromRecovered`
+  seed `lastResult` with a description of it. A file has no generation and no decoded devices.
+  Served as link state, that meant `getGeneration()` returned 0 while `attachTransport` had
+  already bumped the live generation to 1, so every send was refused with one reason — "no
+  current-generation valid RX frame" — on a link that reported up and was decoding the whole
+  time; and the status response fell back to a `{generation, stale}` stub with no `devices`,
+  which is the page's only source for its device tiles. Both halves dead from one omission.
+
+  Starting a capture sets `lastResult = null`, and the recovered value is read once at
+  construction and never again. That one-way eviction is why a single press cured it for the
+  life of the process and stopping did not bring it back.
+
+  The same omission had two further effects that are fixed with it: device tiles froze at the
+  moment a capture was stopped rather than tracking the bus, and a transport reconnect re-broke
+  sending because the reported generation stayed at its stop-instant value.
+
+### Internal
+
+- `test/link-recording.test.ts` gains the boot this add-on actually performs on the operator's
+  hardware: a store whose `recover()` returns a finished capture. The existing test for control
+  without a capture passed only because the test store's `recover()` returns null unconditionally,
+  so the runtime under test was never the one that ships.
+
 ## [0.4.0] - 2026-08-31
 
 ### Changed

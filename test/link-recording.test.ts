@@ -357,3 +357,80 @@ test("E2B RED: a transport error ends the recording but not the link", async () 
     "the file closes: frames were lost, and a capture with a hole in it must not be extended");
   assert.notEqual(coordinator.getTxState().link, "down", "the link recovers on its own");
 });
+
+// The operator's scenario as it actually happens on their box: a capture has been run once, so
+// there is a file in `/data/captures`, and the add-on is restarted.
+test("E2B RED: a capture left on disk does not disarm the runtime it boots into", async () => {
+  // `/data/captures` is a persistent volume and nothing deletes from it, so once one capture has
+  // finished, every later boot recovers it. `metadataFromRecovered` describes that FILE, and a
+  // file has no `generation` and no `protocol` — but `getState()`'s stopped branch spread that
+  // object and re-overrode only `phase`, serving a file's description as the LINK's state.
+  //
+  // Both halves die from the one omission. WRITE: `getGeneration()` reads `undefined ?? 0` while
+  // `attachTransport` has already bumped the live generation to 1, so `hasCurrentGenerationRx`
+  // compares 1 against 0 and refuses every send with "no current-generation valid RX frame".
+  // READ: `safeStatus` falls back to a `{generation, stale}` stub with no `devices`, and the page
+  // reads its device tree from exactly there, so every tile is blank.
+  //
+  // Pressing capture start sets `lastResult = null`, which is a one-way eviction — `initialResult`
+  // is read once at construction and never again — so one press cures it for the life of the
+  // process and stopping does not bring it back. That is precisely what the operator found.
+  const { startM2Runtime } = await import("../bestium-eco-foret/src/m2.ts");
+  const timer = createFakeTimer();
+  const transport = createFakeTransport();
+  let handler: ((req: AnyRecord, res: AnyRecord) => Promise<void>) | null = null;
+  const app = await startM2Runtime({
+    readOptions: async () => ({
+      ew11_host: "gateway-1", ew11_port: 8899,
+      transmit_enabled: true, transmit_user_id: "operator-7",
+    }),
+    createTransport: () => transport,
+    createServer: (fn: AnyRecord) => { handler = fn as never; return { listen() {}, close() {} }; },
+    store: {
+      async begin() {},
+      async append() {},
+      async finalize() { return { name: "capture.ndjson", sizeBytes: 0, finalized: true }; },
+      // A finished capture from some earlier run, which is what the production store returns
+      // for the newest file it finds.
+      async recover() {
+        return { name: "capture-1788009200284.ndjson", sizeBytes: 350_203, finalized: true, reason: "recovered" };
+      },
+    },
+  } as AnyRecord) as AnyRecord;
+
+  try {
+    assert.ok(handler, "the runtime must have handed the server a handler");
+    transport.emit("connect");
+    transport.emit("data", bytes(LIGHT_REPLY));
+    timer.advance(10);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const status = await request(app, { url: "/api/status" });
+    const payload = JSON.parse(status.body) as AnyRecord;
+
+    assert.equal(payload.tx.link, "up", "the link is up before any capture");
+    assert.equal(payload.tx.recording, "off", "and no capture was ever started here");
+    // READ. The page has no other source for its device tiles.
+    assert.ok(
+      (payload.debug as AnyRecord | undefined)?.devices,
+      `the decoder's devices must reach the page: ${JSON.stringify(payload.debug)}`,
+    );
+    // WRITE. A live link is never generation 0: `attachTransport` bumps it before a frame lands.
+    assert.equal(payload.generation, 1, "the reported generation must be the link's, not the file's");
+    assert.equal(payload.tx.currentGenerationRx, true, "the send gate compares against that generation");
+
+    const preview = await request(app, {
+      url: "/api/action", method: "POST",
+      headers: {
+        "x-remote-user-id": "operator-7",
+        "x-csrf-token": payload.csrfToken as string,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ kind: "light", target: 1, state: "on", mode: "preview" }),
+    });
+    const result = JSON.parse(preview.body) as AnyRecord;
+    assert.equal(result.ready, true, `a recovered file may not disarm the send path: ${JSON.stringify(result.reasons ?? [])}`);
+  } finally {
+    await app.stop();
+  }
+});
