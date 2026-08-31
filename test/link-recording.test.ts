@@ -434,3 +434,65 @@ test("E2B RED: a capture left on disk does not disarm the runtime it boots into"
     await app.stop();
   }
 });
+
+// The ingress keeps its own list of which fields each action kind may carry, and the encoder
+// keeps another. They drifted: `batchoff` reached the encoder in M5 and never reached this one.
+test("E2B RED: every action the encoder accepts survives the ingress field check", async () => {
+  const { startM2Runtime } = await import("../bestium-eco-foret/src/m2.ts");
+  const { encodeSemanticAction } = await import("../bestium-eco-foret/src/protocol-debug.ts");
+  const timer = createFakeTimer();
+  const transport = createFakeTransport();
+  let handler: ((req: AnyRecord, res: AnyRecord) => Promise<void>) | null = null;
+  const app = await startM2Runtime({
+    readOptions: async () => ({
+      ew11_host: "gateway-1", ew11_port: 8899,
+      transmit_enabled: true, transmit_user_id: "operator-7",
+    }),
+    createTransport: () => transport,
+    createServer: (fn: AnyRecord) => { handler = fn as never; return { listen() {}, close() {} }; },
+  } as AnyRecord) as AnyRecord;
+
+  try {
+    assert.ok(handler);
+    transport.emit("connect");
+    transport.emit("data", bytes(LIGHT_REPLY));
+    timer.advance(10);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const status = JSON.parse((await request(app, { url: "/api/status" })).body) as AnyRecord;
+
+    // Every control the page offers, in the shape the page sends it.
+    const actions: AnyRecord[] = [
+      { kind: "light", target: 1, state: "on" },
+      { kind: "light", target: "all", state: "off" },
+      { kind: "heat", zone: 1, state: "on" },
+      { kind: "heat", zone: 1, temperatureC: 23 },
+      { kind: "heat", target: "all", state: "off" },
+      { kind: "batchoff", state: "on" },
+      { kind: "gas", state: "close" },
+      { kind: "elevator", direction: "up" },
+    ];
+
+    for (const action of actions) {
+      // The encoder is the authority on what this bus can carry; if it builds a frame, the
+      // ingress must not be the thing that stops it.
+      const encoded = encodeSemanticAction(action, { transmitEnabled: true, authorizedUser: true }) as AnyRecord;
+      assert.notEqual(encoded.evidence, "rejected", `the encoder rejected ${JSON.stringify(action)}`);
+
+      const response = await request(app, {
+        url: "/api/action", method: "POST",
+        headers: {
+          "x-remote-user-id": "operator-7",
+          "x-csrf-token": status.csrfToken as string,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ ...action, mode: "preview" }),
+      });
+      assert.equal(
+        response.statusCode, 200,
+        `the ingress refused ${JSON.stringify(action)} with ${response.statusCode}: ${response.body}`,
+      );
+    }
+  } finally {
+    await app.stop();
+  }
+});

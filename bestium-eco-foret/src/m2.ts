@@ -2381,15 +2381,20 @@ export function createIngressHandler(deps: {
         } catch { sendResponse(409, "challenge unavailable"); }
         return;
       }
+      // This has to agree with `encodeSemanticAction`'s own `allowedFields`, and it did not:
+      // `batchoff` reached the encoder when the action contract was rewritten and never reached
+      // here, so the page's only path to the other rooms' lights answered 400 while the encoder
+      // was building the frame perfectly well. `outlet` and `ventilation` are the same drift in
+      // the other direction — the encoder removed them when the measurement showed this wallpad
+      // has neither module, and they lingered here. `test/link-recording.test.ts` now walks every
+      // control the page offers through both.
       const actionAllowed: Record<string, string[]> = {
         light: ["kind", "target", "state"],
         gas: ["kind", "state"],
         heat: ["kind", "zone", "target", "state", "temperatureC"],
         elevator: ["kind", "direction"],
-        outlet: ["kind", "action"],
-        ventilation: ["kind", "action"],
+        batchoff: ["kind", "state"],
         entrance: ["kind", "target", "state"],
-        raw: ["kind", "hex"],
       };
       const actionKind = typeof action.kind === "string" ? action.kind : "";
       const allowedKeys = actionAllowed[actionKind] ?? ["kind"];

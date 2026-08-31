@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.2] - 2026-08-31
+
+### Fixed
+
+- Batch-off did nothing. The page reported `action rejected`, and the ingress was answering 400
+  while the encoder was building the frame perfectly well.
+
+  The ingress and the encoder each keep a list of which fields an action kind may carry, and an
+  unlisted kind falls back to allowing `kind` alone — so `{kind: "batchoff", state: "on"}` failed
+  on `state`. Batch-off reached the encoder when the action contract was rewritten for the new UI
+  and never reached the ingress list.
+
+  The same drift ran the other way: `outlet` and `ventilation` were still listed at the ingress
+  after measurement showed this wallpad has neither module and the encoder dropped them, and `raw`
+  was listed while the encoder throws on it. All three are gone.
+
+  This one mattered more than most. The batch-off switch by the front door is the only path to
+  the other rooms' lights — the wallpad cannot reach them at all — so the add-on's largest single
+  action had been unreachable since the rewrite.
+
+### Internal
+
+- `test/link-recording.test.ts` now walks every control the page offers through both the encoder
+  and the ingress. Nothing compared the two lists before.
+
 ## [0.4.1] - 2026-08-31
 
 ### Fixed
