@@ -1694,8 +1694,17 @@ export function createTxCoordinator(opts: {
       // query that landed a moment before the operator pressed leaves the same gap as one that
       // lands a moment after, and treating only the second as usable would throw away the case
       // where the line was already where we want it.
-      const seenAt = currentState().lastSilentQueryAtMs ?? 0;
-      if (seenAt > 0 && opts.nowMs() - seenAt <= TX_GATE_WINDOW_MS) { gateOpenedAt = seenAt; break; }
+      const gateState = currentState();
+      const seenAt = gateState.lastSilentQueryAtMs ?? 0;
+      // An outstanding append is not yet a window. `onData` sets `lastSilentQueryAtMs` and then
+      // calls `queueRecord`, which starts the append and pauses the transport, in one
+      // synchronous block — so while a recording is open the read that opens the window is the
+      // same read that starts the append. Breaking out here handed the write-time check below a
+      // condition it could only refuse, and it named the refusal after a transmitter that was
+      // not there: `rejected (0 frame(s), transport/RX race before write)`, three attempts, and
+      // nothing on the bus. The window stays usable for 150 ms and the operator's line is quiet
+      // a median 329 ms behind it, so the few milliseconds an append takes are affordable.
+      if (seenAt > 0 && opts.nowMs() - seenAt <= TX_GATE_WINDOW_MS && !gateState.pendingAppend) { gateOpenedAt = seenAt; break; }
       if (opts.nowMs() >= gateDeadline) break;
       await waitUntil(TX_GATE_POLL_MS);
     }

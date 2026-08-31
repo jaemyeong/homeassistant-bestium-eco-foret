@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.7] - 2026-09-01
+
+### Fixed
+
+- The elevator buttons worked only sometimes while a capture was running, and the operator's log
+  named a race with a transmitter that was not there:
+
+  ```
+  bestium-eco-foret/cmd/elevator DOWN -> rejected (0 frame(s), transport/RX race before write)
+  ```
+
+  Three attempts, nothing on the bus. The cause is one synchronous block: `onData` sets
+  `lastSilentQueryAtMs` and then calls `queueRecord`, which starts the capture append and pauses
+  the transport. So while a recording is open, **the read that opens the send window is the same
+  read that starts the append.** The gate broke out of its wait with one outstanding and handed
+  the write-time check a condition it could only refuse — every attempt, for as long as the
+  capture ran.
+
+  Whether a press got through depended on where the append happened to land, which is exactly the
+  intermittency reported. Replayed against the real coordinators with a capture open: six presses
+  before this change put one frame on the bus and five came back with the line above; after it,
+  every press confirms on its first attempt, with a capture or without.
+
+  The gate now waits the append out. The window stays usable for 150 ms and the operator's line is
+  quiet a median 329 ms behind it, so the few milliseconds an append takes are affordable.
+
+  0.5.6 removed the earlier check that refused the same condition before the wait. That was the
+  right removal and this is the other half of it: the wait had nothing to wait for.
+
 ## [0.5.6] - 2026-09-01
 
 ### Fixed

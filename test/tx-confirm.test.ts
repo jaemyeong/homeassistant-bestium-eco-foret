@@ -15,7 +15,7 @@ function freshDevice(atMs: number, extra: AnyRecord = {}): AnyRecord {
   return { lastSeenAtMs: atMs, generation: 1, stale: false, ...extra };
 }
 
-function createFixture(options: { answers?: boolean; maxAttempts?: number; disconnectAfterWrites?: number; appendPendingForMs?: number } = {}) {
+function createFixture(options: { answers?: boolean; maxAttempts?: number; disconnectAfterWrites?: number; appendPendingForMs?: number; gate?: "open" | "never" } = {}) {
   const answers = options.answers !== false;
   let now = 1_700_000_000;
   const openedAt = now;
@@ -109,10 +109,12 @@ function createFixture(options: { answers?: boolean; maxAttempts?: number; disco
       // An append outstanding for the first stretch of the command and resolved by the time
       // the line is ready, which is the shape a capture actually produces.
       pendingAppend: options.appendPendingForMs !== undefined && now < openedAt + options.appendPendingForMs,
-      // Present but never fresh, so the send waits the full gate window for a silent query
-      // that does not come and falls through to the quiet interval. Omitted, the gate does
-      // not wait at all and no time passes inside one attempt.
-      ...(options.appendPendingForMs === undefined ? {} : { lastSilentQueryAtMs: 0 }),
+      // `open` is a silent-query window standing open, the way the bus leaves one about every
+      // 330 ms. `never` is present but never fresh, so the send waits the whole gate window and
+      // falls through to the quiet interval. Omitted, the gate does not wait at all.
+      ...(options.gate === "open" ? { lastSilentQueryAtMs: now }
+        : options.gate === "never" ? { lastSilentQueryAtMs: 0 }
+        : {}),
       rxByteEpoch: 1,
       validFrameEpoch: 1,
       validFrameGeneration: 1,
@@ -293,8 +295,29 @@ test("M6 RED: an append outstanding when a send begins costs a wait, not the com
   // the same condition a retryable race.
   // The append clears after 60 ms of the fake clock; the gate then spends its full second
   // waiting for a silent query that never comes, so the write is attempted long after.
-  const fixture = createFixture({ appendPendingForMs: 60 });
+  const fixture = createFixture({ appendPendingForMs: 60, gate: "never" });
   const result = await fixture.settle(send(fixture, { kind: "light", target: 2, state: "on" }));
   assert.equal(result.outcome, "confirmed", JSON.stringify(result));
   assert.equal(fixture.writes.length, 1, "the frame goes out once, after the append has cleared");
+});
+
+test("M6 RED: the send window opening onto an outstanding append is a wait, not a refusal", async () => {
+  // The operator's log, with a capture running:
+  //   `cmd/elevator DOWN -> rejected (0 frame(s), transport/RX race before write)`
+  // Three attempts, nothing on the bus, and the reason names a race with a transmitter that
+  // was not there.
+  //
+  // `onData` sets `lastSilentQueryAtMs` and then calls `queueRecord`, which starts the append
+  // and pauses the transport, in one synchronous block. So while a recording is open, the read
+  // that opens the send window is the same read that starts the append: the gate breaks out
+  // with one outstanding and the write-time check a few lines later refuses it. Every attempt,
+  // for as long as the capture runs.
+  //
+  // The window stays usable for 150 ms and the line is quiet a median 329 ms behind it, so the
+  // few milliseconds an append takes are affordable. Wait them out.
+  const fixture = createFixture({ appendPendingForMs: 40, gate: "open" });
+  const result = await fixture.settle(send(fixture, { kind: "light", target: 2, state: "on" }));
+  assert.equal(result.outcome, "confirmed", JSON.stringify(result));
+  assert.equal(fixture.writes.length, 1, "one frame, once the append has cleared");
+  assert.equal(result.attempts, 1, "and no attempt is spent on the wait");
 });
