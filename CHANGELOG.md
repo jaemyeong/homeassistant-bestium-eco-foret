@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.4] - 2026-08-31
+
+### Fixed
+
+- The bridge parsed its own command-topic clears. It publishes a zero-length retained payload to
+  every command topic on connect, because nothing else ever deletes a retained message — and
+  `Number("")` is 0, so an empty payload on a temperature topic became a real
+  `{kind: "heat", temperatureC: 0}` action, refused only by the encoder's 5-40 °C range check
+  well downstream. An empty or whitespace payload is now no command anywhere.
+
+- Those clears were being republished while the subscription was live. They go out before
+  subscribing, so the bridge never receives its own — but Home Assistant's birth message ran the
+  same sequence again, and then it did. That put one "dropped an unrecognised command" line in
+  the log per command topic on every Home Assistant restart. The clears now happen on connect
+  only; the rest of the republish is unchanged.
+
 ## [0.5.3] - 2026-08-31
 
 ### Fixed

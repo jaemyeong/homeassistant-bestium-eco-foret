@@ -770,3 +770,35 @@ test("M6 RED: a command's log line says how many frames reached the bus", async 
     JSON.stringify(lines),
   );
 });
+
+test("M6 RED: an empty payload is never a command", () => {
+  // The bridge clears every command topic on connect with a zero-length retained payload, and
+  // those clears came back to it and were parsed. `Number("")` is 0, so an empty payload on a
+  // temperature topic became `temperatureC: 0` — a real action object, refused only by the
+  // encoder's 5-40 range check further down. Nothing else about it was wrong.
+  for (const topic of [
+    `${BASE}/cmd/light/1`, `${BASE}/cmd/heating/1/mode`, `${BASE}/cmd/heating/1/temperature`,
+    `${BASE}/cmd/gas`, `${BASE}/cmd/batch_off`, `${BASE}/cmd/elevator`,
+  ]) {
+    assert.equal(parseCommand(topic, ""), null, topic);
+    assert.equal(parseCommand(topic, "   "), null, `${topic} (whitespace)`);
+  }
+});
+
+test("M6 RED: a republish does not clear the command topics again", async () => {
+  // The clears are published before subscribing, so the bridge never receives its own. But Home
+  // Assistant's birth message triggers the same sequence while the subscription is live, and
+  // then it does — which is where the "dropped an unrecognised command" lines in the operator's
+  // log came from, one per command topic, on every Home Assistant restart.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const clearsAfterConnect = fixture.published().filter((entry) => entry.topic.startsWith(`${BASE}/cmd/`)).length;
+  assert.ok(clearsAfterConnect >= 6, "connect clears them");
+
+  fixture.socket.deliver(encodePublish("homeassistant/status", "online", { retain: false, qos: 0 }));
+  await fixture.timer.advance(2_100);
+  const clearsAfterRepublish = fixture.published().filter((entry) => entry.topic.startsWith(`${BASE}/cmd/`)).length;
+  assert.equal(clearsAfterRepublish, clearsAfterConnect, "and a republish leaves them alone");
+  // The rest of the sequence still runs.
+  assert.equal(fixture.published().at(-1)!.topic, `${BASE}/status`);
+});

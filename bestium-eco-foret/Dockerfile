@@ -21,7 +21,7 @@ COPY src/tx-queue.ts /app/src/tx-queue.ts
 COPY src/ha-design-system.ts /app/src/ha-design-system.ts
 COPY src/ui.ts /app/src/ui.ts
 
-LABEL io.hass.version="0.5.3"
+LABEL io.hass.version="0.5.4"
 LABEL io.hass.type="app"
 LABEL io.hass.arch="aarch64|amd64"
 

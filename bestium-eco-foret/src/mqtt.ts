@@ -570,6 +570,10 @@ export function parseCommand(topic: string, payload: string): Record<string, any
   if (!topic.startsWith(prefix)) return null;
   const parts = topic.slice(prefix.length).split("/");
   const value = payload.trim();
+  // The clears this bridge publishes are zero-length, and `Number("")` is 0 — so an empty
+  // payload on a temperature topic parsed into a real `temperatureC: 0`, caught only by the
+  // encoder's 5-40 range check well downstream. Nothing carries meaning here.
+  if (value === "") return null;
 
   if (parts[0] === "light" && parts.length === 2) {
     const target = Number(parts[1]);
@@ -896,11 +900,15 @@ export function createMqttBridge(options: MqttBridgeOptions) {
    * `online` before them opens a window where Home Assistant reads available beside a frozen
    * `gas: open` presented as current — a lie about a safety device.
    */
-  function announce(): void {
+  function announce(opts: { clearCommands: boolean }): void {
     // Nothing ever deletes a retained message, so a single publish with the retain box ticked
     // would sit on a command topic forever, waiting for the dispatcher's guard to regress.
-    // Cleared before subscribing so the bridge does not receive its own clears.
-    for (const topic of COMMAND_TOPICS) publish(topic, "", true);
+    //
+    // Only on connect, and only before subscribing, so the bridge does not receive its own
+    // clears. Home Assistant's birth message runs the rest of this sequence again while the
+    // subscription is live, and doing it there put one "dropped an unrecognised command" line
+    // in the log per command topic on every Home Assistant restart.
+    if (opts.clearCommands) for (const topic of COMMAND_TOPICS) publish(topic, "", true);
     client?.subscribe([
       // Subscribed even when commands are off, so the dispatcher's guard is the single place
       // that decision lives.
@@ -932,7 +940,7 @@ export function createMqttBridge(options: MqttBridgeOptions) {
     if (topic === HA_STATUS_TOPIC) {
       if (payload !== "online") return;
       if (republishTimer !== null) return;
-      republishTimer = setTimer(() => { republishTimer = null; announce(); }, Math.floor(random() * REPUBLISH_JITTER_MS));
+      republishTimer = setTimer(() => { republishTimer = null; announce({ clearCommands: false }); }, Math.floor(random() * REPUBLISH_JITTER_MS));
       return;
     }
     if (!topic.startsWith(`${BASE}/cmd/`)) return;
@@ -1006,7 +1014,7 @@ export function createMqttBridge(options: MqttBridgeOptions) {
       clearTimeout: clearTimer,
       onMessage: dispatch,
       onConnected: () => {
-        announce();
+        announce({ clearCommands: true });
         if (tickTimer === null) tickTimer = setTimer(tick, TICK_MS);
       },
       onFatal: (reason) => { options.log(`fatal: ${reason}`); },
