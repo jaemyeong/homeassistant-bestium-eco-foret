@@ -121,6 +121,9 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
     devices[key] = { ...existing, ...value, ...freshness(at, generation) } as never;
   };
 
+  // `polled` is what the periodic frame said, kept apart from `state` so a reader that must not
+  // trust the direct reply has somewhere to look. The reply branches below still write `state`,
+  // which is what `isConfirmed()` and the page compare; they leave this alone.
   if (command === 0x19 && payload[2] === 0x04 && payload.length >= 6) {
     const lights = devices.lights as Record<number, DeviceState>;
     // The address byte decides the shape. 0x10 is the periodic reply covering all three;
@@ -132,12 +135,18 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
         return;
       }
       for (let index = 0; index < 3; index += 1) {
-        const state = payload[6 + index];
-        if (state !== 1 && state !== 2) {
+        const raw = payload[6 + index];
+        if (raw !== 1 && raw !== 2) {
           markUnknown("0x19");
           continue;
         }
-        lights[index + 1] = { ...lights[index + 1], state: state === 1 ? "on" : "off", ...freshness(at, generation) };
+        const state = raw === 1 ? "on" : "off";
+        lights[index + 1] = {
+          ...lights[index + 1],
+          state,
+          ...freshness(at, generation),
+          polled: { state, ...freshness(at, generation) },
+        };
       }
       return;
     }
@@ -172,7 +181,13 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
       markUnknown("0x1b");
       return;
     }
-    mark("gas", { state: payload[6] === 4 ? "open" : "closed", evidence: "observed" });
+    const gasState = payload[6] === 4 ? "open" : "closed";
+    // The reply is `01 1b 04 43 11 <state> <state>` at seven bytes; the periodic frame carries
+    // two trailing zeros. They are otherwise identical, which is the whole problem with reading
+    // the reply: a close that did not take answers exactly like one that did.
+    mark("gas", payload.length >= 9
+      ? { state: gasState, evidence: "observed", polled: { state: gasState, ...freshness(at, generation) } }
+      : { state: gasState, evidence: "observed" });
     return;
   }
   if (command === 0x18 && payload[2] === 0x04 && payload.length >= 9) {
@@ -191,12 +206,16 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
           markUnknown("0x18");
           continue;
         }
+        const zoneState = payload[offset] === 1 ? "on" : "off";
+        const currentC = payload[offset + 1];
+        const targetC = payload[offset + 2];
         heating[zone] = {
           ...heating[zone],
-          state: payload[offset] === 1 ? "on" : "off",
-          currentC: payload[offset + 1],
-          targetC: payload[offset + 2],
+          state: zoneState,
+          currentC,
+          targetC,
           ...freshness(at, generation),
+          polled: { state: zoneState, currentC, targetC, ...freshness(at, generation) },
         };
       }
       return;
@@ -243,7 +262,10 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
       markUnknown("0x34");
       return;
     }
-    mark("elevator", { floor: payload[7], floorLabel: floorLabel(payload[7]), heading, call, evidence: "observed" });
+    mark("elevator", {
+      floor: payload[7], floorLabel: floorLabel(payload[7]), heading, call, evidence: "observed",
+      polled: { floorLabel: floorLabel(payload[7]), heading, call, ...freshness(at, generation) },
+    });
     return;
   }
   if (command === 0x1e && payload.length >= 5) {
@@ -305,9 +327,13 @@ function decodeState(frame: ParsedFrame, devices: AnyDevices, queries: Record<st
       return;
     }
     const known = (devices.gas as DeviceState).state;
+    const batchState = batch === 1 ? "on" : "off";
     mark("batchOff", {
-      state: batch === 1 ? "on" : "off",
+      state: batchState,
       evidence: "observed",
+      // Nothing decodes a reply for this device — the set frame's answer is eight payload bytes
+      // and the guard above drops it — so `polled` is here for uniformity rather than safety.
+      polled: { state: batchState, ...freshness(at, generation) },
       ...(known === undefined ? {} : { gasAgrees: known === (valve === 4 ? "open" : "closed") }),
     });
     return;

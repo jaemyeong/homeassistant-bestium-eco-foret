@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Internal
+
+- The decoder keeps a second copy of each device's state, written only by the frames the wallpad
+  polls with. The tree it exposes was written by both the periodic frames and the replies that
+  answer our own writes, and three measurements say a reply proves nothing: gas answers
+  byte-identically whether or not the valve moved, a heating zone echoed a target it did not
+  adopt, and a group command draws no reply at all. The send path already judged by the poll, by
+  comparing timestamps; the tree itself did not, so anything reading it as truth read the echo.
+  Nothing reads the new field yet.
+
 ## [0.4.2] - 2026-08-31
 
 ### Fixed

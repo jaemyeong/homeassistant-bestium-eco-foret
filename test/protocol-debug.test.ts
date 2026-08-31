@@ -717,3 +717,50 @@ test("M5 RED: a read that ends on an unanswered query opens the send window", ()
   monitor.resetGeneration();
   assert.equal(monitor.snapshot().lastSilentQueryAtMs, 0);
 });
+
+test("M6 RED: a direct reply does not move what the poll last reported", () => {
+  // Three measurements say the direct reply cannot be trusted: gas answers byte-identically
+  // whether or not the valve moved, a heating zone echoed a 4 °C target it did not adopt, and a
+  // group command draws no direct reply at all. The send path already judges by the poll — but
+  // it does that by comparing timestamps, while the device tree itself carries whatever arrived
+  // last. Anything reading that tree as truth, an MQTT bridge included, reads the echo.
+  //
+  // `polled` is the poll's own copy: written only by the branch that decodes a periodic frame,
+  // never by the branch that decodes a reply.
+  const bytes = (hex: string): Uint8Array =>
+    Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+  // Taken from the runs under `tools/buslab/runs`, not constructed.
+  const LIGHT_POLL = "f70d011904401000010201b4ee";       // lamps: on, off, on
+  const LIGHT_REPLY_1_OFF = "f70b01190440110202b1ee";    // "lamp 1 is off", answering a write
+  const GAS_POLL_OPEN = "f70d011b04431100040000b2ee";
+  const GAS_REPLY_CLOSED = "f70b011b0443110303b0ee";
+
+  let now = 1_000;
+  const monitor = createProtocolDebugMonitor({ nowMs: () => now });
+
+  monitor.push(bytes(LIGHT_POLL + GAS_POLL_OPEN));
+  const afterPoll = monitor.deviceState() as AnyRecord;
+  assert.equal(afterPoll.lights[1].state, "on");
+  assert.equal(afterPoll.lights[1].polled.state, "on");
+  assert.equal(afterPoll.gas.state, "open");
+  assert.equal(afterPoll.gas.polled.state, "open");
+
+  // A write goes out and the wallpad answers within ~120 ms. The reply moves the live field,
+  // which is what `isConfirmed()` and the page want, and leaves the poll's copy alone.
+  now = 1_118;
+  monitor.push(bytes(LIGHT_REPLY_1_OFF + GAS_REPLY_CLOSED));
+  const afterReply = monitor.deviceState() as AnyRecord;
+  assert.equal(afterReply.lights[1].state, "off", "the reply is still decoded");
+  assert.equal(afterReply.lights[1].polled.state, "on", "but it is not what the poll reported");
+  assert.equal(afterReply.gas.state, "closed");
+  assert.equal(afterReply.gas.polled.state, "open", "a valve nobody has seen close is still open");
+  assert.equal(afterReply.lights[1].polled.lastSeenAtMs, 1_000, "and the poll's stamp is the poll's");
+
+  // The next poll is what makes it true.
+  now = 2_200;
+  monitor.push(bytes("f70d011904401000020201b7ee" + "f70d011b04431100030000b5ee"));
+  const afterNextPoll = monitor.deviceState() as AnyRecord;
+  assert.equal(afterNextPoll.lights[1].polled.state, "off");
+  assert.equal(afterNextPoll.gas.polled.state, "closed");
+  assert.equal(afterNextPoll.gas.polled.lastSeenAtMs, 2_200);
+});
