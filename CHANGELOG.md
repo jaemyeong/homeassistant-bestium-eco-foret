@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- A heating target sent over MQTT for a zone that is off powers that zone on again, the way the
+  page and the wallpad do. 0.5.2 had the dispatcher refuse it; the operator has decided against
+  that.
+
+  The reasons the refusal was worth undoing are the ones stated when it went in: MQTT carries no
+  channel for declining a command, so the refusal was silent and an automation believed it had
+  succeeded, and the same device answered differently on the two surfaces. The side effect itself
+  is real and measured — eight of eight, all four zones — and it stays in the documentation.
+
+  The encoder's own refusal is unchanged and is about values rather than state: below 5 °C or
+  above 40 no frame is built, whatever the zone is doing.
+
+- The add-on documentation said the elevator call buttons ship disabled. They have shipped enabled
+  since 0.5.1 and the documentation was not updated with the code.
+
 ## [0.5.2] - 2026-08-31
 
 ### Fixed
