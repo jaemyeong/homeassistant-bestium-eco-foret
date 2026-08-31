@@ -321,3 +321,21 @@ test("M6 RED: the send window opening onto an outstanding append is a wait, not 
   assert.equal(fixture.writes.length, 1, "one frame, once the append has cleared");
   assert.equal(result.attempts, 1, "and no attempt is spent on the wait");
 });
+
+test("M6: an append that outlasts the retry budget still refuses, and says so the same way", async () => {
+  // The operator's failure, pinned as itself rather than as the absence of a success. Reverting
+  // the gate's append condition brings this line back:
+  //   `cmd/elevator DOWN -> rejected (0 frame(s), transport/RX race before write)`
+  //
+  // It holds on both sides of that fix, which is the point. An append the gate cannot outwait
+  // is a real reason to refuse: the gate spends TX_GATE_WAIT_MS, falls through to the quiet
+  // interval — satisfied at once, because a paused transport delivers no reads to break it —
+  // and the write-time check refuses on the condition it is there for. What the fix changed is
+  // that a few milliseconds no longer count as "cannot outwait".
+  const fixture = createFixture({ answers: false, maxAttempts: 3, appendPendingForMs: 600_000, gate: "open" });
+  const result = await fixture.settle(send(fixture, { kind: "elevator", direction: "down" }));
+  assert.equal(result.outcome, "rejected", JSON.stringify(result));
+  assert.equal(result.framesWritten, 0, "nothing may reach the bus");
+  assert.equal(result.reason, "transport/RX race before write");
+  assert.equal(fixture.writes.length, 0);
+});
