@@ -38,6 +38,21 @@ All notable changes to this project are documented here.
   it already had a Korean wording for. The check runs `reasonKo` out of the rendered page rather
   than reading its source.
 
+- A capture no longer costs commands their retry budget. The send path sampled `pendingAppend`
+  before waiting for the line, and that wait runs up to a second, so it ended commands on a
+  reading that was stale before the write it was meant to protect. The write-time check a
+  hundred lines below it tests the same condition and calls it a retryable race; the earlier one
+  is deleted, so the real gate is the only gate.
+
+  Measured across two of the operator's captures. With a capture running, five of six elevator
+  commands were refused either for the append or for that race; with no capture running, neither
+  of two commands was refused at all. The refusals landed over a minute into a capture that was
+  running normally, so this is what a capture cost in steady state rather than a transient at its
+  start.
+
+  The readiness preview still reports an outstanding append, which is a status line rather than a
+  decision, and still says so in Korean.
+
 - `capture_duration_ms` never applied to a capture an operator could actually start. The timer
   was armed in the socket's connect handler and only when a recording was already open, but
   since the link and the recording were split the socket comes up with the add-on and a

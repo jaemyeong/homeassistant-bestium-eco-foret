@@ -15,9 +15,10 @@ function freshDevice(atMs: number, extra: AnyRecord = {}): AnyRecord {
   return { lastSeenAtMs: atMs, generation: 1, stale: false, ...extra };
 }
 
-function createFixture(options: { answers?: boolean; maxAttempts?: number; appendPendingAfterWrites?: number } = {}) {
+function createFixture(options: { answers?: boolean; maxAttempts?: number; disconnectAfterWrites?: number; appendPendingForMs?: number } = {}) {
   const answers = options.answers !== false;
   let now = 1_700_000_000;
+  const openedAt = now;
   const writes: string[] = [];
   const timers = new Map<number, { at: number; fn: () => void }>();
   let nextTimer = 1;
@@ -103,10 +104,15 @@ function createFixture(options: { answers?: boolean; maxAttempts?: number; appen
     getGeneration: () => 1,
     getDevices: () => ({ devices, generation: 1 }),
     getRxState: () => ({
-      connected: true,
-      // A capture append holds the transport paused, and the send gate refuses while one is
-      // outstanding. Counting writes is how a refusal is placed *after* a frame has gone out.
-      pendingAppend: options.appendPendingAfterWrites !== undefined && writes.length >= options.appendPendingAfterWrites,
+      // Counting writes is how a refusal is placed *after* a frame has already gone out.
+      connected: options.disconnectAfterWrites === undefined || writes.length < options.disconnectAfterWrites,
+      // An append outstanding for the first stretch of the command and resolved by the time
+      // the line is ready, which is the shape a capture actually produces.
+      pendingAppend: options.appendPendingForMs !== undefined && now < openedAt + options.appendPendingForMs,
+      // Present but never fresh, so the send waits the full gate window for a silent query
+      // that does not come and falls through to the quiet interval. Omitted, the gate does
+      // not wait at all and no time passes inside one attempt.
+      ...(options.appendPendingForMs === undefined ? {} : { lastSilentQueryAtMs: 0 }),
       rxByteEpoch: 1,
       validFrameEpoch: 1,
       validFrameGeneration: 1,
@@ -258,13 +264,37 @@ test("M6 RED: a refusal after a written frame is reported unconfirmed, never as 
   // operator pressed again and called the car a second time. The tail below the retry loop
   // states the invariant — a frame that reached the bus is never reported as "not sent" —
   // and the early return for a non-retryable refusal walked around it.
-  const fixture = createFixture({ answers: false, maxAttempts: 3, appendPendingAfterWrites: 1 });
+  //
+  // The vehicle is a socket that goes away, not the capture append that produced the report:
+  // an append is no longer a terminal refusal at all, and a test that needed it to be one
+  // would have taken this invariant's only guard with it. A write deadline quarantines the
+  // generation and destroys the socket, so this is the reachable shape.
+  const fixture = createFixture({ answers: false, maxAttempts: 3, disconnectAfterWrites: 1 });
   const result = await fixture.settle(send(fixture, { kind: "light", target: 1, state: "on" }));
   assert.equal(fixture.writes.length, 1, "the second attempt is refused before it writes");
   assert.equal(result.framesWritten, 1);
   assert.equal(result.outcome, "unconfirmed", JSON.stringify(result));
-  assert.equal(result.reason, "capture append pending after 1 frame(s) reached the bus");
+  assert.equal(result.reason, "transport not connected after 1 frame(s) reached the bus");
   // The budget is three; two were spent. Reporting the budget would misstate what happened
   // just as surely as reporting the outcome did.
   assert.equal(result.attempts, 2);
+});
+
+test("M6 RED: an append outstanding when a send begins costs a wait, not the command", async () => {
+  // Measured across two of the operator's captures: with a capture running, five of six
+  // elevator commands were refused for the append or for the write-time race that folds the
+  // same condition in; with no capture running, neither of two commands was refused at all.
+  // The refusals landed over a minute into a capture that was working normally, so this is
+  // what a capture costs in steady state rather than a transient at its start.
+  //
+  // The check that produced them sampled `pendingAppend` before the wait for the line, and
+  // that wait is up to a second long — so it ended commands on a reading that was stale
+  // before the write it was protecting. The write-time check is the real gate, and it calls
+  // the same condition a retryable race.
+  // The append clears after 60 ms of the fake clock; the gate then spends its full second
+  // waiting for a silent query that never comes, so the write is attempted long after.
+  const fixture = createFixture({ appendPendingForMs: 60 });
+  const result = await fixture.settle(send(fixture, { kind: "light", target: 2, state: "on" }));
+  assert.equal(result.outcome, "confirmed", JSON.stringify(result));
+  assert.equal(fixture.writes.length, 1, "the frame goes out once, after the append has cleared");
 });

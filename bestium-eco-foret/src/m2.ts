@@ -1649,7 +1649,16 @@ export function createTxCoordinator(opts: {
       else if (inferredAction) lastSpeculativeAttempt = opts.nowMs();
     }
     if (!state.connected || !opts.getTransport()) return txReject("transport not connected", currentGeneration, journal);
-    if (state.pendingAppend) return txReject("capture append pending", currentGeneration, journal);
+    // No `pendingAppend` check here. It sampled the state before the wait for the line, and
+    // that wait runs up to TX_GATE_WAIT_MS, so it ended commands on a reading that was already
+    // stale by the time the write it was protecting happened. The write-time check below is
+    // the real gate and calls the same condition a retryable race.
+    //
+    // Measured across two of the operator's captures: with a capture running, five of six
+    // elevator commands were refused for this or for that race; with no capture running,
+    // neither of two commands was refused at all. The refusals landed over a minute into a
+    // capture that was working normally, so it is what a capture costs in steady state and
+    // not a transient at its start (M6-E20).
     if (!state.currentGenerationRx) return txReject("no current-generation valid RX frame", currentGeneration, journal);
     if (state.lastValidFrameAtMs <= 0 || state.lastRxByteAtMs <= 0) return txReject("no current valid RX frame", currentGeneration, journal);
     const rawAction = !!(action && typeof action === "object" && (action as AnyRecord).kind === "raw");
