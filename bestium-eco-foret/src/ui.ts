@@ -225,7 +225,12 @@ const CLIENT_SCRIPT = String.raw`
 
   const reasonKo = function (text) {
     if (!text) return "";
-    var known = REASON_KO[text];
+    // The retry tail composes "<refusal> after N frame(s) reached the bus" so that a refusal
+    // which followed a frame onto the wallpad can be told from one that wrote nothing. Only
+    // the refusal has a wording in the table, so the lookup uses the head and the operator
+    // still reads the whole composed string in the parenthesis.
+    var head = String(text).replace(/ after \d+ frame\(s\) reached the bus$/, "");
+    var known = REASON_KO[head];
     return known ? known + " (" + text + ")" : text;
   };
 
@@ -369,7 +374,12 @@ const CLIENT_SCRIPT = String.raw`
         return;
       }
       var ok = result && (result.confirmed === true || result.outcome === "confirmed");
-      send.label = label + " · " + (ok ? "상태 프레임으로 확인" : (send.windowMs / 1000).toFixed(1) + "초 동안 요청한 상태를 관측하지 못함");
+      // An unconfirmed send that also carries a reason is one whose later attempts were
+      // refused after an earlier one had written. Dropping the reason here left the operator
+      // with "not observed" and no way to see that a capture append, or a socket that went
+      // away, is what stopped the retries.
+      var why = ok ? "" : reasonKo(result && result.reason);
+      send.label = label + " · " + (ok ? "상태 프레임으로 확인" : (send.windowMs / 1000).toFixed(1) + "초 동안 요청한 상태를 관측하지 못함") + (why ? " · " + why : "");
       settle(ok ? "confirmed" : "unconfirmed");
       poll(true);
     }, function (error) {

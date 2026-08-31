@@ -30,6 +30,14 @@ All notable changes to this project are documented here.
 
   `0 frame(s)` is unaffected: a command refused before anything was written is still `rejected`.
 
+- The page carried the same wrong answer, and losing it exposed a second gap. A refusal after a
+  written frame reached the branch that prints `보내지 못했습니다` — "it never left" — over a frame
+  that had left. Correcting the outcome moves that case onto the unconfirmed branch, which said
+  only that no state frame was observed and dropped the refusal entirely. It now reports both,
+  and the reason table resolves `<refusal> after N frame(s) reached the bus` through the refusal
+  it already had a Korean wording for. The check runs `reasonKo` out of the rendered page rather
+  than reading its source.
+
 ## [0.5.4] - 2026-08-31
 
 ### Fixed

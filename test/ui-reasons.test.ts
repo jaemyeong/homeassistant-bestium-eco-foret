@@ -300,3 +300,35 @@ test("M5 RED: every control has a name a screen reader can announce", () => {
   assert.match(html, /<section class="banner"[^>]*aria-live="polite"/, "the banner is the only live region");
   assert.equal((html.match(/aria-live=/g) ?? []).length, 1, "and there is only one");
 });
+
+test("M6 RED: a refusal that carries a frame count keeps its Korean wording", () => {
+  // `runIntent`'s tail composes "<refusal> after N frame(s) reached the bus", so an operator
+  // can tell an attempt refused before writing anything from one refused after a frame had
+  // gone out. The table is keyed on the bare refusal, so looking the composed string up found
+  // nothing and the page fell back to the raw English of a reason it could already word.
+  //
+  // The function under test is taken out of the rendered page and run, not read: this project
+  // has six recorded instances of a check that measured the artefact beside the shipped one.
+  const html = renderAppHtml();
+  const source = html.slice(html.indexOf("const REASON_KO = {"), html.indexOf("const reasonsKo ="));
+  assert.ok(source.length > 0, "the page must carry the table and its lookup");
+  const reasonKo = new Function(`${source} return reasonKo;`)() as (text: unknown) => string;
+
+  assert.match(reasonKo("capture append pending"), /수집 기록을 쓰는 중입니다/);
+  const composed = reasonKo("capture append pending after 1 frame(s) reached the bus");
+  assert.match(composed, /수집 기록을 쓰는 중입니다/, "the refusal keeps its wording");
+  assert.match(composed, /after 1 frame\(s\) reached the bus/, "and what did reach the bus survives");
+  assert.equal(reasonKo(""), "", "an absent reason still renders nothing");
+  assert.equal(reasonKo("a reason nobody has worded yet"), "a reason nobody has worded yet");
+});
+
+test("M6 RED: an unconfirmed send tells the operator what stopped the retries", () => {
+  // Before this the reason was read on the `rejected` branch only. A refusal that followed a
+  // written frame is `unconfirmed` — correctly, a frame did reach the bus — and fell to the
+  // branch that says nothing but "not observed".
+  const html = renderAppHtml();
+  const run = html.slice(html.indexOf("var run = function"), html.indexOf("var TEMP_MIN"));
+  const unconfirmed = run.slice(run.indexOf("var ok = result"));
+  assert.match(unconfirmed, /reasonKo\(result && result\.reason\)/, "the reason is worded on this path too");
+  assert.match(unconfirmed, /관측하지 못함/, "alongside what the observation window found");
+});
