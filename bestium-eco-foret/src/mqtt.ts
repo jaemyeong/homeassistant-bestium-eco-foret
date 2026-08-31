@@ -688,7 +688,12 @@ export function buildDiscovery(options: { version: string; commandsLive: boolean
     platform: "switch",
     unique_id: `${DEVICE_ID}_batch_off`,
     name: "일괄소등 (집 전체 소등)",
-    icon: "mdi:home-lightbulb-off",
+    // `mdi:home-lightbulb-off` was here and has never existed in Material Design Icons — absent
+    // from @mdi/svg 4.9.95 through 7.4.47, which is the newest release and the one Home Assistant
+    // pins. An unknown name fails silently by design: the frontend fetches the icon chunk, finds
+    // nothing, and renders an empty 24px <svg> with no error anywhere. `lightbulb-group-off` is
+    // what Home Assistant core itself uses for a light group's off state.
+    icon: "mdi:lightbulb-group-off",
     // `switch` is in DEFAULT_EXPOSED_DOMAINS and falls through to switch.turn_on, so with no
     // operator action "turn on everything in <area>" reaches this with ON — and ON darkens the
     // whole home, including rooms the wallpad cannot otherwise address. Every "turn everything
@@ -952,7 +957,17 @@ export function createMqttBridge(options: MqttBridgeOptions) {
     // one multiplies frames on a half-duplex bus. The outcome is logged and nothing else — an
     // entity's state comes from the poll.
     void options.send(action).then(
-      (result) => options.log(`${topic} ${payload} -> ${String(result?.outcome ?? "sent")}`),
+      (result) => {
+        // `unconfirmed` already means at least one frame reached the bus, but only the frame
+        // count separates "written three times and never observed" from "superseded before it
+        // was written". A `button` entity gives Home Assistant no failure feedback at all, so
+        // for the two elevator calls this line is the only place either can be read.
+        const detail = [
+          result?.framesWritten === undefined ? null : `${String(result.framesWritten)} frame(s)`,
+          result?.reason === undefined ? null : String(result.reason),
+        ].filter(Boolean).join(", ");
+        options.log(`${topic} ${payload} -> ${String(result?.outcome ?? "sent")}${detail === "" ? "" : ` (${detail})`}`);
+      },
       (error) => options.log(`${topic} ${payload} failed: ${String(error)}`),
     );
   }

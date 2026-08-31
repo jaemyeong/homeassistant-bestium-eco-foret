@@ -179,3 +179,30 @@ test("0.3.0 RED: clearing the queue hands back every dropped entry", () => {
   assert.deepEqual(dropped.map((entry) => entry.key), ["light:1", "gas"]);
   assert.equal(queue.size(), 0);
 });
+
+test("0.5.3 RED: an arrival is not a confirmation of the call that asked for it", () => {
+  // The building does accept a call for the floor its car already occupies — measured once, in
+  // run `elev-revoke` at 18:44:31.976: our variant-1 DOWN frame went out with the car parked at
+  // floor 4 after 45 s of `00 00 00`, and 1,838 ms later the line carried
+  // `f70d01340141100001040b91ee`. State byte `01`, floor `04`.
+  //
+  // That answer cannot confirm the call, and relaxing this predicate to accept it would be a
+  // lie in two directions. `01` has a high nibble of `0`, so nothing in the frame separates an
+  // accepted UP call from an accepted DOWN one. And `01` is the terminal frame of every journey
+  // from any origin: of its seven occurrences in the corpus, six had no frame of ours anywhere
+  // near them, so accepting it would confirm a neighbour's arrival as our press. The page draws
+  // its green "상태 프레임으로 확인" banner off this same predicate.
+  //
+  // So `unconfirmed` is the permanent, honest verdict for a call to the floor you are on. The
+  // operator reads the frame count in the add-on log, and watches the doors themselves.
+  const now = 1_700_000_000;
+  const state = devices();
+  state.elevator = { ...state.elevator, call: "arrival", lastSeenAtMs: now, generation: 1 };
+  const before = { elevator: { call: "none" } };
+  assert.equal(isConfirmed({ kind: "elevator", direction: "up" }, state, now - 1_000, 1, before), false);
+  assert.equal(isConfirmed({ kind: "elevator", direction: "down" }, state, now - 1_000, 1, before), false);
+
+  // A call that does register in our direction, from a different one, still confirms.
+  state.elevator = { ...state.elevator, call: "up" };
+  assert.equal(isConfirmed({ kind: "elevator", direction: "up" }, state, now - 1_000, 1, before), true);
+});

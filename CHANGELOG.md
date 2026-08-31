@@ -2,7 +2,32 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.5.3] - 2026-08-31
+
+### Fixed
+
+- The batch-off entity had no icon. `mdi:home-lightbulb-off` has never existed in Material Design
+  Icons — it is absent from every release of `@mdi/svg` including 7.4.47, the newest and the one
+  Home Assistant pins. An unknown name fails silently by design: the frontend fetches its icon
+  chunk, finds nothing, and renders an empty 24-pixel `<svg>` with no error anywhere. It is now
+  `mdi:lightbulb-group-off`, which is what Home Assistant core uses for a light group's off state,
+  and a test checks every icon the payload ships against a list of names verified to exist.
+
+- An elevator call now logs how many frames reached the bus. A `button` entity gives Home
+  Assistant no failure feedback at all, so that log line is the only place an operator can tell
+  "written three times and never observed" from "superseded before it was written".
+
+  This came from a report that calling the car to the floor it is already standing on does
+  nothing. The measurements say otherwise: in run `elev-revoke`, with the car parked at floor 4
+  after 45 seconds of an idle line, our down-call frame went out and 1,838 ms later — inside the
+  measured registration band — the bus carried an arrival for floor 4. The building accepts the
+  call. What it cannot do is confirm it: an arrival frame carries no direction, and the same
+  frame ends every journey from every origin, so accepting it as proof would confirm a
+  neighbour's arrival as our press. `unconfirmed` is the permanent honest verdict for that case,
+  and a test now pins it as a decision rather than an oversight.
+
+  Whether the doors actually open is not on this line at all. That needs someone standing at the
+  lift.
 
 ### Changed
 

@@ -713,7 +713,7 @@ test("M6 RED: a broker with no MQTT service does not take the add-on down", asyn
   assert.equal(attempts, 2, "and it tries again a minute later");
 });
 
-test("M6 RED: a target for a zone that is off goes through, and powers the zone on", () => {
+test("M6 RED: a target for a zone that is off goes through, and powers the zone on", async () => {
   // Writing a target powers its zone on — eight of eight, all four zones. 0.5.2 had the MQTT
   // dispatcher refuse that, which made the same device answer differently on the two surfaces
   // and refuse silently, since MQTT has no channel for declining a command. The operator chose
@@ -722,5 +722,51 @@ test("M6 RED: a target for a zone that is off goes through, and powers the zone 
   //
   // The refusal that remains is the encoder's, and it is about values rather than state: below
   // 5 °C or above 40 the frame is never built, whatever the zone is doing.
-  assert.deepEqual(parseCommand(`${BASE}/cmd/heating/2/temperature`, "18"), { kind: "heat", zone: 2, temperatureC: 18 });
+  // Driven through the dispatcher rather than through `parseCommand`, which is asserted above
+  // already. The fixture's zones are empty objects, so the 0.5.2 guard would have refused this
+  // exact publish — which is what makes this the test that would fail if it came back.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/heating/2/temperature`, "18", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  assert.deepEqual(fixture.sent, [{ kind: "heat", zone: 2, temperatureC: 18 }]);
+});
+
+// Every `mdi:` name the payload ships, checked against the set Home Assistant pins (@mdi/svg
+// 7.4.47, which is also the newest MDI has published). An unknown name is an error nowhere: the
+// frontend fetches its chunk, finds nothing, and renders an empty 24px <svg>. That is how
+// `mdi:home-lightbulb-off` — a name that has never existed in MDI — shipped as the batch-off
+// icon and showed as a blank space. Adding a name here means checking it first at
+// pictogrammers.com/library/mdi.
+const VERIFIED_MDI = new Set([
+  "mdi:lightbulb-group-off", "mdi:elevator", "mdi:elevator-up", "mdi:elevator-down", "mdi:door-open",
+]);
+
+test("M6 RED: every icon in the discovery payload is a real MDI name", () => {
+  const payload = buildDiscovery({ version: "0.5.3", commandsLive: true }) as AnyRecord;
+  for (const [key, component] of Object.entries(payload.components as AnyRecord)) {
+    const icon = (component as AnyRecord).icon;
+    if (icon === undefined) continue;
+    assert.ok(VERIFIED_MDI.has(icon as string), `${key}: ${String(icon)} is not a verified MDI name`);
+  }
+});
+
+test("M6 RED: a command's log line says how many frames reached the bus", async () => {
+  // The two elevator calls are `button` entities with no state topic, so Home Assistant is told
+  // nothing at all about a press. This line is the only place an operator can tell "written
+  // three times and never observed" from "superseded before it was written" — and for a call
+  // that the building answers with `arrival`, unconfirmed is the permanent honest verdict.
+  const lines: string[] = [];
+  const fixture = bridgeFixture({
+    log: (line: string) => lines.push(line),
+    send: async () => ({ outcome: "unconfirmed", framesWritten: 3, attempts: 3 }),
+  });
+  await fixture.connect();
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/elevator`, "DOWN", { retain: false, qos: 0 }));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.ok(
+    lines.some((line) => line === `${BASE}/cmd/elevator DOWN -> unconfirmed (3 frame(s))`),
+    JSON.stringify(lines),
+  );
 });
