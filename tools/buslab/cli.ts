@@ -10,9 +10,9 @@
 // and drive it with the other three.
 
 import { createConnection } from "node:net";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, realpathSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -342,7 +342,13 @@ export async function main(argv: string[]): Promise<void> {
   process.exitCode = command === "" || command === "help" || command === "--help" ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// Both sides are resolved to a real absolute path before they are compared. The old form
+// concatenated `file://` onto `process.argv[1]`, and this repository lives under a path with
+// a space in it, so it compared a module URL's `%20` against a literal space and never
+// matched: every subcommand exited 0 having printed nothing. `realpathSync` rather than
+// `resolve` because the repository is also reachable through an alias whose real path is the
+// one a module URL carries, and an absolute argument through that alias would miss again.
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(resolve(process.argv[1]))) {
   main(process.argv.slice(2)).catch((error: unknown) => {
     process.stderr.write(`buslab: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

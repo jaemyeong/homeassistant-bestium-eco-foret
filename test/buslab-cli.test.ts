@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer, createConnection, type Server, type Socket } from "node:net";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
@@ -322,4 +324,23 @@ test("E5 RED: a handler that throws does not end the process either", async () =
   });
   await assert.rejects(() => handler({ cmd: "stop" }), /boom/);
   assert.equal(stopped, 0, "the control server turns the throw into its own error reply");
+});
+
+test("M6 RED: running the CLI actually runs it", async () => {
+  // Everything else in this suite imports the module and calls its parts, so all of it passed
+  // while the file was inert as a program: the entrypoint guard compared `import.meta.url`
+  // against `file://` + `process.argv[1]`, and this repository's real path has a space in it,
+  // so a percent-encoded `%20` was compared against a literal space. Every subcommand exited 0
+  // having printed nothing, which reads exactly like success.
+  //
+  // Spawning it is the point. No import can catch this.
+  const cli = fileURLToPath(new URL("../tools/buslab/cli.ts", import.meta.url));
+  const stderr = await new Promise<string>((resolve, reject) => {
+    execFile(process.execPath, [cli], (error, _stdout, err) => {
+      // No subcommand prints the usage and exits 0; anything else is a real failure.
+      if (error && typeof error.code === "number" && error.code !== 0) reject(error);
+      else resolve(err);
+    });
+  });
+  assert.match(stderr, /^buslab — local RS485 measurement/, "the usage banner proves main() ran");
 });

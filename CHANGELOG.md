@@ -38,6 +38,14 @@ All notable changes to this project are documented here.
   it already had a Korean wording for. The check runs `reasonKo` out of the rendered page rather
   than reading its source.
 
+- `tools/buslab` was inert as a program on this machine. Its entrypoint guard compared
+  `import.meta.url` against `` `file://` + process.argv[1] ``, and a module URL percent-encodes,
+  so the space in this repository's real path made it compare `%20` against a literal space.
+  Every subcommand exited 0 having printed nothing, which reads exactly like success. Both sides
+  are resolved to a real absolute path now, the way `m2.ts` has always spelled it. The suite
+  passed throughout because it imports the module and calls its parts; the new check spawns the
+  file as a program, which is the only thing that could have caught this.
+
 ## [0.5.4] - 2026-08-31
 
 ### Fixed
