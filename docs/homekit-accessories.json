@@ -1,0 +1,389 @@
+[
+  {
+    "accessory": "mqttthing",
+    "type": "lightbulb",
+    "name": "등 1",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "ON",
+    "offValue": "OFF",
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getOn": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.lights['1']; if (v !== 'ON' && v !== 'OFF') return; return v;"
+      },
+      "setOn": "bestium-eco-foret/cmd/light/1",
+      "getOnline": "bestium-eco-foret/avail/lights"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "lightbulb",
+    "name": "등 2",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "ON",
+    "offValue": "OFF",
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getOn": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.lights['2']; if (v !== 'ON' && v !== 'OFF') return; return v;"
+      },
+      "setOn": "bestium-eco-foret/cmd/light/2",
+      "getOnline": "bestium-eco-foret/avail/lights"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "lightbulb",
+    "name": "등 3",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "ON",
+    "offValue": "OFF",
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getOn": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.lights['3']; if (v !== 'ON' && v !== 'OFF') return; return v;"
+      },
+      "setOn": "bestium-eco-foret/cmd/light/3",
+      "getOnline": "bestium-eco-foret/avail/lights"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "thermostat",
+    "name": "난방 1",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "heatingCoolingStateValues": [
+      "off",
+      "heat"
+    ],
+    "restrictHeatingCoolingState": [
+      0,
+      1
+    ],
+    "minTemperature": 5,
+    "maxTemperature": 40,
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getCurrentHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['1'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "getTargetHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['1'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "setTargetHeatingCoolingState": "bestium-eco-foret/cmd/heating/1/mode",
+      "getCurrentTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['1'].current; if (typeof v !== 'number') return; return v;"
+      },
+      "getTargetTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['1'].target; if (typeof v !== 'number') return; return v;"
+      },
+      "setTargetTemperature": {
+        "topic": "bestium-eco-foret/cmd/heating/1/temperature",
+        "apply": "const n = Math.round(message); if (!(n >= 5 && n <= 40)) return; return n;"
+      },
+      "getOnline": "bestium-eco-foret/avail/heating"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "thermostat",
+    "name": "난방 2",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "heatingCoolingStateValues": [
+      "off",
+      "heat"
+    ],
+    "restrictHeatingCoolingState": [
+      0,
+      1
+    ],
+    "minTemperature": 5,
+    "maxTemperature": 40,
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getCurrentHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['2'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "getTargetHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['2'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "setTargetHeatingCoolingState": "bestium-eco-foret/cmd/heating/2/mode",
+      "getCurrentTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['2'].current; if (typeof v !== 'number') return; return v;"
+      },
+      "getTargetTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['2'].target; if (typeof v !== 'number') return; return v;"
+      },
+      "setTargetTemperature": {
+        "topic": "bestium-eco-foret/cmd/heating/2/temperature",
+        "apply": "const n = Math.round(message); if (!(n >= 5 && n <= 40)) return; return n;"
+      },
+      "getOnline": "bestium-eco-foret/avail/heating"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "thermostat",
+    "name": "난방 3",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "heatingCoolingStateValues": [
+      "off",
+      "heat"
+    ],
+    "restrictHeatingCoolingState": [
+      0,
+      1
+    ],
+    "minTemperature": 5,
+    "maxTemperature": 40,
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getCurrentHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['3'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "getTargetHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['3'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "setTargetHeatingCoolingState": "bestium-eco-foret/cmd/heating/3/mode",
+      "getCurrentTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['3'].current; if (typeof v !== 'number') return; return v;"
+      },
+      "getTargetTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['3'].target; if (typeof v !== 'number') return; return v;"
+      },
+      "setTargetTemperature": {
+        "topic": "bestium-eco-foret/cmd/heating/3/temperature",
+        "apply": "const n = Math.round(message); if (!(n >= 5 && n <= 40)) return; return n;"
+      },
+      "getOnline": "bestium-eco-foret/avail/heating"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "thermostat",
+    "name": "난방 4",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "heatingCoolingStateValues": [
+      "off",
+      "heat"
+    ],
+    "restrictHeatingCoolingState": [
+      0,
+      1
+    ],
+    "minTemperature": 5,
+    "maxTemperature": 40,
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getCurrentHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['4'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "getTargetHeatingCoolingState": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['4'].mode; if (v !== 'off' && v !== 'heat') return; return v;"
+      },
+      "setTargetHeatingCoolingState": "bestium-eco-foret/cmd/heating/4/mode",
+      "getCurrentTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['4'].current; if (typeof v !== 'number') return; return v;"
+      },
+      "getTargetTemperature": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.heating['4'].target; if (typeof v !== 'number') return; return v;"
+      },
+      "setTargetTemperature": {
+        "topic": "bestium-eco-foret/cmd/heating/4/temperature",
+        "apply": "const n = Math.round(message); if (!(n >= 5 && n <= 40)) return; return n;"
+      },
+      "getOnline": "bestium-eco-foret/avail/heating"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "valve",
+    "name": "가스 밸브",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "valveType": "generic",
+    "onValue": "open",
+    "offValue": "closed",
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getActive": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.gas; if (v !== 'open' && v !== 'closed') return; return v;"
+      },
+      "getInUse": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.gas; if (v !== 'open' && v !== 'closed') return; return v;"
+      },
+      "setActive": {
+        "topic": "bestium-eco-foret/cmd/gas",
+        "apply": "if (message === 'closed' || message === 0 || message === '0' || message === false) return 'CLOSE'; return;"
+      },
+      "getOnline": "bestium-eco-foret/status"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "switch",
+    "name": "일괄소등",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "ON",
+    "offValue": "OFF",
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getOn": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.batch_off; if (v !== 'ON' && v !== 'OFF') return; return v;"
+      },
+      "setOn": "bestium-eco-foret/cmd/batch_off",
+      "getOnline": "bestium-eco-foret/avail/batchoff"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "switch",
+    "name": "승강기 상행 호출",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "UP",
+    "turnOffAfterms": 1500,
+    "topics": {
+      "setOn": "bestium-eco-foret/cmd/elevator"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "switch",
+    "name": "승강기 하행 호출",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "DOWN",
+    "turnOffAfterms": 1500,
+    "topics": {
+      "setOn": "bestium-eco-foret/cmd/elevator"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "occupancySensor",
+    "name": "승강기 호출 중",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "yes",
+    "offValue": "no",
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getOccupancyDetected": {
+        "topic": "bestium-eco-foret/state",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const e = _d.elevator; const live = v => v !== 'none' && v !== 'None'; return (live(e.heading) || live(e.call)) ? 'yes' : 'no';"
+      },
+      "getOnline": "bestium-eco-foret/avail/elevator"
+    }
+  },
+  {
+    "accessory": "mqttthing",
+    "type": "contactSensor",
+    "name": "세대현관 문열림",
+    "url": "mqtt://core-mosquitto:1883",
+    "username": "MQTT_USER",
+    "password": "MQTT_PASS",
+    "mqttOptions": {
+      "queueQoSZero": false
+    },
+    "onValue": "opened",
+    "resetStateAfterms": 3000,
+    "onlineValue": "online",
+    "offlineValue": "offline",
+    "topics": {
+      "getContactSensorState": {
+        "topic": "bestium-eco-foret/event/entrance",
+        "apply": "let _d; try { _d = JSON.parse(message); } catch { return; } const v = _d.event_type; if (v !== 'opened') return; return v;"
+      },
+      "getOnline": "bestium-eco-foret/status"
+    }
+  }
+]
