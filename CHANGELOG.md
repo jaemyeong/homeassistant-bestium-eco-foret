@@ -44,11 +44,13 @@ All notable changes to this project are documented here.
   hundred lines below it tests the same condition and calls it a retryable race; the earlier one
   is deleted, so the real gate is the only gate.
 
-  Measured across two of the operator's captures. With a capture running, five of six elevator
-  commands were refused either for the append or for that race; with no capture running, neither
-  of two commands was refused at all. The refusals landed over a minute into a capture that was
-  running normally, so this is what a capture cost in steady state rather than a transient at its
-  start.
+  What brought it to notice, across two of the operator's captures: with a capture running, five
+  of six elevator commands were refused either for the append or for that race, and with no
+  capture running neither of two commands was refused at all. Read that as a before and after
+  with one sample on each side rather than as an experiment — the two unrefused commands are from
+  a different minute of a different bus state, and nothing was repeated under both conditions.
+  What it does establish is the timing: the refusals landed over a minute into a capture that was
+  running normally, so this was not a transient at the start of one.
 
   The readiness preview still reports an outstanding append, which is a status line rather than a
   decision, and still says so in Korean.
