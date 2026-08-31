@@ -38,6 +38,17 @@ All notable changes to this project are documented here.
   it already had a Korean wording for. The check runs `reasonKo` out of the rendered page rather
   than reading its source.
 
+- `capture_duration_ms` never applied to a capture an operator could actually start. The timer
+  was armed in the socket's connect handler and only when a recording was already open, but
+  since the link and the recording were split the socket comes up with the add-on and a
+  recording is started on top of it much later, so the handler had long since run with nothing
+  to bound and nothing armed it afterwards. A capture ran until it hit 1 MiB, 20,000 records, or
+  the operator. The operator's own file is the evidence: 1,154.9 s against a 600,000 ms limit,
+  691,480 bytes and 6,189 records. It is armed where the recording opens now.
+
+  The existing check passed throughout because it emits `connect` after opening the recording,
+  which is the order the shipped runtime stopped taking when the two were split.
+
 - `tools/buslab` was inert as a program on this machine. Its entrypoint guard compared
   `import.meta.url` against `` `file://` + process.argv[1] ``, and a module URL percent-encodes,
   so the space in this repository's real path made it compare `%20` against a literal space.

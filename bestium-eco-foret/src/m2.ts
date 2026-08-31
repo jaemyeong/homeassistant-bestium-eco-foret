@@ -723,13 +723,6 @@ export function createBoundedCaptureCoordinator(opts: {
       onError(activeTransport, error);
       return;
     }
-    if (runningTimeoutId === null && recording === "open") {
-      // The duration limit bounds the capture file, not the link. A link that closed itself
-      // after `capture_duration_ms` would take the page's control with it.
-      runningTimeoutId = opts.setTimeout(() => {
-        if (recording === "open") void endRecording("duration").catch(() => undefined);
-      }, settings.capture_duration_ms);
-    }
   };
 
   const onData = (activeTransport: Transport, chunk: unknown): void => {
@@ -913,6 +906,17 @@ export function createBoundedCaptureCoordinator(opts: {
     }
     storeActive = true;
     recording = "open";
+    // Armed here, where the recording opens, and not in `onConnect`. The duration limit bounds
+    // the capture file, not the link: a link that closed itself after `capture_duration_ms`
+    // would take the page's control with it. Arming it on connect made it dead, because since
+    // the split the socket comes up with the add-on and a recording is started on top of it
+    // much later, so `onConnect` had already run with nothing to bound. The operator's
+    // `capture-1788206683211-1.ndjson` ran 1,154.9 s against a 600,000 ms limit.
+    if (runningTimeoutId === null) {
+      runningTimeoutId = opts.setTimeout(() => {
+        if (recording === "open") void endRecording("duration").catch(() => undefined);
+      }, settings.capture_duration_ms);
+    }
     const request = takePendingStop();
     if (request) {
       try {

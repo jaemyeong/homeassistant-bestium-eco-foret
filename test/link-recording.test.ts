@@ -496,3 +496,32 @@ test("E2B RED: every action the encoder accepts survives the ingress field check
     await app.stop();
   }
 });
+
+test("M6 RED: the duration limit bounds a recording started on a link that was already up", async () => {
+  // The operator's `capture-1788206683211-1.ndjson` ran 1,154.9 s against a configured limit of
+  // 600,000 ms, and stopped for neither of the other two: 691,480 bytes against 1 MiB and 6,189
+  // records against 20,000. It ran until they stopped it by hand.
+  //
+  // The timer is armed in `onConnect` and only when a recording is already open. Since the
+  // split, the link comes up with the add-on and a recording is started on top of it much
+  // later, so `onConnect` has long since run with nothing to bound and no later event arms it.
+  // `capture_duration_ms` was dead for every capture an operator can actually start.
+  //
+  // `m2.test.ts` covers the reason and passes, because it emits `connect` after the recording
+  // is open. That is the order the shipped runtime stopped taking at E2B.
+  const { timer, transport, store, coordinator } = fixture({ capture_duration_ms: 5_000 });
+  await coordinator.openLink();
+  transport.emit("connect");
+  timer.advance(60_000);
+
+  await coordinator.beginRecording();
+  assert.equal(coordinator.getTxState().recording, "open");
+
+  transport.emit("data", bytes(LIGHT_REPLY));
+  timer.advance(5_001);
+
+  assert.notEqual(coordinator.getTxState().recording, "open", "the recording closes at its own limit");
+  assert.equal(coordinator.getState().lastResult?.reason, "duration");
+  assert.equal(coordinator.getTxState().link, "up", "and the link it was started on stays up");
+  assert.equal(store.opens(), 1);
+});
