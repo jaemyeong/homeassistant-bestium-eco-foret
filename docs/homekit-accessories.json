@@ -282,7 +282,7 @@
       },
       "setActive": {
         "topic": "bestium-eco-foret/cmd/gas",
-        "apply": "if (message === 'closed' || message === 0 || message === '0' || message === false) return 'CLOSE'; return;"
+        "apply": "if (message === 'closed' || message === 0 || message === '0' || message === false) return 'CLOSE'; return 'OPEN';"
       },
       "getOnline": "bestium-eco-foret/status"
     }

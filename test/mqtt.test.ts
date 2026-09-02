@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   PACKET,
@@ -18,6 +19,7 @@ import {
   parseCommand,
   createMqttBridge,
 } from "../bestium-eco-foret/src/mqtt.ts";
+import { encodeSemanticAction } from "../bestium-eco-foret/src/protocol-debug.ts";
 
 type AnyRecord = Record<string, any>;
 
@@ -828,4 +830,34 @@ test("M6 RED: the state is republished on a heartbeat even when nothing on the b
   assert.equal(states(), before, "nothing moved, so the fast path stays quiet");
   await fixture.timer.advance(4_000);
   assert.ok(states() > before, `the heartbeat must republish: ${states()} vs ${before}`);
+});
+
+test("M6 RED: the Homebridge gas valve's open request reaches the parser, and is refused there", () => {
+  // The open branch publishes now, so the bridge can answer it and the Home app tile comes back
+  // within a second rather than within five. That trades a layer: an open-meaning payload really
+  // does travel on the command topic, and only the parser and the encoder refuse it.
+  //
+  // This is what keeps those two in step with the configuration that ships beside them. Nothing
+  // read that file before, so the three layers were three claims in a document.
+  const config = JSON.parse(readFileSync(new URL("../docs/homekit-accessories.json", import.meta.url), "utf8"));
+  const list: AnyRecord[] = Array.isArray(config) ? config : (config.accessories ?? [config]);
+  const gas = list.find((entry) => entry.type === "valve");
+  assert.ok(gas, "the gas valve must be in the shipped configuration");
+  const apply = new Function("message", gas!.topics.setActive.apply as string) as (message: unknown) => unknown;
+
+  // Closing still closes, in every shape the plugin may hand it over in.
+  for (const shut of ["closed", 0, "0", false]) assert.equal(apply(shut), "CLOSE", String(shut));
+
+  // Opening publishes something, and that something is a command nowhere downstream.
+  for (const open of ["open", 1, "1", true]) {
+    const payload = apply(open);
+    assert.notEqual(payload, undefined, `an open request must reach the bridge: ${String(open)}`);
+    assert.notEqual(payload, "CLOSE", "and must never be the one payload that shuts the valve");
+    assert.equal(parseCommand(`${BASE}/cmd/gas`, String(payload)), null, `the parser must refuse ${String(payload)}`);
+  }
+
+  // And the encoder refuses the action itself, whatever reaches it.
+  const encoded = encodeSemanticAction({ kind: "gas", state: "open" }, { transmitEnabled: true, authorizedUser: true }) as AnyRecord;
+  assert.equal(encoded.evidence, "rejected");
+  assert.equal(encoded.sendable, false);
 });

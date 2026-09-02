@@ -25,10 +25,19 @@ All notable changes to this project are documented here.
   is what mqttthing's own issue #531 recommends for this class. It is the floor; the tile corrects
   itself within five seconds without touching Homebridge at all.
 
-  Making it immediate needs a Homebridge change and costs a layer: `setActive`'s open branch would
-  have to publish something instead of nothing, which puts an open-meaning payload on the command
-  topic and leaves only the parser and the encoder refusing it. `docs/homekit-mqttthing.md` says so
-  and leaves the choice open.
+  The operator chose to make it immediate, so `setActive`'s open branch now publishes `"OPEN"`
+  instead of nothing. The bridge refuses it and answers with the state in the same breath, and the
+  tile comes back within a second rather than within five. The gas valve's defence is two layers
+  now instead of three: an open-meaning payload really does travel on the command topic, and the
+  parser and the encoder are what refuse it.
+
+  That configuration lives in `docs/homekit-accessories.json`, which ships nowhere — **it has to be
+  copied into Homebridge by hand.** Until it is, the five-second heartbeat is what corrects the
+  tile.
+
+  A check now reads that file, runs its `setActive` expression in every shape the plugin may hand
+  a value over in, and asserts the parser refuses whatever comes out and the encoder refuses `gas
+  open` regardless. Nothing read it before, so the layers were three claims in a document.
 
 ## [0.5.8] - 2026-09-01
 
