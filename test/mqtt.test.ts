@@ -802,3 +802,30 @@ test("M6 RED: a republish does not clear the command topics again", async () => 
   // The rest of the sequence still runs.
   assert.equal(fixture.published().at(-1)!.topic, `${BASE}/status`);
 });
+
+test("M6 RED: a command this bridge refuses is answered with the state, not only a log line", async () => {
+  // A controller that asks for something this bridge refuses keeps its optimistic value until
+  // something else on the bus happens to move. HomeKit's gas valve is where it shows: the Home
+  // app writes Active=1, the tile says "opening", and nothing ever tells it otherwise.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const states = () => fixture.published().filter((entry) => entry.topic === `${BASE}/state`).length;
+  const before = states();
+  fixture.socket.deliver(encodePublish(`${BASE}/cmd/gas`, "OPEN", { retain: false, qos: 0 }));
+  await fixture.timer.advance(0);
+  assert.equal(states(), before + 1, "the refusal is answered with the state as it actually is");
+});
+
+test("M6 RED: the state is republished on a heartbeat even when nothing on the bus moves", async () => {
+  // The dedupe means a house where nothing changes publishes nothing, so a controller that has
+  // drifted stays drifted. mqttthing's own answer to this class is to send the status
+  // periodically; that is the floor, and answering a refusal is what makes it prompt.
+  const fixture = bridgeFixture();
+  await fixture.connect();
+  const states = () => fixture.published().filter((entry) => entry.topic === `${BASE}/state`).length;
+  const before = states();
+  await fixture.timer.advance(2_000);
+  assert.equal(states(), before, "nothing moved, so the fast path stays quiet");
+  await fixture.timer.advance(4_000);
+  assert.ok(states() > before, `the heartbeat must republish: ${states()} vs ${before}`);
+});

@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.9] - 2026-09-01
+
+### Fixed
+
+- A controller that asked for something this bridge refuses was left holding its own optimistic
+  value indefinitely. The Apple Home app is where it shows: pressing open on the gas valve leaves
+  the tile saying "opening" and it never comes back.
+
+  The state tree is published on change, so a house where nothing moves publishes nothing, and
+  nothing tells the controller otherwise. The earlier documentation claimed the tile "reverts on
+  the next state publish, within a second" — that assumed a publish every tick, and there is none.
+
+  Two answers, both here. A refused command is now answered immediately with the state as it
+  actually is, and so is any command that comes back `rejected`, which is the one outcome meaning
+  no frame reached the bus at all. `unconfirmed` is deliberately not included: a frame did go out
+  and the device may well have acted on it.
+
+  And because the gas case never reaches the bridge at all — mqttthing's `setActive` apply returns
+  undefined for the open direction, and the plugin's own wiki confirms that suppresses the publish
+  — the state topic now also carries a five-second heartbeat. Republishing the status periodically
+  is what mqttthing's own issue #531 recommends for this class. It is the floor; the tile corrects
+  itself within five seconds without touching Homebridge at all.
+
+  Making it immediate needs a Homebridge change and costs a layer: `setActive`'s open branch would
+  have to publish something instead of nothing, which puts an open-meaning payload on the command
+  topic and leaves only the parser and the encoder refusing it. `docs/homekit-mqttthing.md` says so
+  and leaves the choice open.
+
 ## [0.5.8] - 2026-09-01
 
 ### Fixed

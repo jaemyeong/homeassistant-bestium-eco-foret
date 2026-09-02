@@ -839,6 +839,20 @@ const COMMAND_TOPICS = [
 
 const SERVICE_RETRY_MS = 60_000;
 const TICK_MS = 1_000;
+/**
+ * How long the state topic may stay silent while nothing on the bus moves.
+ *
+ * The tree is published on change, so a quiet house publishes nothing and a controller that has
+ * drifted stays drifted. HomeKit is where that shows: the Home app can write a valve's `Active`
+ * and mqttthing's `setActive` apply returns undefined for the open direction, so no message is
+ * published and this bridge never learns the request was made. The tile then says "opening"
+ * until something else happens to change the tree, which in a quiet house is a long time.
+ *
+ * Periodically republishing the status is mqttthing's own answer to that class (its issue #531).
+ * Five seconds is one small retained payload every five seconds and a tile that corrects itself
+ * while the operator is still looking at it.
+ */
+const STATE_REPUBLISH_MS = 5_000;
 /** The docs recommend jitter against the IO spike of every integration republishing at once. */
 const REPUBLISH_JITTER_MS = 2_000;
 
@@ -872,24 +886,31 @@ export function createMqttBridge(options: MqttBridgeOptions) {
   let lastAvailability: Record<string, string> = {};
   /** `null` until the first tick, so a press from before we connected is a baseline, not an event. */
   let doorSeen: number | null = null;
+  let lastStateAtMs = 0;
   let retainedCommandLogged = false;
 
   const publish = (topic: string, payload: string, retain: boolean): void => {
     client?.publish(topic, payload, { retain });
   };
 
-  function publishStateAndAvailability(): void {
+  /**
+   * `force` sends everything whether or not it changed. Two callers need it: the heartbeat, and
+   * a command this bridge refuses — in both cases a controller may be holding a value the bus
+   * never agreed to, and the only cure is being told what is actually true.
+   */
+  function publishStateAndAvailability(force = false): void {
     const { devices, generation } = options.getDevices();
     const at = nowMs();
     const availability = buildAvailability(devices, { nowMs: at, generation });
     for (const [device, value] of Object.entries(availability)) {
-      if (lastAvailability[device] === value) continue;
+      if (!force && lastAvailability[device] === value) continue;
       lastAvailability[device] = value;
       publish(AVAILABILITY_TOPIC[device as keyof typeof AVAILABILITY_TOPIC], value, true);
     }
     const tree = JSON.stringify(buildStateTree(devices, { nowMs: at, generation }));
-    if (tree !== lastTree) {
+    if (force || tree !== lastTree) {
       lastTree = tree;
+      lastStateAtMs = at;
       publish(STATE_TOPIC, tree, true);
     }
   }
@@ -926,7 +947,8 @@ export function createMqttBridge(options: MqttBridgeOptions) {
 
   function tick(): void {
     if (stopped) return;
-    publishStateAndAvailability();
+    // A change publishes on its own and resets the clock; the heartbeat only covers the silence.
+    publishStateAndAvailability(nowMs() - lastStateAtMs >= STATE_REPUBLISH_MS);
     const { devices } = options.getDevices();
     const count = (devices.entrances?.household?.doorOpenCount as number | undefined) ?? 0;
     // The counter, never `doorOpenObserved`: that flag is cleared by the snapshot's staleness
@@ -959,6 +981,9 @@ export function createMqttBridge(options: MqttBridgeOptions) {
     const action = parseCommand(topic, payload);
     if (!action) {
       options.log(`dropped an unrecognised command: ${topic} ${payload.slice(0, 32)}`);
+      // Whoever sent it is holding a value this bus never agreed to. Answer with the truth now
+      // rather than leaving them on it until something else moves.
+      publishStateAndAvailability(true);
       return;
     }
     // Never retried here: `tx_max_attempts` is already the retry policy, and stacking a second
@@ -975,6 +1000,10 @@ export function createMqttBridge(options: MqttBridgeOptions) {
           result?.reason === undefined ? null : String(result.reason),
         ].filter(Boolean).join(", ");
         options.log(`${topic} ${payload} -> ${String(result?.outcome ?? "sent")}${detail === "" ? "" : ` (${detail})`}`);
+        // `rejected` is the one outcome that means no frame reached the bus at all, so the
+        // sender's optimistic value is certainly wrong. `unconfirmed` is not: a frame did go
+        // out and the device may well have acted on it.
+        if (result?.outcome === "rejected") publishStateAndAvailability(true);
       },
       (error) => options.log(`${topic} ${payload} failed: ${String(error)}`),
     );
